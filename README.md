@@ -99,7 +99,7 @@ Connect the serial interface through the right-side rail connector to a compatib
 ## Planned / In-Progress
 
 - EHCI / USB 3.0 host support.
-- eMMC support.
+- eMMC support?
 - Sideband buttons as UEFI input devices.
 - Mouse support.
 - Network stack and USB network adapter drivers.
