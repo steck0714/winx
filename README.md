@@ -36,7 +36,7 @@ The following features are reported as working in the supplied project notes:
 - **Power management:** PMC, PMIC, regulators, and related components.
 - **GPIO and pin multiplexing.**
 - **MicroSD:** SDSC and SDHC support. SDXC has been probed and its partition table detected, but has not been extensively tested.
-- **eMMC:** Support is in progress.
+- **eMMC:** I don't have any plans to provide support at the moment.
 - **Display and framebuffer:** Display output is working in the documented setup. The framebuffer path requires a compatible Coreboot implementation.
 - **Sideband buttons:** Not yet registered as UEFI input devices.
 - **UART:** 115200 baud, 8N1, through the right-side rail connector.
