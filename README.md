@@ -1,5 +1,9 @@
 # WinX
 
+
+<img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />
+
+
 UEFI firmware for NVIDIA Tegra210 (T210) platforms.
 
 ## Status
