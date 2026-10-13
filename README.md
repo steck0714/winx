@@ -119,6 +119,7 @@ Refer to Lumia950XLPkg for the general build workflow, and consult the WinX and 
 - [Lumia950XLPkg](https://github.com/WOA-Project/Lumia950XLPkg) — Build environment reference.
 - [EDK II](https://github.com/tianocore/edk2) — UEFI development framework.
 - [Hekate](https://github.com/CTCaer/hekate) — Bootloader and configuration integration.
+- [Switchroot](https://switchroot.org/) — Source of compatible BL31 firmware through Switchroot/LineageOS packages. BL31 is supplied separately and is not included in this repository.
 
 ## Disclaimer
 
