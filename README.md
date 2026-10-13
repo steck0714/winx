@@ -1,4 +1,4 @@
-# EDK2 Implementation for Tegra210
+# winx
 
 ## Status
 Capable to boot something from SD card. If you have a Linux kernel with EFI stub support, supply the device tree for any Tegra210 device (not limited to Nintendo Switch) should boot.
