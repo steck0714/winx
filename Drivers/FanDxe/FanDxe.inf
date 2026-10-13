@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# FanDxe.inf: opt-in fixed-duty fan setup for the Nintendo Switch (Erista). See FanDxe.c.
+#
+# Not part of the default image. Build with  -D SWITCH_FAN_DUTY=<1..235>  to include it.
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = FanDxe
+  FILE_GUID                      = 5f622de0-df45-4066-8b90-f757bb3bd84b
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = FanDxeInitialize
+
+[Sources.common]
+  FanDxe.c
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  PcdLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  GpioLib
+
+[FixedPcd]
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSwitchFanDuty
+
+[Protocols]
+  gTegraPinMuxProtocolGuid
+
+[Depex]
+  # PinMuxDxe configures every pad of the board; run after it so it cannot overwrite the fan pads.
+  gTegraPinMuxProtocolGuid
