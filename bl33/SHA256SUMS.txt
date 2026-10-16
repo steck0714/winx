@@ -1,0 +1,3 @@
+7e4d1b1d733fe5f2658e232d3072a73ac7a427dc7e5b79826e119dc109ae6cf3  bl33_wintest_A_ehci.bin   (A: plain EHCI, PNP0D20)
+b5c6803e8fe18b0d57e5242db3363c09834d598ab2116f251f1c8240fd1b824d  bl33_wintest_B_urs.bin   (B: URS / ChipIdea, PNP0C90, experimental)
+c4c94bbbab088fa514b0a1bc68303bfdbf8128529d0d5eba6cdcf7a11d33d95f  bl33.bin   (baseline: your integrated build, ACPI USB OFF)
