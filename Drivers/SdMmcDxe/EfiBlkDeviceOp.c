@@ -90,7 +90,11 @@ STATIC UINT32 MmcReadInternal
     UINT32 Ret = 0;
     UINT32 BlockSize = Instance->BlockMedia.BlockSize;
     /* Operation block size. Will decrement until reaches 1 */
+#ifdef SWITCH_SD_FAST
+    UINT32 OpBlkSize = 256;     // 128 KiB per request (was 32 KiB): fewer command round trips
+#else
     UINT32 OpBlkSize = 64;
+#endif
     UINT32 ReadSize;
     UINT8 *Sptr = (UINT8 *) Buf;
 

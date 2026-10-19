@@ -34,6 +34,7 @@
 #include <Library/Utc/BounceBuf.h>
 
 #include "Include/TegraMmc.h"
+#include "Include/HostOp.h"
 
 extern struct mmc mMmcInstance;
 extern TEGRA_MMC_PRIV mPriv;
@@ -801,7 +802,7 @@ int mmc_set_blocklen(struct mmc *mmc, int len)
 	return tegra_mmc_send_cmd(&mPriv, &cmd, NULL);
 }
 
-static int mmc_read_blocks(
+static int mmc_read_blocks_once(
 	struct mmc *mmc, void *dst, 
 	lbaint_t start, lbaint_t blkcnt
 )
@@ -828,7 +829,11 @@ static int mmc_read_blocks(
 
 	if (tegra_mmc_send_cmd(&mPriv, &cmd, &data)) return 0;
 
+#ifdef SWITCH_SD_FAST
+	if (blkcnt > 1 && !mSdFast)
+#else
 	if (blkcnt > 1) 
+#endif
 	{
 		cmd.cmdidx = MMC_CMD_STOP_TRANSMISSION;
 		cmd.cmdarg = 0;
@@ -841,6 +846,57 @@ static int mmc_read_blocks(
 	}
 
 	return blkcnt;
+}
+
+
+// Read with error recovery: a transient CRC/timeout used to wedge the controller for good. Reset the
+// CMD/DAT lines, stop the card's data state, wait until it is ready, then retry. After the second
+// failure the bus is slowed to 25 MHz (default speed) to stay reliable.
+static int mBlkLenSet;
+static unsigned int mReadErrCount;
+static int mSlowed;
+
+static int mmc_read_blocks(
+	struct mmc *mmc, void *dst,
+	lbaint_t start, lbaint_t blkcnt
+)
+{
+	struct mmc_cmd cmd;
+	int Try;
+	int Ret;
+
+	for (Try = 0; Try < 5; Try++)
+	{
+		Ret = mmc_read_blocks_once(mmc, dst, start, blkcnt);
+		if (Ret == (int) blkcnt) return Ret;
+
+		mReadErrCount++;
+		if (mReadErrCount <= 6)
+		{
+			SdLog (L"[SDDIAG] XFER ERR #%u lba=0x%lx cnt=%u try=%u sts=0x%08x acmd12=0x%x\r\n",
+			       mReadErrCount, (UINT64) start, (UINT32) blkcnt, (UINT32) Try,
+			       mLastXferSts, mLastAcmd12);
+			SdDiagPublish ();
+		}
+
+		// Recover the controller and the card.
+		tegra_mmc_recover_lines();
+		cmd.cmdidx = MMC_CMD_STOP_TRANSMISSION;
+		cmd.cmdarg = 0;
+		cmd.resp_type = MMC_RSP_R1b;
+		(void) tegra_mmc_send_cmd(&mPriv, &cmd, NULL);
+		tegra_mmc_recover_lines();
+		(void) mmc_send_status(mmc, 200);
+
+		if (Try >= 1 && !mSlowed && mmc->clock > 26000000)
+		{
+			mSlowed = 1;
+			SdLog (L"[SDDIAG] reads keep failing: clock lowered to 25 MHz\r\n");
+			mmc_set_clock(mmc, 25000000);
+			SdDiagPublish ();
+		}
+	}
+	return 0;
 }
 
 ulong mmc_bread(UINT64 start, UINT64 blkcnt, void *dst)
@@ -860,10 +916,15 @@ ulong mmc_bread(UINT64 start, UINT64 blkcnt, void *dst)
 		return 0;
 	}
 
-	if (mmc_set_blocklen(mmc, mmc->read_bl_len)) 
+	// CMD16 only when the block length actually changes (it used to be sent on every request).
+	if (mBlkLenSet != (int) mmc->read_bl_len)
 	{
-		DEBUG((EFI_D_ERROR, "%s: Failed to set blocklen\n", __func__));
-		return 0;
+		if (mmc_set_blocklen(mmc, mmc->read_bl_len)) 
+		{
+			DEBUG((EFI_D_ERROR, "%s: Failed to set blocklen\n", __func__));
+			return 0;
+		}
+		mBlkLenSet = (int) mmc->read_bl_len;
 	}
 
 	do {
