@@ -43,7 +43,7 @@ binary you must also offer the **corresponding source**:
 * the exact build command (see `README.winx.md`),
 * the `LICENSE` text and the notices above.
 
-`release/SHA256SUMS` records which build the shipped `bl33.bin` is.
+`release/<n>/SHA256SUMS` records which build the shipped `release/<n>/bl33.bin` is (1 = older, 2 = newer).
 
 ## 5. Names and trademarks
 

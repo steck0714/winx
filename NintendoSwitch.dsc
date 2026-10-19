@@ -428,7 +428,14 @@
   NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
   NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_SD_FAST
+  NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf {
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -DSWITCH_SD_FAST=1
+  }
+!else
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
+!endif
   NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
 !ifdef SWITCH_FAN_DUTY
   NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf

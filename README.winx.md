@@ -2,7 +2,7 @@
 
 A fork-style patch set on top of [imbushuo/NintendoSwitchPkg](https://github.com/imbushuo/NintendoSwitchPkg)
 (commit `09c3ade`, EDK2 `edk2-stable202402`). Goal: boot Windows on ARM on a Tegra210 Switch.
-**Work in progress - Windows has not been booted yet.** / 作業中。Windowsはまだ起動していません。
+**Work in progress - the Windows Boot Manager loads a WinPE `boot.wim` and shows the Windows logo, then hangs; no desktop yet.** / 作業中。Windowsブートマネージャは`boot.wim`を読み込みロゴまで進みますが、その先で止まります。
 
 ## Status (reported from a real Erista console)
 | | |
@@ -12,14 +12,15 @@ A fork-style patch set on top of [imbushuo/NintendoSwitchPkg](https://github.com
 | USB host + **USB keyboard** in the Shell | works (bm92t36 PD + bq24193 OTG handling) |
 | microSD visible (`map`) after hekate | works with the SDMMC power-up patch |
 | `startup.nsh` auto-run | not confirmed |
-| Windows boot manager / WinPE | **not tried yet** |
+| Windows boot manager (`bootmgfw.efi`) + `boot.wim` (412 MiB) from SD | works with the SD driver fix (error recovery + retry) |
+| WinPE after the Windows logo | **hangs at the logo** (probably a 24H2-era kernel on a Cortex-A57; not verified) |
 | USB mass storage, PD/charging side effects | untested |
 
 Not verified: Mariko / Lite / OLED consoles. Only the author's console was used.
 
 ## What you need to supply
 * hekate (GPL-2.0), `bl31.bin` (Arm Trusted Firmware for Tegra210, e.g. from a switchroot/LineageOS package).
-* This repository's `bl33.bin` (`release/bl33.bin`) or build it yourself.
+* This repository's `bl33.bin` (`release/2/bl33.bin` = newer safe SD build, `release/1/bl33.bin` = older basic release) or build it yourself.
 
 ## hekate setup
 `bootloader/hekate_ipl.ini`
@@ -37,7 +38,7 @@ If you use a UEFI Shell binary there, it stays landscape.
 git clone --depth 1 --branch edk2-stable202402 https://github.com/tianocore/edk2.git
 (cd edk2 && git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress/brotli \
    MdeModulePkg/Library/BrotliCustomDecompressLib/brotli MdePkg/Library/MipiSysTLib/mipisyst)
-# put this tree (or upstream 09c3ade + patches/winx-bl33.patch) next to edk2 as NintendoSwitchPkg
+# put this tree (or upstream 09c3ade + patches/2/winx-bl33.patch) next to edk2 as NintendoSwitchPkg
 # Include/FwReleaseInfo.h: #define __IMPL_COMMIT_ID__ "xxxxxxxx" and __RELEASE_DATE__ "mm/dd/yyyy"
 export WORKSPACE=$PWD/edk2 PACKAGES_PATH=$PWD/edk2:$PWD GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
 cd edk2 && . edksetup.sh && make -C BaseTools
