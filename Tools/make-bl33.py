@@ -17,7 +17,7 @@ import argparse, hashlib, pathlib, re, shutil, struct, subprocess, sys, tempfile
 LOAD_BASE   = 0xAA000000      # hekate: BL33_LOAD_BASE
 STUB_SIZE   = 0x1000
 FD_BASE     = LOAD_BASE + STUB_SIZE
-FD_MAX      = 0x000E0000      # NintendoSwitch.fdf: [FD] Size
+FD_MAX      = 0x000FF000      # NintendoSwitch.fdf: [FD] Size (0xE0000, or 0xFF000 with SWITCH_NET)
 REGION_MAX  = 0x00100000      # MemoryMap.h (SWITCH_BOOT_CHAIN_HEKATE): stub+FD region
 FDT_MAGIC   = 0xEDFE0DD0      # little-endian view of 0xD00DFEED
 STUB_TAG    = b"WINXHKT1"
