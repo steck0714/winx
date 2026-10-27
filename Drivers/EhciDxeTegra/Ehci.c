@@ -358,15 +358,27 @@ EhcGetRootHubPortStatus (
   State = EhcReadOpReg (Ehc, Offset);
 
   //
-  // Identify device speed. If in K state, it is low speed.
-  // If the port is enabled after reset, the device is of
-  // high speed. The USB bus driver should retrieve the actual
-  // port speed after reset.
+  // Identify device speed.
   //
-  if (EHC_BIT_IS_SET (State, PORTSC_LINESTATE_K)) {
-    PortStatus->PortStatus |= USB_PORT_STAT_LOW_SPEED;
-  } else if (EHC_BIT_IS_SET (State, PORTSC_ENABLED)) {
-    PortStatus->PortStatus |= USB_PORT_STAT_HIGH_SPEED;
+  // Tegra210 (ChipIdea, integrated transaction translator): low and full speed devices on the
+  // root port are enabled by the controller itself (there is no companion controller), so
+  // "enabled" does NOT imply high speed. The real speed is in HOSTPC1.PSPD (op + 0x84, bits
+  // 26:25: 0 = full, 1 = low, 2 = high). Reporting a full speed device as high speed makes the
+  // bus driver build high speed QHs for it and every transfer fails.
+  //
+  if (EHC_BIT_IS_SET (State, PORTSC_ENABLED)) {
+    switch ((EhcReadOpReg (Ehc, EHC_TEGRA_HOSTPC1_OFFSET) >> 25) & 0x3) {
+      case 0:
+        break;                                              // full speed: no speed flag
+      case 1:
+        PortStatus->PortStatus |= USB_PORT_STAT_LOW_SPEED;
+        break;
+      default:
+        PortStatus->PortStatus |= USB_PORT_STAT_HIGH_SPEED;
+        break;
+    }
+  } else if (EHC_BIT_IS_SET (State, PORTSC_LINESTATE_K)) {
+    PortStatus->PortStatus |= USB_PORT_STAT_LOW_SPEED;      // not enabled yet: K state = low speed
   }
 
   //

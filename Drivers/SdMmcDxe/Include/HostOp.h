@@ -16,6 +16,7 @@ SdFxInitFinalize
 );
 
 ulong mmc_bread(UINT64 start, UINT64 blkcnt, void *dst);
+ulong mmc_bwrite(UINT64 start, UINT64 blkcnt, const void *src);
 
 // Diagnostics log (SdMmc.c) and "init finished, use the fast data path" flag.
 VOID SdLog (CONST CHAR16 *Fmt, ...);

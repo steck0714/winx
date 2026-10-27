@@ -67,7 +67,7 @@ BOOLEAN mSdFast = FALSE;
 #define SD_DMA_BUF_SIZE    (SD_DMA_BUF_PAGES * EFI_PAGE_SIZE)
 STATIC VOID *mDmaBuf = NULL;
 
-STATIC CHAR16 mSdDiag[1536];
+STATIC CHAR16 mSdDiag[3072];
 STATIC UINTN  mSdDiagLen;
 
 VOID
@@ -100,6 +100,8 @@ SdDiagPublish (
     );
 }
 
+STATIC VOID SdLogControllerRegs (VOID);
+
 STATIC
 VOID
 EFIAPI
@@ -108,6 +110,7 @@ SdDiagOnReadyToBoot (
     IN VOID      *Context
 )
 {
+    SdLogControllerRegs ();
     if (gST->ConOut != NULL) {
         gST->ConOut->OutputString (gST->ConOut, mSdDiag);
     }
@@ -152,6 +155,44 @@ SdDiagOnReadyToBoot (
 #define SD_AUTOCALCFG               0x1E4
 #define SD_AUTOCALSTS               0x1EC
 #define SD_IOSPARE                  0x1F0
+
+// Standard SDHCI registers + Tegra vendor registers of SDMMC1, logged for Windows bring-up: the
+// in-box SD port driver (sdport/PNP0D40) trusts CAPABILITIES; Linux marks Tegra210 with
+// SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN / NO_HISPD_BIT, so these values show what Windows will see.
+STATIC
+VOID
+SdLogControllerRegs (
+    VOID
+)
+{
+    SdLog (L"[SDDIAG] SDHCI caps=%08x %08x ver=%04x pres=%08x pwr=%02x hc=%02x clk=%04x\r\n",
+           MmioRead32 (SD_BASE + 0x40), MmioRead32 (SD_BASE + 0x44),
+           MmioRead16 (SD_BASE + 0xFE), MmioRead32 (SD_BASE + 0x24),
+           MmioRead8  (SD_BASE + 0x29), MmioRead8  (SD_BASE + 0x28),
+           MmioRead16 (SD_BASE + 0x2C));
+    SdLog (L"[SDDIAG] vendor clk=%08x misc=%08x capov=%08x iotrim=%08x memcmp=%08x autocal=%08x/%08x\r\n",
+           MmioRead32 (SD_BASE + SD_VENCLKCTL), MmioRead32 (SD_BASE + 0x120),
+           MmioRead32 (SD_BASE + 0x10C), MmioRead32 (SD_BASE + SD_VENIOTRIMCTL),
+           MmioRead32 (SD_BASE + SD_SDMEMCMPPADCTL), MmioRead32 (SD_BASE + SD_AUTOCALCFG),
+           MmioRead32 (SD_BASE + SD_AUTOCALSTS));
+}
+
+// Hand the controller to the OS in a quiet, still-powered state: no pending interrupt status, no
+// interrupt signal routed to the GIC (Windows installs its own handler), SDMA idle. Power, pads,
+// clock and the card itself are left alone - the OS driver re-initialises the card (CMD0).
+STATIC
+VOID
+EFIAPI
+SdQuiesceOnExitBootServices (
+    IN EFI_EVENT Event,
+    IN VOID      *Context
+)
+{
+    MmioWrite32 (SD_BASE + 0x38, 0);            // signal enable
+    MmioWrite32 (SD_BASE + 0x34, 0);            // status enable
+    MmioWrite32 (SD_BASE + 0x30, 0xFFFFFFFF);   // clear status
+}
+
 
 STATIC
 BOOLEAN
@@ -1008,6 +1049,11 @@ SdMmcDxeInitialize
         EVT_NOTIFY_SIGNAL, TPL_CALLBACK, SdDiagOnReadyToBoot, NULL,
         &gEfiEventReadyToBootGuid, &DiagEvent
     );
+    {
+        EFI_EVENT ExitEvent;
+        gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, SdQuiesceOnExitBootServices, NULL,
+                            &gEfiEventExitBootServicesGuid, &ExitEvent);
+    }
     SdLog (L"\r\n[SDDIAG] SdMmcDxe start\r\n");
 
     {

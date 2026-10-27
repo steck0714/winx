@@ -946,6 +946,114 @@ exit:
 	return err;
 }
 
+// ---- Write path (CMD24/CMD25). UNTESTED on hardware. ----
+// Auto CMD12 is only ever enabled for reads (tegra_mmc_set_transfer_mode), so a multi-block write is closed
+// with an explicit CMD12 here. After the data phase the card is busy programming: poll CMD13 until it is
+// back in the transfer state before the next command.
+static int mmc_write_blocks_once(
+	struct mmc *mmc, const void *src,
+	lbaint_t start, lbaint_t blkcnt
+)
+{
+	struct mmc_cmd cmd;
+	struct mmc_data data;
+
+	if (blkcnt > 1)
+		cmd.cmdidx = MMC_CMD_WRITE_MULTIPLE_BLOCK;
+	else
+		cmd.cmdidx = MMC_CMD_WRITE_SINGLE_BLOCK;
+
+	if (mmc->high_capacity)
+		cmd.cmdarg = start;
+	else
+		cmd.cmdarg = start * mmc->write_bl_len;
+
+	cmd.resp_type = MMC_RSP_R1;
+
+	data.src = (const char *) src;
+	data.blocks = blkcnt;
+	data.blocksize = mmc->write_bl_len;
+	data.flags = MMC_DATA_WRITE;
+
+	if (tegra_mmc_send_cmd(&mPriv, &cmd, &data)) return 0;
+
+	if (blkcnt > 1)
+	{
+		cmd.cmdidx = MMC_CMD_STOP_TRANSMISSION;
+		cmd.cmdarg = 0;
+		cmd.resp_type = MMC_RSP_R1b;
+		if (tegra_mmc_send_cmd(&mPriv, &cmd, NULL))
+		{
+			printf("mmc fail to send stop cmd\n");
+			return 0;
+		}
+	}
+
+	// Wait for the card to leave the programming state.
+	if (mmc_send_status(mmc, 2000)) return 0;
+
+	return blkcnt;
+}
+
+static int mmc_write_blocks(
+	struct mmc *mmc, const void *src,
+	lbaint_t start, lbaint_t blkcnt
+)
+{
+	struct mmc_cmd cmd;
+	int Try;
+
+	for (Try = 0; Try < 3; Try++)
+	{
+		if (mmc_write_blocks_once(mmc, src, start, blkcnt) == (int) blkcnt) return (int) blkcnt;
+
+		SdLog (L"[SDDIAG] WRITE ERR lba=0x%lx cnt=%u try=%u sts=0x%08x\r\n",
+		       (UINT64) start, (UINT32) blkcnt, (UINT32) Try, mLastXferSts);
+		SdDiagPublish ();
+
+		tegra_mmc_recover_lines();
+		cmd.cmdidx = MMC_CMD_STOP_TRANSMISSION;
+		cmd.cmdarg = 0;
+		cmd.resp_type = MMC_RSP_R1b;
+		(void) tegra_mmc_send_cmd(&mPriv, &cmd, NULL);
+		tegra_mmc_recover_lines();
+		(void) mmc_send_status(mmc, 500);
+	}
+	return 0;
+}
+
+ulong mmc_bwrite(UINT64 start, UINT64 blkcnt, const void *src)
+{
+	struct mmc *mmc = &mMmcInstance;
+	struct blk_desc *block_dev = &mBlkDesc;
+	lbaint_t cur, blocks_todo = blkcnt;
+
+	if (mmc_select_hwpart(block_dev->hwpart)) return 0;
+
+	if ((start + blkcnt) > block_dev->lba) return 0;
+
+	if (mBlkLenSet != (int) mmc->write_bl_len)
+	{
+		if (mmc_set_blocklen(mmc, mmc->write_bl_len)) return 0;
+		mBlkLenSet = (int) mmc->write_bl_len;
+	}
+
+	do {
+		cur = (blocks_todo > mmc->cfg->b_max) ? mmc->cfg->b_max : blocks_todo;
+		if (mmc_write_blocks(mmc, src, start, cur) != cur)
+		{
+			DEBUG((EFI_D_ERROR, "%s: Failed to write blocks\n", __func__));
+			return 0;
+		}
+		blocks_todo -= cur;
+		start += cur;
+		src = (const char *) src + cur * mmc->write_bl_len;
+	}
+	while (blocks_todo > 0);
+
+	return blkcnt;
+}
+
 EFIAPI
 int
 SdFxInit(

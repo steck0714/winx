@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+# MouseCursorDxe.inf: software mouse cursor on the GOP framebuffer, driven by EFI_SIMPLE_POINTER_PROTOCOL
+# (UsbMouseDxe). Built with -D SWITCH_EXT=1. See MouseCursorDxe.c.
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = MouseCursorDxe
+  FILE_GUID                      = fccde4ca-fb17-44bb-9abf-1a3df22cea3f
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = MouseCursorEntry
+
+[Sources]
+  MouseCursorDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiSimplePointerProtocolGuid     ## CONSUMES
+  gEfiGraphicsOutputProtocolGuid    ## CONSUMES
+
+[Depex]
+  TRUE

@@ -49,6 +49,7 @@
 
 [Guids]
   gEfiEventReadyToBootGuid
+  gEfiEventExitBootServicesGuid
 
 [Protocols]
   gTegra210ClockManagementProtocolGuid
