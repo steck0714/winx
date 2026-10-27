@@ -25,6 +25,7 @@ distribution as a whole is GPL-2.0-only.
 | hekate (CTCaer) | ported into `Drivers/EhciPciEmulationDxe/PciEmulation.c` (PLLU/UTMIPLL/UTMIP PHY init, bm92t36 I2C transfer, VBUS), `Drivers/SdMmcDxe/SdMmc.c` (SDMMC1 power-up, pad calibration, vendor setup), `Drivers/FanDxe/FanDxe.c` (fan/regulator/GPIO) | GPL-2.0-only, Copyright (c) 2018-2024 CTCaer | https://github.com/CTCaer/hekate (checked against master `45cd81e`). Register sequences are ported; those files are therefore GPL-2.0-only as a whole. |
 | hekate memory map / L4T contract | `Include/Device/MemoryMap.h` comments, `Tools/Bl33/bl33_stub.S`, `Tools/make-bl33.py` | interface facts read from hekate `bootloader/l4t/l4t.c` | No hekate code copied; `bl33_stub.S` and `make-bl33.py` carry `BSD-2-Clause-Patent` headers. |
 | Linux kernel / coreboot | comments only (`bm92t36` extcon behaviour, address maps) | GPL-2.0 | Behaviour was followed and referenced; if you verbatim-copied code from these, it is GPL-2.0 too (compatible). |
+| hayato41200 (Windows-for-Switch, Windows-for-Switch-Drivers) | `Drivers/UsbPowerAuditDxe/*`, `AcpiTables/Dsdt/Dsdt.asl` (XHC0, SWOA devices), `patches/edk2/*`, `Firmware/README.md`, `WindowsDrivers/*`, `WindowsSetup/*`, `docs/hayato41200/*` | GPL-2.0 (each repository ships `LICENSE`) | https://github.com/hayato41200/Windows-for-Switch and https://github.com/hayato41200/Windows-for-Switch-Drivers (snapshots of 2026-10-27). Copied/ported as is; the XhciDxe patch is re-made for edk2-stable202402 (BSD-2-Clause-Patent file). No NVIDIA firmware is included. |
 | winx modifications | patch `winx-bl33.patch` on top of upstream | GPL-2.0-only (BSD-2-Clause-Patent where the file header says so) | `Tools/test-fan-trace`, `Tools/test-rtc` have no header: GPL-2.0-only. They do **not** include hekate sources (run against a hekate checkout). |
 
 ## 3. Things that are NOT in this repository
@@ -55,4 +56,4 @@ a registered mark as far as this summary knows; check before commercial use.
 
 * Upstream parts: see file headers (Bingxing Wang and others).
 * Ported parts: CTCaer (hekate).
-* winx changes: Copyright (c) 2026 winx steck0714.
+* winx changes: Copyright (c) 2026 winx contributors - put the real name(s) here.

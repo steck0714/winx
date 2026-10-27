@@ -21,13 +21,25 @@ BaseAddress   = 0xAA001000|gArmTokenSpaceGuid.PcdFdBaseAddress  #The base addres
 !else
 BaseAddress   = 0x80110000|gArmTokenSpaceGuid.PcdFdBaseAddress  #The base address of the FLASH Device.
 !endif
+!ifdef SWITCH_BIGFD
+# Optional: grow the FD if the image no longer fits in 0xE0000 (compressed FV). bl33.bin region is 1 MiB (stub 0x1000 + FD <= 0xFF000).
+Size          = 0x000FF000|gArmTokenSpaceGuid.PcdFdSize         #The size in bytes of the FLASH Device
+ErasePolarity = 1
+BlockSize     = 0x200
+NumBlocks     = 0x7F8
+!else
 Size          = 0x000E0000|gArmTokenSpaceGuid.PcdFdSize         #The size in bytes of the FLASH Device
 ErasePolarity = 1
 BlockSize     = 0x200
 NumBlocks     = 0x700
+!endif
 
 # 512 bytes of configuration header & 8 bytes of image header
+!ifdef SWITCH_BIGFD
+0x00000000|0x000FF000
+!else
 0x00000000|0x000E0000
+!endif
 gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize
 FV = FVMAIN_COMPACT
 
@@ -119,24 +131,85 @@ READ_LOCK_STATUS   = TRUE
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
   INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
+!ifndef SWITCH_WOA
+  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !ifdef SWITCH_FAN_DUTY
   INF NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
 !endif
+!endif
+!ifndef SWITCH_WOA
 !ifdef SWITCH_USB
   # USB host (Tegra210 UTMIP / EHCI) is opt-in: build with -D SWITCH_USB=1. Not needed to boot Windows
   # from microSD. Uses the hekate-derived PHY bring-up in PciEmulation and EhciDxeTegra (EhciDxe plus
   # a host-mode restore after HC reset).
   INF NintendoSwitchPkg/Drivers/EhciPciEmulationDxe/PciEmulation.inf
 !endif
+!endif
   INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+!ifdef SWITCH_WOA
+  # hayato41200/Windows-for-Switch: board bring-up + stock xHCI. The XUSB firmware is embedded and
+  # found by UsbPowerAuditDxe through GetSectionFromAnyFv (see Firmware/README.md).
+  INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/UsbPowerAudit.inf
+  FILE FREEFORM = 5A0F6A3E-2D4C-4C1B-9E51-7B3F168A0C42 {
+    SECTION RAW = NintendoSwitchPkg/Firmware/tegra21x_xusb_firmware
+  }
+  INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
+!else
 !ifdef SWITCH_USB
+!ifdef SWITCH_USB_STDEHCI
+  # A/B test: the stock EDK2 EhciDxe on top of PciEmulation's PHY/VBUS bring-up. Its HC reset drops the
+  # ChipIdea core out of host mode, so the UEFI keyboard does not work; only the OS-side behaviour is of interest.
+  INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
+!else
   INF NintendoSwitchPkg/Drivers/EhciDxeTegra/EhciDxeTegra.inf
+!endif
 !else
   INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
+!endif
 !endif
   INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
+!ifdef SWITCH_EXT
+  INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
+  INF MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
+  INF NintendoSwitchPkg/Drivers/MouseCursorDxe/MouseCursorDxe.inf
+!endif
+!ifdef SWITCH_FSDRV
+  INF EfiFsPkg/EfiFsPkg/Ntfs.inf
+  INF EfiFsPkg/EfiFsPkg/ExFat.inf
+  INF EfiFsPkg/EfiFsPkg/Ext2.inf
+  INF EfiFsPkg/EfiFsPkg/Xfs.inf
+  INF EfiFsPkg/EfiFsPkg/Btrfs.inf
+  INF EfiFsPkg/EfiFsPkg/F2fs.inf
+  INF EfiFsPkg/EfiFsPkg/EroFs.inf
+!endif
+!ifdef SWITCH_WINSPY
+  INF NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
+!endif
+!ifdef SWITCH_NET
+  INF MdeModulePkg/Bus/Usb/UsbNetwork/NetworkCommon/NetworkCommon.inf
+  INF MdeModulePkg/Bus/Usb/UsbNetwork/UsbCdcEcm/UsbCdcEcm.inf
+  INF MdeModulePkg/Bus/Usb/UsbNetwork/UsbCdcNcm/UsbCdcNcm.inf
+  INF MdeModulePkg/Bus/Usb/UsbNetwork/UsbRndis/UsbRndis.inf
+  INF NetworkPkg/DpcDxe/DpcDxe.inf
+  INF NetworkPkg/MnpDxe/MnpDxe.inf
+  INF NetworkPkg/ArpDxe/ArpDxe.inf
+  INF NetworkPkg/Ip4Dxe/Ip4Dxe.inf
+  INF NetworkPkg/Udp4Dxe/Udp4Dxe.inf
+  INF NetworkPkg/Dhcp4Dxe/Dhcp4Dxe.inf
+  INF NetworkPkg/Mtftp4Dxe/Mtftp4Dxe.inf
+  INF ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf
+!endif
+!ifdef SWITCH_PERF
+  INF ShellPkg/DynamicCommand/DpDynamicCommand/DpDynamicCommand.inf
+!endif
+!ifdef SWITCH_XUSB
+  INF NintendoSwitchPkg/Drivers/XusbInitApp/XusbInitCmd.inf
+!endif
+!ifdef SWITCH_WIFIBT
+  INF NintendoSwitchPkg/Drivers/WifiBtApp/WifiBtCmd.inf
+!endif
 
   # Disk IO
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

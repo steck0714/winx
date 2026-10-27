@@ -1,0 +1,18 @@
+diff --git a/NintendoSwitch.fdf b/NintendoSwitch.fdf
+index 8d2fb5e..ee94061 100644
+--- a/NintendoSwitch.fdf
++++ b/NintendoSwitch.fdf
+@@ -142,7 +142,13 @@ READ_LOCK_STATUS   = TRUE
+ !endif
+   INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+ !ifdef SWITCH_USB
++!ifdef SWITCH_USB_STDEHCI
++  # A/B test: the stock EDK2 EhciDxe on top of PciEmulation's PHY/VBUS bring-up. Its HC reset drops the
++  # ChipIdea core out of host mode, so the UEFI keyboard does not work; only the OS-side behaviour is of interest.
++  INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
++!else
+   INF NintendoSwitchPkg/Drivers/EhciDxeTegra/EhciDxeTegra.inf
++!endif
+ !else
+   INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
+ !endif
