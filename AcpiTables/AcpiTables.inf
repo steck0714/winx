@@ -27,6 +27,7 @@
   Fadt.aslc
   Gtdt.aslc
   Madt.aslc
+  Pptt.aslc
   Dsdt/Dsdt.asl
 
 [Packages]

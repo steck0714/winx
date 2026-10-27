@@ -1,0 +1,51 @@
+/** @file
+  Processor Properties Topology Table (PPTT): 1 package, 4 Cortex-A57 cores.
+  No cache nodes yet (Windows does not require them). UNTESTED ON HARDWARE.
+**/
+
+#include <Base.h>
+#include <Library/AcpiLib.h>
+#include <Library/PcdLib.h>
+
+#include <IndustryStandard/Acpi.h>
+
+#include "Platform.h"
+
+#pragma pack(1)
+
+typedef struct {
+  UINT8  Type;            // 0 = processor hierarchy node
+  UINT8  Length;          // 20 (no private resources)
+  UINT16 Reserved;
+  UINT32 Flags;
+  UINT32 Parent;          // byte offset from table start, 0 = none
+  UINT32 AcpiProcessorId;
+  UINT32 NumPrivResources;
+} PPTT_PROC_NODE;
+
+typedef struct {
+  EFI_ACPI_DESCRIPTION_HEADER Header;
+  PPTT_PROC_NODE              Package;
+  PPTT_PROC_NODE              Core[4];
+} NINTENDO_SWITCH_PPTT;
+
+#pragma pack()
+
+// Flags: bit0 physical package, bit1 ACPI Processor ID valid, bit3 leaf node
+#define PPTT_PACKAGE_FLAGS 0x3
+#define PPTT_CORE_FLAGS    0xA
+// Package node sits right after the 36-byte header
+#define PPTT_PKG_OFFSET    36
+
+#define PPTT_CORE(Uid) \
+  {0, sizeof(PPTT_PROC_NODE), 0, PPTT_CORE_FLAGS, PPTT_PKG_OFFSET, (Uid), 0}
+
+NINTENDO_SWITCH_PPTT Pptt = {
+    ARM_ACPI_HEADER(EFI_ACPI_6_2_PROCESSOR_PROPERTIES_TOPOLOGY_TABLE_STRUCTURE_SIGNATURE,
+                    NINTENDO_SWITCH_PPTT,
+                    EFI_ACPI_6_2_PROCESSOR_PROPERTIES_TOPOLOGY_TABLE_REVISION),
+    {0, sizeof(PPTT_PROC_NODE), 0, PPTT_PACKAGE_FLAGS, 0, 0, 0},
+    {PPTT_CORE(0), PPTT_CORE(1), PPTT_CORE(2), PPTT_CORE(3)},
+};
+
+VOID *CONST ReferenceAcpiTable = &Pptt;
