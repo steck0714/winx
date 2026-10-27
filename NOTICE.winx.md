@@ -43,7 +43,7 @@ binary you must also offer the **corresponding source**:
 * the exact build command (see `README.winx.md`),
 * the `LICENSE` text and the notices above.
 
-`release/<n>/SHA256SUMS` records which build the shipped `release/<n>/bl33.bin` is (1 = older, 2 = newer).
+`release/SHA256SUMS` records which build the shipped `bl33.bin` is.
 
 ## 5. Names and trademarks
 
@@ -55,4 +55,4 @@ a registered mark as far as this summary knows; check before commercial use.
 
 * Upstream parts: see file headers (Bingxing Wang and others).
 * Ported parts: CTCaer (hekate).
-* winx changes: Copyright (c) 2026 winx steck0714.
+* winx changes: Copyright (c) 2026 winx contributors - put the real name(s) here.

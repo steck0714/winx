@@ -29,6 +29,12 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE EXCFB_FLAGS             =
+!ifdef SWITCH_EXCFB
+ !ifdef SWITCH_FB_ROTATE
+  DEFINE EXCFB_FLAGS             = -DEXC_FB_ROTATE=$(SWITCH_FB_ROTATE)
+ !endif
+!endif
 
 [BuildOptions.common.EDKII.DXE_RUNTIME_DRIVER]
   GCC:*_*_AARCH64_DLINK_FLAGS = -z common-page-size=0x10000
@@ -36,14 +42,36 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1
+  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
 !else
-  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable
+  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
+  # ACPI feature switches (preprocessor flags for the ASL). Both off by default.
 !ifdef SWITCH_ACPI_EMMC
-  # Expose the internal eMMC (SDMMC4) to Windows via ACPI. Off by default: see Dsdt.asl.
-  GCC:*_*_AARCH64_ASLPP_FLAGS = -DSWITCH_ACPI_EMMC_ENABLE
+  # Expose the internal eMMC (SDMMC4) to Windows via ACPI: see Dsdt.asl.
+  DEFINE ACPI_ASL_EMMC           = -DSWITCH_ACPI_EMMC_ENABLE
+!else
+  DEFINE ACPI_ASL_EMMC           =
 !endif
+!ifdef SWITCH_ACPI_XHCI
+  # Expose the XUSB xHCI to Windows via ACPI (needs xusb.bin loaded first): see Dsdt.asl.
+  DEFINE ACPI_ASL_XHCI           = -DSWITCH_ACPI_XHCI_ENABLE
+!else
+  DEFINE ACPI_ASL_XHCI           =
+!endif
+!ifdef SWITCH_ACPI_EHCI
+  # Expose the Tegra210 USB1 EHCI (0x7D000000, PNP0D20) to Windows via ACPI: see Dsdt.asl.
+  DEFINE ACPI_ASL_EHCI           = -DSWITCH_ACPI_EHCI_ENABLE
+!else
+  DEFINE ACPI_ASL_EHCI           =
+!endif
+!ifdef SWITCH_ACPI_EHCI_TXFILL
+  # Rewrite TXFILLTUNING (16 << 16) in the EHC0 post-reset _DSM, as Linux does for Tegra30-class EHCI. Value for T210 unconfirmed.
+  DEFINE ACPI_ASL_EHCI_TXFILL    = -DSWITCH_ACPI_EHCI_TXFILL
+!else
+  DEFINE ACPI_ASL_EHCI_TXFILL    =
+!endif
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -64,7 +92,12 @@
   ArmPlatformStackLib|ArmPlatformPkg/Library/ArmPlatformStackLib/ArmPlatformStackLib.inf
   CacheMaintenanceLib|ArmPkg/Library/ArmCacheMaintenanceLib/ArmCacheMaintenanceLib.inf
   CpuExceptionHandlerLib|ArmPkg/Library/ArmExceptionLib/ArmExceptionLib.inf
+!ifdef SWITCH_EXCFB
+  # CPU exception dump (ESR/FAR/ELR/registers) is also drawn on the panel: for diagnosing alignment faults on real hardware.
+  DefaultExceptionHandlerLib|NintendoSwitchPkg/Library/FbExceptionHandlerLib/FbExceptionHandlerLib.inf
+!else
   DefaultExceptionHandlerLib|ArmPkg/Library/DefaultExceptionHandlerLib/DefaultExceptionHandlerLib.inf
+!endif
   ArmDisassemblerLib|ArmPkg/Library/ArmDisassemblerLib/ArmDisassemblerLib.inf
   ArmGenericTimerCounterLib|ArmPkg/Library/ArmGenericTimerPhyCounterLib/ArmGenericTimerPhyCounterLib.inf
   TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
@@ -376,6 +409,9 @@
   # DXE
   MdeModulePkg/Core/Dxe/DxeMain.inf {
     <LibraryClasses>
+!ifdef SWITCH_PERF
+    PerformanceLib|MdeModulePkg/Library/DxeCorePerformanceLib/DxeCorePerformanceLib.inf
+!endif
     NULL|MdeModulePkg/Library/DxeCrc32GuidedSectionExtractLib/DxeCrc32GuidedSectionExtractLib.inf
     NULL|MdeModulePkg/Library/LzmaCustomDecompressLib/LzmaCustomDecompressLib.inf
   }
@@ -395,7 +431,13 @@
   EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
   EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf {
     <LibraryClasses>
-	  RealTimeClockLib|NintendoSwitchPkg/Library/VirtualRealTimeClockLib/VirtualRealTimeClockLib.inf
+!ifdef SWITCH_RTC
+      # Real clock: MAX77620 PMIC RTC (I2C5), read once at boot, soft clock afterwards. Falls back
+      # to the virtual (build date + uptime) clock if the RTC is unreadable.
+      RealTimeClockLib|NintendoSwitchPkg/Library/Max77620RealTimeClockLib/Max77620RealTimeClockLib.inf
+!else
+      RealTimeClockLib|NintendoSwitchPkg/Library/VirtualRealTimeClockLib/VirtualRealTimeClockLib.inf
+!endif
   }
 
   # Security Stub
@@ -437,6 +479,7 @@
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
 !endif
   NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
+  NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !ifdef SWITCH_FAN_DUTY
   NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
 !endif
@@ -485,6 +528,115 @@
     <LibraryClasses>
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
   }
+!ifdef SWITCH_EXT
+  # Shell/USB extras: USB mouse and the RAM disk driver (the shell `ramdisk` command and the HII form).
+  MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf {
+    <LibraryClasses>
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+  }
+  MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
+  NintendoSwitchPkg/Drivers/MouseCursorDxe/MouseCursorDxe.inf
+!endif
+!ifdef SWITCH_WINSPY
+  NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
+!endif
+!ifdef SWITCH_FSDRV
+  # Read-only non-FAT file systems (pbatard/EfiFs v1.12 + GRUB 2.14, GPLv3): NTFS/exFAT (Windows),
+  # ext2/3/4/XFS/Btrfs (Linux), F2FS/EROFS/ext4 (Android). Needs EfiFsPkg (see README.fsdrv).
+  EfiFsPkg/EfiFsPkg/Ntfs.inf
+  EfiFsPkg/EfiFsPkg/ExFat.inf
+  EfiFsPkg/EfiFsPkg/Ext2.inf
+  EfiFsPkg/EfiFsPkg/Xfs.inf
+  EfiFsPkg/EfiFsPkg/Btrfs.inf
+  EfiFsPkg/EfiFsPkg/F2fs.inf
+  EfiFsPkg/EfiFsPkg/EroFs.inf
+!endif
+!ifdef SWITCH_NET
+  # USB Ethernet adapters (CDC-ECM, CDC-NCM, RNDIS) + the UEFI IPv4 stack, so ifconfig / ping / tftp work.
+  MdeModulePkg/Bus/Usb/UsbNetwork/NetworkCommon/NetworkCommon.inf {
+    <LibraryClasses>
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+  }
+  MdeModulePkg/Bus/Usb/UsbNetwork/UsbCdcEcm/UsbCdcEcm.inf {
+    <LibraryClasses>
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+  }
+  MdeModulePkg/Bus/Usb/UsbNetwork/UsbCdcNcm/UsbCdcNcm.inf {
+    <LibraryClasses>
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+  }
+  MdeModulePkg/Bus/Usb/UsbNetwork/UsbRndis/UsbRndis.inf {
+    <LibraryClasses>
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+  }
+  NetworkPkg/DpcDxe/DpcDxe.inf
+  NetworkPkg/MnpDxe/MnpDxe.inf
+  NetworkPkg/ArpDxe/ArpDxe.inf
+  NetworkPkg/Ip4Dxe/Ip4Dxe.inf
+  NetworkPkg/Udp4Dxe/Udp4Dxe.inf
+  NetworkPkg/Dhcp4Dxe/Dhcp4Dxe.inf
+  NetworkPkg/Mtftp4Dxe/Mtftp4Dxe.inf
+  ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf {
+    <LibraryClasses>
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+  }
+!endif
+!ifdef SWITCH_XUSB
+  # DRAFT: Tegra210 XUSB (xHCI / USB 3.0) bring-up experiment. Shell app only; not in the FDF (copy XusbInit.efi to the SD card).
+  NintendoSwitchPkg/Drivers/XusbInitApp/XusbInit.inf {
+    <LibraryClasses>
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|TRUE
+  }
+  # Same code as a built-in shell command `xusbinit` (lives in the FV, so bl33.bin alone is enough).
+  NintendoSwitchPkg/Drivers/XusbInitApp/XusbInitCmd.inf {
+    <LibraryClasses>
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+  }
+!endif
+!ifdef SWITCH_WIFIBT
+  # DRAFT: BCM4356 Bluetooth (UART-D HCI) + Wi-Fi (PCIe x1, brcmfmac-style firmware boot) bring-up, built-in shell command `wifibt`.
+  NintendoSwitchPkg/Drivers/WifiBtApp/WifiBtCmd.inf {
+    <LibraryClasses>
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align
+  }
+!endif
+!ifdef SWITCH_PERF
+  # `dp` (display performance): needs the core performance log (see DxeMain below).
+  ShellPkg/DynamicCommand/DpDynamicCommand/DpDynamicCommand.inf {
+    <LibraryClasses>
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+  }
+!endif
 
   # Serial
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
@@ -528,6 +680,7 @@
       NULL|ShellPkg/Library/UefiShellDebug1CommandsLib/UefiShellDebug1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellInstall1CommandsLib/UefiShellInstall1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellNetwork1CommandsLib/UefiShellNetwork1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.inf
       HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
       PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
       BcfgCommandLib|ShellPkg/Library/UefiShellBcfgCommandLib/UefiShellBcfgCommandLib.inf
