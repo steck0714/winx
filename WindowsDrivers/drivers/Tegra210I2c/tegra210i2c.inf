@@ -1,0 +1,55 @@
+;
+; tegra210i2c.inf - Tegra210 I2C controller (SpbCx) for the Nintendo Switch
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %Mfg%
+CatalogFile = tegra210i2c.cat
+DriverVer   = 10/25/2026,1.0.0.3
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+tegra210i2c.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = TegraI2c_Inst, ACPI\SWOA0201
+
+[TegraI2c_Inst.NT]
+CopyFiles = TegraI2c_Copy
+
+[TegraI2c_Copy]
+tegra210i2c.sys
+
+[TegraI2c_Inst.NT.Services]
+AddService = tegra210i2c, 0x00000002, TegraI2c_Service
+
+[TegraI2c_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\tegra210i2c.sys
+
+[TegraI2c_Inst.NT.Wdf]
+KmdfService = tegra210i2c, TegraI2c_WdfSection
+
+[TegraI2c_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA Tegra210 I2C"
+DeviceDesc  = "NVIDIA Tegra210 I2C Controller"
+ServiceDesc = "Tegra210 I2C Controller"

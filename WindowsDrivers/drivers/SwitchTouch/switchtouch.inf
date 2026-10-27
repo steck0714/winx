@@ -1,0 +1,62 @@
+;
+; switchtouch.inf - Nintendo Switch touch screen (STM FTM4 on I2C3, VHF HID source)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %Mfg%
+CatalogFile = switchtouch.cat
+DriverVer   = 10/25/2026,1.0.0.4
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+switchtouch.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = SwTouch_Inst, ACPI\SWOA0501
+
+[SwTouch_Inst.NT]
+CopyFiles = SwTouch_Copy
+
+[SwTouch_Copy]
+switchtouch.sys
+
+; vhf.sys (inbox) sits below this driver and creates the HID child device.
+[SwTouch_Inst.NT.HW]
+AddReg = SwTouch_HW_AddReg
+
+[SwTouch_HW_AddReg]
+HKR,,"LowerFilters",0x00010000,"vhf"
+
+[SwTouch_Inst.NT.Services]
+AddService = switchtouch, 0x00000002, SwTouch_Service
+
+[SwTouch_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\switchtouch.sys
+
+[SwTouch_Inst.NT.Wdf]
+KmdfService = switchtouch, SwTouch_WdfSection
+
+[SwTouch_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA Touch"
+DeviceDesc  = "Nintendo Switch Touch Screen"
+ServiceDesc = "Nintendo Switch Touch Screen"

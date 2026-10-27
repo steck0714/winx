@@ -1,0 +1,62 @@
+;
+; switchpwrbtn.inf - Nintendo Switch power button (MAX77620 EN0 on I2C5, VHF HID source)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %Mfg%
+CatalogFile = switchpwrbtn.cat
+DriverVer   = 10/25/2026,1.0.0.1
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+switchpwrbtn.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = SwPwr_Inst, ACPI\SWOA0601
+
+[SwPwr_Inst.NT]
+CopyFiles = SwPwr_Copy
+
+[SwPwr_Copy]
+switchpwrbtn.sys
+
+; vhf.sys (inbox) sits below this driver and creates the HID child device.
+[SwPwr_Inst.NT.HW]
+AddReg = SwPwr_HW_AddReg
+
+[SwPwr_HW_AddReg]
+HKR,,"LowerFilters",0x00010000,"vhf"
+
+[SwPwr_Inst.NT.Services]
+AddService = switchpwrbtn, 0x00000002, SwPwr_Service
+
+[SwPwr_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\switchpwrbtn.sys
+
+[SwPwr_Inst.NT.Wdf]
+KmdfService = switchpwrbtn, SwPwr_WdfSection
+
+[SwPwr_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA Power Button"
+DeviceDesc  = "Nintendo Switch Power Button"
+ServiceDesc = "Nintendo Switch Power Button"

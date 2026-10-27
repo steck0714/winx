@@ -1,0 +1,63 @@
+;
+; switchcpu.inf - Nintendo Switch CPU clock control (PLLX + MAX77621, thermal guard via TMP451)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %Mfg%
+CatalogFile = switchcpu.cat
+DriverVer   = 10/25/2026,1.0.0.2
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+switchcpu.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = SwCpu_Inst, ACPI\SWOA0701
+
+[SwCpu_Inst.NT]
+CopyFiles = SwCpu_Copy
+
+[SwCpu_Copy]
+switchcpu.sys
+
+; \\.\SwitchCpu: SYSTEM and Administrators full, the logged-on (interactive)
+; user read/write so the tray app does not need to run elevated.
+[SwCpu_Inst.NT.HW]
+AddReg = SwCpu_HW_AddReg
+
+[SwCpu_HW_AddReg]
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+
+[SwCpu_Inst.NT.Services]
+AddService = switchcpu, 0x00000002, SwCpu_Service
+
+[SwCpu_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\switchcpu.sys
+
+[SwCpu_Inst.NT.Wdf]
+KmdfService = switchcpu, SwCpu_WdfSection
+
+[SwCpu_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA CPU Clock"
+DeviceDesc  = "Nintendo Switch CPU Clock Control"
+ServiceDesc = "Nintendo Switch CPU Clock Control"

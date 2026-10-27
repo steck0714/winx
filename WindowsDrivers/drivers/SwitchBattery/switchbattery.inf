@@ -1,0 +1,57 @@
+;
+; switchbattery.inf - Nintendo Switch battery (MAX17050 gauge + BQ24193 charger on I2C1)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Battery
+ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
+Provider    = %Mfg%
+CatalogFile = switchbattery.cat
+DriverVer   = 10/26/2026,1.0.0.5
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+switchbattery.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = SwBat_Inst, ACPI\SWOA0301
+
+[SwBat_Inst.NT]
+CopyFiles = SwBat_Copy
+Include   = battery.inf
+Needs     = Battery_Inst
+
+[SwBat_Copy]
+switchbattery.sys
+
+[SwBat_Inst.NT.Services]
+AddService = switchbattery, 0x00000002, SwBat_Service
+
+[SwBat_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\switchbattery.sys
+
+[SwBat_Inst.NT.Wdf]
+KmdfService = switchbattery, SwBat_WdfSection
+
+[SwBat_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA Battery"
+DeviceDesc  = "Nintendo Switch Battery"
+ServiceDesc = "Nintendo Switch Battery"
