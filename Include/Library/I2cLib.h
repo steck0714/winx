@@ -29,5 +29,8 @@ UINT32 i2c_send_buf_small(UINT32 idx, UINT32 x, UINT32 y, UINT8 *buf, UINT32 siz
 int i2c_recv_buf_small(UINT8 *buf, UINT32 size, UINT32 idx, UINT32 x, UINT32 y);
 UINT32 i2c_send_byte(UINT32 idx, UINT32 x, UINT32 y, UINT8 b);
 UINT8 i2c_recv_byte(UINT32 idx, UINT32 x, UINT32 y);
+int i2c_xfer_packet(UINT32 idx, UINT32 dev_addr, const UINT8 *tx_buf, UINT32 tx_size, UINT8 *rx_buf, UINT32 rx_size);
+int i2c_recv_buf_big(UINT8 *buf, UINT32 size, UINT32 idx, UINT32 dev_addr, UINT32 reg);
+
 
 #endif
