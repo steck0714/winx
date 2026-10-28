@@ -1,0 +1,721 @@
+diff --git a/Drivers/TouchPanelDxe/Fts4.h b/Drivers/TouchPanelDxe/Fts4.h
+new file mode 100644
+index 0000000..7edc123
+--- /dev/null
++++ b/Drivers/TouchPanelDxe/Fts4.h
+@@ -0,0 +1,57 @@
++#ifndef __FTS4_H__
++#define __FTS4_H__
++
++#define FTS4_I2C_ADDR                0x49
++#define FTS4_I2C_CHIP_ID             0x3670
++
++// Commands
++#define FTS4_CMD_READ_ONE_EVENT      0x85
++#define FTS4_CMD_LATEST_EVENT        0x87   // returns newest event, clears the stack
++#define FTS4_CMD_MS_MT_SENSE_ON      0x93
++#define FTS4_CMD_CLEAR_EVENT_STACK   0xA1
++#define FTS4_CMD_HW_REG_READ         0xB6   // u16be address, any size read
++#define FTS4_CMD_HW_REG_WRITE        0xB6
++#define FTS4_CMD_SWITCH_SENSE_MODE   0xC3
++
++#define FTS4_FINGER_MODE             0x01
++
++// HW registers
++#define FTS4_HW_REG_CHIP_ID_INFO     0x0004
++#define FTS4_HW_REG_EVENT_COUNT      0x0023
++#define FTS4_HW_REG_SYS_RESET        0x0028
++
++// Events
++#define FTS4_EV_MULTI_TOUCH_ENTER    0x03
++#define FTS4_EV_MULTI_TOUCH_LEAVE    0x04
++#define FTS4_EV_MULTI_TOUCH_MOTION   0x05
++#define FTS4_EV_CONTROLLER_READY     0x10
++
++#define FTS4_MASK_EVENT_ID           0x0F
++#define FTS4_MASK_TOUCH_ID           0xF0
++#define FTS4_MASK_X_MSB              0x0F
++#define FTS4_MASK_Y_LSB              0xF0
++
++#define FTS4_EVENT_SIZE              8
++
++// Raw panel limits and the logical (display) resolution.
++#define FTS4_X_REAL_MAX              1264
++#define FTS4_Y_REAL_MAX              704
++#define FTS4_EDGE_OFFSET             15
++#define TOUCH_RES_X                  1280
++#define TOUCH_RES_Y                  720
++
++// Touch reset line (hekate: DAP4_SCLK / GPIO PJ7) and its pinmux register.
++#define TOUCH_RST_GPIO_PORT          GPIO_PORT_J
++#define TOUCH_RST_GPIO_PIN           GPIO_PIN_7
++#define TOUCH_RST_PINMUX_REG         (0x70003000UL + 0x150)  // PINMUX_AUX_DAP4_SCLK
++#define TOUCH_RST_PINMUX_VAL         ((1 << 2) | 1)          // pull-down | function 1
++
++// APB MISC pinmux regs for GEN3_I2C (I2C3) and the I2C4 pads that must be detached from it.
++#define PINMUX_AUX_BASE              0x70003000UL
++#define PINMUX_AUX_I2C_SCL(x)        (PINMUX_AUX_BASE + 0xBC + 8 * (x))
++#define PINMUX_AUX_I2C_SDA(x)        (PINMUX_AUX_BASE + 0xC0 + 8 * (x))
++#define PINMUX_INPUT_ENABLE          (1 << 6)
++
++#define TOUCH_POLL_INTERVAL_100NS    100000   // 10 ms
++
++#endif
+diff --git a/Drivers/TouchPanelDxe/TouchPanel.c b/Drivers/TouchPanelDxe/TouchPanel.c
+new file mode 100644
+index 0000000..f5d823f
+--- /dev/null
++++ b/Drivers/TouchPanelDxe/TouchPanel.c
+@@ -0,0 +1,366 @@
++/*
++ * TouchPanelDxe: STMicroelectronics FingerTip (FTS4 / "ftm4" in L4T) touch controller of the
++ * Nintendo Switch, on I2C3 @ 0x49, exposed as EFI_ABSOLUTE_POINTER_PROTOCOL.
++ *
++ * Power-up / init sequence and event decoding follow hekate's touch.c (GPL-2.0) which is known to
++ * work on retail hardware, and the Linux ftm4 driver command set.
++ */
++#include <PiDxe.h>
++#include <Uefi.h>
++#include <Library/UefiLib.h>
++#include <Library/UefiBootServicesTableLib.h>
++#include <Library/DebugLib.h>
++#include <Library/BaseMemoryLib.h>
++#include <Library/IoLib.h>
++#include <Protocol/AbsolutePointer.h>
++#include <Protocol/DevicePath.h>
++
++#include <Foundation/Types.h>
++#include <Library/I2cLib.h>
++#include <Library/GpioLib.h>
++#include <Library/ClockLib.h>
++#include <Library/Max7762xLib.h>
++#include <Protocol/Pmic.h>
++#include <Device/TouchPanel.h>
++
++#include "Fts4.h"
++
++typedef struct {
++  UINT8   Raw[FTS4_EVENT_SIZE];
++  UINT32  X, Y, Z;
++  BOOLEAN Touch;
++} TOUCH_EVENT;
++
++STATIC PMIC_PROTOCOL                 *mPmic;
++STATIC EFI_EVENT                      mPollTimer;
++STATIC EFI_HANDLE                     mHandle;
++STATIC BOOLEAN                        mClone;          // non-genuine IC: must use READ_ONE_EVENT
++STATIC BOOLEAN                        mStateChanged;
++STATIC EFI_ABSOLUTE_POINTER_STATE     mState;
++STATIC TOUCH_DEVICE_PATH              mDevicePath = TOUCH_DEVICE_PATH_INIT;
++
++STATIC EFI_ABSOLUTE_POINTER_MODE      mMode = {
++  0, 0, 0,                                  // AbsoluteMin X/Y/Z
++  TOUCH_RES_X - 1, TOUCH_RES_Y - 1, 0,      // AbsoluteMax X/Y/Z (no pressure axis)
++  0                                         // Attributes
++};
++
++// ---------------------------------------------------------------------------------------------
++// Low level I2C helpers. The I2cLib convention: 1 = success, 0 = failure.
++// ---------------------------------------------------------------------------------------------
++STATIC
++BOOLEAN
++TouchCmd (UINT8 Cmd, UINT8 *Buf, UINT32 Size)
++{
++  return i2c_send_buf_small (I2C_3, FTS4_I2C_ADDR, Cmd, Buf, Size) != 0;
++}
++
++STATIC
++BOOLEAN
++TouchReadReg (UINT8 *Cmd, UINT32 CSize, UINT8 *Buf, UINT32 Size)
++{
++  return i2c_xfer_packet (I2C_3, FTS4_I2C_ADDR, Cmd, CSize, Buf, Size) != 0;
++}
++
++STATIC
++UINT32
++TouchEventCount (VOID)
++{
++  UINT8 Cmd[3] = { FTS4_CMD_HW_REG_READ, 0, FTS4_HW_REG_EVENT_COUNT };
++  UINT8 Buf[2];
++
++  if (!TouchReadReg (Cmd, sizeof (Cmd), Buf, sizeof (Buf))) {
++    return 0;
++  }
++  return Buf[1] >> 1;
++}
++
++STATIC
++BOOLEAN
++TouchWaitEvent (UINT8 Event, UINT8 Status, UINT32 TimeoutMs, UINT8 *Out)
++{
++  UINT32 Loops = TimeoutMs * 2;   // 500 us per iteration
++  UINT8  Tmp[FTS4_EVENT_SIZE];
++
++  for (;;) {
++    if (TouchEventCount () &&
++        i2c_recv_buf_big (Tmp, FTS4_EVENT_SIZE, I2C_3, FTS4_I2C_ADDR, FTS4_CMD_READ_ONE_EVENT) &&
++        Tmp[0] == Event && Tmp[1] == Status) {
++      if (Out != NULL) {
++        CopyMem (Out, &Tmp[2], 6);
++      }
++      return TRUE;
++    }
++    if (Loops-- == 0) {
++      return FALSE;
++    }
++    gBS->Stall (500);
++  }
++}
++
++// ---------------------------------------------------------------------------------------------
++// Controller bring-up
++// ---------------------------------------------------------------------------------------------
++STATIC
++BOOLEAN
++TouchGetChipInfo (UINT16 *ChipId)
++{
++  UINT8 Cmd[3] = { FTS4_CMD_HW_REG_READ, 0, FTS4_HW_REG_CHIP_ID_INFO };
++  UINT8 Buf[7] = { 0 };
++
++  if (!TouchReadReg (Cmd, sizeof (Cmd), Buf, sizeof (Buf))) {
++    return FALSE;
++  }
++  *ChipId = (UINT16)((Buf[1] << 8) | Buf[2]);
++
++  // Genuine ICs mirror the chip id at register 2; clones do not.
++  Cmd[2] = 2;
++  TouchReadReg (Cmd, sizeof (Cmd), Buf, sizeof (Buf));
++  mClone = (BOOLEAN)(*ChipId != (UINT16)((Buf[3] << 8) | Buf[4]));
++  return TRUE;
++}
++
++STATIC
++BOOLEAN
++TouchSysReset (VOID)
++{
++  UINT8 Cmd[3] = { 0, FTS4_HW_REG_SYS_RESET, 0x80 };
++  UINTN Retry;
++
++  for (Retry = 0; Retry < 3; Retry++) {
++    if (!TouchCmd (FTS4_CMD_HW_REG_WRITE, Cmd, 3)) {
++      gBS->Stall (10000);
++      continue;
++    }
++    gBS->Stall (10000);
++    if (TouchWaitEvent (FTS4_EV_CONTROLLER_READY, 0, 20, NULL)) {
++      return TRUE;
++    }
++  }
++  return FALSE;
++}
++
++STATIC
++BOOLEAN
++TouchSenseEnable (VOID)
++{
++  UINT8 Mode = FTS4_FINGER_MODE;
++
++  return TouchCmd (FTS4_CMD_SWITCH_SENSE_MODE, &Mode, 1) &&
++         TouchCmd (FTS4_CMD_MS_MT_SENSE_ON, NULL, 0)     &&
++         TouchCmd (FTS4_CMD_CLEAR_EVENT_STACK, NULL, 0);
++}
++
++STATIC
++BOOLEAN
++TouchInitChip (VOID)
++{
++  UINT16 ChipId = 0;
++
++  if (!TouchGetChipInfo (&ChipId) || ChipId != FTS4_I2C_CHIP_ID) {
++    DEBUG ((DEBUG_WARN, "Touch: unexpected chip id 0x%04x\n", ChipId));
++    return FALSE;
++  }
++  return TouchSysReset () && TouchSenseEnable ();
++}
++
++STATIC
++EFI_STATUS
++TouchPowerOn (VOID)
++{
++  UINTN Retry;
++
++  // Touch reset line: low while powering up.
++  MmioWrite32 (TOUCH_RST_PINMUX_REG, TOUCH_RST_PINMUX_VAL);
++  gpio_config (TOUCH_RST_GPIO_PORT, TOUCH_RST_GPIO_PIN, GPIO_MODE_GPIO);
++  gpio_output_enable (TOUCH_RST_GPIO_PORT, TOUCH_RST_GPIO_PIN, GPIO_OUTPUT_ENABLE);
++  gpio_write (TOUCH_RST_GPIO_PORT, TOUCH_RST_GPIO_PIN, GPIO_LOW);
++  gBS->Stall (20);
++
++  // LDO6 = touch AVDD/DVDD (2.9 V).
++  mPmic->SetRegulatorVoltage (REGULATOR_LDO6, 2900000);
++  mPmic->EnableRegulator (REGULATOR_LDO6);
++
++  // I2C3 pads (and detach the I2C4 pads from the I2C3 function, as hekate does).
++  MmioWrite32 (PINMUX_AUX_I2C_SCL (I2C_3), PINMUX_INPUT_ENABLE);
++  MmioWrite32 (PINMUX_AUX_I2C_SDA (I2C_3), PINMUX_INPUT_ENABLE);
++  MmioOr32    (PINMUX_AUX_I2C_SCL (I2C_4), 1);
++  MmioOr32    (PINMUX_AUX_I2C_SDA (I2C_4), 1);
++  clock_enable_i2c (I2C_3);
++  i2c_init (I2C_3);
++  gBS->Stall (1000);
++
++  // Release reset and wait for the controller.
++  gpio_write (TOUCH_RST_GPIO_PORT, TOUCH_RST_GPIO_PIN, GPIO_HIGH);
++  gBS->Stall (10000);
++  TouchWaitEvent (FTS4_EV_CONTROLLER_READY, 0, 20, NULL);
++
++  for (Retry = 0; Retry < 3; Retry++) {
++    if (TouchInitChip ()) {
++      return EFI_SUCCESS;
++    }
++  }
++
++  gpio_write (TOUCH_RST_GPIO_PORT, TOUCH_RST_GPIO_PIN, GPIO_LOW);
++  mPmic->DisableRegulator (REGULATOR_LDO6);
++  return EFI_NOT_FOUND;
++}
++
++// ---------------------------------------------------------------------------------------------
++// Event decoding (raw FTS4 panel coordinates -> 1280x720)
++// ---------------------------------------------------------------------------------------------
++STATIC
++UINT32
++TouchScale (UINT32 Raw, UINT32 RawMax, UINT32 Res)
++{
++  if (Raw < FTS4_EDGE_OFFSET) Raw = FTS4_EDGE_OFFSET;
++  if (Raw > RawMax)           Raw = RawMax;
++  Raw -= FTS4_EDGE_OFFSET;
++  return (Raw * ((Res * 1000) / (RawMax - FTS4_EDGE_OFFSET))) / 1000;
++}
++
++STATIC
++BOOLEAN
++TouchParseEvent (TOUCH_EVENT *Ev)
++{
++  UINT32 Tmp;
++
++  switch (Ev->Raw[0] & FTS4_MASK_EVENT_ID) {
++  case FTS4_EV_MULTI_TOUCH_ENTER:
++  case FTS4_EV_MULTI_TOUCH_MOTION:
++    Ev->X = TouchScale ((Ev->Raw[1] << 4) | ((Ev->Raw[3] & FTS4_MASK_Y_LSB) >> 4),
++                        FTS4_X_REAL_MAX, TOUCH_RES_X);
++    Ev->Y = TouchScale ((Ev->Raw[2] << 4) | (Ev->Raw[3] & FTS4_MASK_X_MSB),
++                        FTS4_Y_REAL_MAX, TOUCH_RES_Y);
++
++    // Contact "size" -> palm rejection (same heuristic as hekate).
++    Ev->Z = (Ev->Raw[4] | (Ev->Raw[5] << 8)) << 6;
++    Tmp   = 0x40;
++    if ((Ev->Raw[6] & 0x3F) != 1 && (Ev->Raw[6] & 0x3F) != 0x3F) {
++      Tmp = Ev->Raw[6] & 0x3F;
++    }
++    Ev->Z /= Tmp + 0x40;
++    Ev->Touch = (BOOLEAN)(Ev->Z < 500);
++    return TRUE;
++
++  case FTS4_EV_MULTI_TOUCH_LEAVE:
++    Ev->Touch = FALSE;       // keep last X/Y
++    return TRUE;
++
++  default:
++    return FALSE;
++  }
++}
++
++STATIC
++VOID
++EFIAPI
++TouchPoll (IN EFI_EVENT Event, IN VOID *Context)
++{
++  TOUCH_EVENT Ev;
++  UINT8       Cmd = mClone ? FTS4_CMD_READ_ONE_EVENT : FTS4_CMD_LATEST_EVENT;
++
++  ZeroMem (&Ev, sizeof (Ev));
++  if (!i2c_recv_buf_big (Ev.Raw, FTS4_EVENT_SIZE, I2C_3, FTS4_I2C_ADDR, Cmd)) {
++    return;
++  }
++  if (!TouchParseEvent (&Ev)) {
++    return;
++  }
++
++  if (Ev.Touch) {
++    mState.CurrentX = Ev.X;
++    mState.CurrentY = Ev.Y;
++  }
++  mState.CurrentZ      = 0;
++  mState.ActiveButtons = Ev.Touch ? 1 : 0;
++  mStateChanged        = TRUE;
++}
++
++// ---------------------------------------------------------------------------------------------
++// EFI_ABSOLUTE_POINTER_PROTOCOL
++// ---------------------------------------------------------------------------------------------
++STATIC
++EFI_STATUS
++EFIAPI
++AbsPtrReset (IN EFI_ABSOLUTE_POINTER_PROTOCOL *This, IN BOOLEAN ExtendedVerification)
++{
++  ZeroMem (&mState, sizeof (mState));
++  mStateChanged = FALSE;
++  return EFI_SUCCESS;
++}
++
++STATIC
++EFI_STATUS
++EFIAPI
++AbsPtrGetState (IN EFI_ABSOLUTE_POINTER_PROTOCOL *This, IN OUT EFI_ABSOLUTE_POINTER_STATE *State)
++{
++  if (State == NULL) {
++    return EFI_INVALID_PARAMETER;
++  }
++  if (!mStateChanged) {
++    return EFI_NOT_READY;
++  }
++  CopyMem (State, &mState, sizeof (*State));
++  mStateChanged = FALSE;
++  return EFI_SUCCESS;
++}
++
++STATIC
++VOID
++EFIAPI
++AbsPtrWaitForInput (IN EFI_EVENT Event, IN VOID *Context)
++{
++  if (mStateChanged) {
++    gBS->SignalEvent (Event);
++  }
++}
++
++STATIC EFI_ABSOLUTE_POINTER_PROTOCOL mAbsPtr = {
++  AbsPtrReset,
++  AbsPtrGetState,
++  NULL,          // WaitForInput, created in entry point
++  &mMode
++};
++
++EFI_STATUS
++EFIAPI
++TouchPanelDxeInitialize (
++  IN EFI_HANDLE        ImageHandle,
++  IN EFI_SYSTEM_TABLE  *SystemTable
++  )
++{
++  EFI_STATUS Status;
++
++  Status = gBS->LocateProtocol (&gPmicProtocolGuid, NULL, (VOID **)&mPmic);
++  if (EFI_ERROR (Status)) {
++    return Status;
++  }
++
++  Status = TouchPowerOn ();
++  if (EFI_ERROR (Status)) {
++    DEBUG ((DEBUG_ERROR, "Touch: controller not found/initialised (%r)\n", Status));
++    return Status;
++  }
++
++  Status = gBS->CreateEvent (EVT_NOTIFY_WAIT, TPL_NOTIFY, AbsPtrWaitForInput, NULL,
++                             &mAbsPtr.WaitForInput);
++  if (EFI_ERROR (Status)) {
++    return Status;
++  }
++
++  Status = gBS->InstallMultipleProtocolInterfaces (&mHandle,
++                  &gEfiDevicePathProtocolGuid,      &mDevicePath,
++                  &gEfiAbsolutePointerProtocolGuid, &mAbsPtr,
++                  NULL);
++  if (EFI_ERROR (Status)) {
++    return Status;
++  }
++
++  Status = gBS->CreateEvent (EVT_NOTIFY_SIGNAL | EVT_TIMER, TPL_CALLBACK, TouchPoll, NULL,
++                             &mPollTimer);
++  if (!EFI_ERROR (Status)) {
++    Status = gBS->SetTimer (mPollTimer, TimerPeriodic, TOUCH_POLL_INTERVAL_100NS);
++  }
++  return Status;
++}
+diff --git a/Drivers/TouchPanelDxe/TouchPanelDxe.inf b/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+new file mode 100644
+index 0000000..15fc934
+--- /dev/null
++++ b/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+@@ -0,0 +1,46 @@
++# TouchPanelDxe.inf: Nintendo Switch touch panel (STMicro FingerTip "FTS4", I2C3 0x49)
++# exposed as EFI_ABSOLUTE_POINTER_PROTOCOL. Protocol/power-up sequence follows the Linux
++# ftm4 (L4T) / hekate FTS4 drivers.
++
++[Defines]
++  INF_VERSION                    = 0x00010005
++  BASE_NAME                      = TouchPanelDxe
++  FILE_GUID                      = 7d0f6a52-3c41-4e8b-9a3e-5b1c2d94f0a7
++  MODULE_TYPE                    = DXE_DRIVER
++  VERSION_STRING                 = 1.0
++  ENTRY_POINT                    = TouchPanelDxeInitialize
++
++[Sources.common]
++  TouchPanel.c
++  Fts4.h
++
++[Packages]
++  ArmPkg/ArmPkg.dec
++  MdePkg/MdePkg.dec
++  MdeModulePkg/MdeModulePkg.dec
++  EmbeddedPkg/EmbeddedPkg.dec
++  NintendoSwitchPkg/NintendoSwitch.dec
++
++[LibraryClasses]
++  BaseLib
++  BaseMemoryLib
++  DebugLib
++  DevicePathLib
++  IoLib
++  UefiLib
++  UefiBootServicesTableLib
++  UefiDriverEntryPoint
++  CompilerIntrinsicsLib
++  GpioLib
++  I2cLib
++  ClockLib
++  EarlyTimerLib
++
++[Protocols]
++  gEfiAbsolutePointerProtocolGuid
++  gEfiDevicePathProtocolGuid
++  gPmicProtocolGuid
++  gTegraPinMuxProtocolGuid
++
++[Depex]
++  gPmicProtocolGuid AND gTegraPinMuxProtocolGuid
+diff --git a/Include/Device/TouchPanel.h b/Include/Device/TouchPanel.h
+new file mode 100644
+index 0000000..81009d8
+--- /dev/null
++++ b/Include/Device/TouchPanel.h
+@@ -0,0 +1,29 @@
++#ifndef __TOUCH_PANEL_H__
++#define __TOUCH_PANEL_H__
++
++#include <Uefi.h>
++#include <Protocol/DevicePath.h>
++#include <Library/DevicePathLib.h>
++
++// Vendor hardware device path used to expose the FTS4 touch panel (ConIn / AbsolutePointer).
++#define PLAT_TOUCH_DEVICE_GUID \
++    { 0x2abf720d, 0x6e2a, 0x4caa, { 0x80, 0x96, 0x31, 0x7e, 0xf8, 0x27, 0x5b, 0x70 } }
++
++#pragma pack(1)
++typedef struct {
++  VENDOR_DEVICE_PATH  Device;
++  EFI_DEVICE_PATH     End;
++} TOUCH_DEVICE_PATH;
++#pragma pack()
++
++#define TOUCH_DEVICE_PATH_INIT                                                       \
++  {                                                                                  \
++    { { HARDWARE_DEVICE_PATH, HW_VENDOR_DP,                                          \
++        { (UINT8)sizeof (VENDOR_DEVICE_PATH),                                        \
++          (UINT8)(sizeof (VENDOR_DEVICE_PATH) >> 8) } },                             \
++      PLAT_TOUCH_DEVICE_GUID },                                                      \
++    { END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE,                          \
++      { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 } }                                     \
++  }
++
++#endif
+diff --git a/Include/Library/I2cLib.h b/Include/Library/I2cLib.h
+index 65921ab..13304d7 100644
+--- a/Include/Library/I2cLib.h
++++ b/Include/Library/I2cLib.h
+@@ -29,5 +29,8 @@ UINT32 i2c_send_buf_small(UINT32 idx, UINT32 x, UINT32 y, UINT8 *buf, UINT32 siz
+ int i2c_recv_buf_small(UINT8 *buf, UINT32 size, UINT32 idx, UINT32 x, UINT32 y);
+ UINT32 i2c_send_byte(UINT32 idx, UINT32 x, UINT32 y, UINT8 b);
+ UINT8 i2c_recv_byte(UINT32 idx, UINT32 x, UINT32 y);
++int i2c_xfer_packet(UINT32 idx, UINT32 dev_addr, const UINT8 *tx_buf, UINT32 tx_size, UINT8 *rx_buf, UINT32 rx_size);
++int i2c_recv_buf_big(UINT8 *buf, UINT32 size, UINT32 idx, UINT32 dev_addr, UINT32 reg);
++
+ 
+ #endif
+\ No newline at end of file
+diff --git a/Library/I2cLib/I2cLib.c b/Library/I2cLib/I2cLib.c
+index aca211e..1a8aff5 100644
+--- a/Library/I2cLib/I2cLib.c
++++ b/Library/I2cLib/I2cLib.c
+@@ -135,3 +135,110 @@ UINT8 i2c_recv_byte(UINT32 idx, UINT32 x, UINT32 y)
+ 	i2c_recv_buf_small(&tmp, 1, idx, x, y);
+ 	return tmp;
+ }
++
++/*
++ * Packet-mode transfer (ported from hekate bdk/soc/i2c.c, GPL-2.0): write tx_buf, repeated START,
++ * read rx_size bytes. Needed by devices that answer with more than 4 bytes (e.g. FTS4 touch).
++ * Like the rest of this file: returns 1 on success, 0 on failure.
++ */
++#define I2CP_CNFG             (0x00 / 4)
++#define  I2CP_CMD1_READ       (1 << 6)
++#define  I2CP_NORMAL_GO       (1 << 9)
++#define  I2CP_PACKET_GO       (1 << 10)
++#define  I2CP_NEW_MASTER_FSM  (1 << 11)
++#define  I2CP_DEBOUNCE_4T     (2 << 12)
++#define I2CP_CMD_ADDR0        (0x04 / 4)
++#define I2CP_STATUS           (0x1C / 4)
++#define  I2CP_STATUS_NOACK    (0xF << 0)
++#define I2CP_TX_FIFO          (0x50 / 4)
++#define I2CP_RX_FIFO          (0x54 / 4)
++#define I2CP_PKT_STATUS       (0x58 / 4)
++#define I2CP_FIFO_CONTROL     (0x5C / 4)
++#define  I2CP_RX_FLUSH        (1 << 0)
++#define  I2CP_TX_FLUSH        (1 << 1)
++#define I2CP_FIFO_STATUS      (0x60 / 4)
++#define  I2CP_RX_FULL_CNT     (0xF << 0)
++#define I2CP_PROT_I2C         (1 << 4)
++#define I2CP_HDR_REP_START    (1 << 16)
++#define I2CP_HDR_READ         (1 << 19)
++#define I2CP_TIMEOUT_US       200000
++
++int i2c_xfer_packet(UINT32 idx, UINT32 dev_addr, const UINT8 *tx_buf, UINT32 tx_size, UINT8 *rx_buf, UINT32 rx_size)
++{
++	vu32 *base = (vu32 *)i2c_addrs[idx];
++	int ok = 1;
++	u32 start, len, word, tx_rem;
++
++	if (tx_size == 0 || tx_size > 20 || rx_size == 0 || rx_size > 32)
++		return 0;
++
++	base[I2CP_CMD_ADDR0] = (dev_addr << 1) | 1;
++	base[I2CP_CNFG] = I2CP_DEBOUNCE_4T | I2CP_NEW_MASTER_FSM | I2CP_CMD1_READ;
++	base[I2CP_FIFO_CONTROL] = I2CP_RX_FLUSH | I2CP_TX_FLUSH;
++	_i2c_wait(base);
++
++	base[I2CP_CNFG] = (base[I2CP_CNFG] & ~I2CP_NORMAL_GO) | I2CP_PACKET_GO;
++
++	// Write request header + payload.
++	base[I2CP_TX_FIFO] = I2CP_PROT_I2C;
++	base[I2CP_TX_FIFO] = tx_size - 1;
++	base[I2CP_TX_FIFO] = I2CP_HDR_REP_START | (dev_addr << 1);
++
++	tx_rem = tx_size;
++	while (tx_rem)
++	{
++		len = tx_rem < 4 ? tx_rem : 4;
++		word = 0;
++		memcpy(&word, tx_buf, len);
++		base[I2CP_TX_FIFO] = word;
++		tx_buf += len;
++		tx_rem -= len;
++	}
++
++	start = get_tmr_us();
++	while (((base[I2CP_PKT_STATUS] >> 4) & 0xFFF) != (tx_size - 1))
++	{
++		if (get_tmr_us() - start > I2CP_TIMEOUT_US)
++		{
++			ok = 0;
++			goto out;
++		}
++	}
++
++	// Read request header.
++	base[I2CP_TX_FIFO] = I2CP_PROT_I2C;
++	base[I2CP_TX_FIFO] = rx_size - 1;
++	base[I2CP_TX_FIFO] = I2CP_HDR_READ | (dev_addr << 1);
++
++	start = get_tmr_us();
++	while (rx_size)
++	{
++		if (base[I2CP_FIFO_STATUS] & I2CP_RX_FULL_CNT)
++		{
++			len = rx_size < 4 ? rx_size : 4;
++			word = base[I2CP_RX_FIFO];
++			memcpy(rx_buf, &word, len);
++			rx_buf += len;
++			rx_size -= len;
++		}
++		if (get_tmr_us() - start > I2CP_TIMEOUT_US)
++		{
++			ok = 0;
++			break;
++		}
++	}
++
++out:
++	if (base[I2CP_STATUS] & I2CP_STATUS_NOACK)
++		ok = 0;
++
++	sleep(20);
++	base[I2CP_CNFG] &= ~(I2CP_PACKET_GO | I2CP_NORMAL_GO);
++	return ok;
++}
++
++int i2c_recv_buf_big(UINT8 *buf, UINT32 size, UINT32 idx, UINT32 dev_addr, UINT32 reg)
++{
++	UINT8 r = (UINT8)reg;
++	return i2c_xfer_packet(idx, dev_addr, &r, 1, buf, size);
++}
+diff --git a/Library/PlatformBootManagerLib/PlatformBm.c b/Library/PlatformBootManagerLib/PlatformBm.c
+index a3273c0..30ca1d9 100644
+--- a/Library/PlatformBootManagerLib/PlatformBm.c
++++ b/Library/PlatformBootManagerLib/PlatformBm.c
+@@ -33,6 +33,7 @@
+ #include <Guid/EventGroup.h>
+ #include <Guid/TtyTerm.h>
+ 
++#include <Device/TouchPanel.h>
+ #include "PlatformBm.h"
+ 
+ #define DP_NODE_LEN(Type) { (UINT8)sizeof (Type), (UINT8)(sizeof (Type) >> 8) }
+@@ -102,6 +103,8 @@ typedef struct {
+ } PLATFORM_USB_KEYBOARD;
+ #pragma pack ()
+ 
++STATIC TOUCH_DEVICE_PATH mTouchPanel = TOUCH_DEVICE_PATH_INIT;
++
+ STATIC PLATFORM_USB_KEYBOARD mUsbKeyboard = {
+   //
+   // USB_CLASS_DEVICE_PATH Keyboard
+@@ -496,6 +499,12 @@ PlatformBootManagerBeforeConsole (
+   EfiBootManagerUpdateConsoleVariable (ConIn,
+     (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard, NULL);
+ 
++  //
++  // Add the touch panel (EFI_ABSOLUTE_POINTER_PROTOCOL) to ConIn.
++  //
++  EfiBootManagerUpdateConsoleVariable (ConIn,
++    (EFI_DEVICE_PATH_PROTOCOL *)&mTouchPanel, NULL);
++
+   //
+   // Add the hardcoded serial console device path to ConIn, ConOut, ErrOut.
+   //
+diff --git a/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf b/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+index 71f1d04..bf3fb69 100644
+--- a/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
++++ b/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+@@ -37,6 +37,7 @@
+ [Packages]
+   MdeModulePkg/MdeModulePkg.dec
+   MdePkg/MdePkg.dec
++  NintendoSwitchPkg/NintendoSwitch.dec
+   ShellPkg/ShellPkg.dec
+ 
+ [LibraryClasses]
+diff --git a/NintendoSwitch.dsc b/NintendoSwitch.dsc
+index 2eee487..f607389 100644
+--- a/NintendoSwitch.dsc
++++ b/NintendoSwitch.dsc
+@@ -387,6 +387,7 @@
+   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
+   NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
++  NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+   # NintendoSwitchPkg/Drivers/EhciPciEmulationDxe/PciEmulation.inf
+   MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+   MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf {
+diff --git a/NintendoSwitch.fdf b/NintendoSwitch.fdf
+index 2a41f29..2b0d5f7 100644
+--- a/NintendoSwitch.fdf
++++ b/NintendoSwitch.fdf
+@@ -114,6 +114,7 @@ READ_LOCK_STATUS   = TRUE
+   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
+   INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
++  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+   # INF NintendoSwitchPkg/Drivers/EhciPciEmulationDxe/PciEmulation.inf
+   INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+   INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf

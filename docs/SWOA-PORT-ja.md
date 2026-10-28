@@ -23,7 +23,7 @@ git clone --depth 1 --branch edk2-stable202402 https://github.com/tianocore/edk2
 # サブモジュール(README.winx.md と同じ)を取得
 # Firmware/tegra21x_xusb_firmware を置く(Firmware/README.md)
 # Include/FwReleaseInfo.h を作る
-Tools/build-woa.sh
+Tools/build-woa.sh   # SWITCH_BIGFD=1 込み(bl33.bin は 1048576 バイト)
 ```
 Windows 側は `WindowsDrivers/` の各 `kits/Switch-*` と README の手順で、テスト署名 → GPIO → I2C → 各ドライバの順に入れます。
 
