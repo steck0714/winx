@@ -1,0 +1,42 @@
+#/* @file
+#
+#  Real-time clock backed by the MAX77620 PMIC RTC with a soft-clock fallback.
+#
+#  Copyright (c), 2018, Andrei Warkentin <andrey.warkentin@gmail.com>
+#  Copyright (c) Microsoft Corporation. All rights reserved.
+#
+#  This program and the accompanying materials
+#  are licensed and made available under the terms and conditions of the BSD License
+#  which accompanies this distribution.  The full text of the license may be found at
+#  http://opensource.org/licenses/bsd-license.php
+#
+#  THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+#
+#*/
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = Max77620RealTimeClockLib
+  FILE_GUID                      = 7A3C0B52-91E4-4C27-8D6E-3F5A2B8C1D90
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RealTimeClockLib
+
+[Sources.common]
+  Max77620RealTimeClockLib.c
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  IoLib
+  DebugLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiRuntimeLib
+  I2cLib
+  ArmGenericTimerCounterLib

@@ -1,0 +1,45 @@
+## @file
+#  DefaultExceptionHandlerLib variant for the Switch: the CPU state dump is also drawn on the panel framebuffer.
+#  Build with -D SWITCH_EXCFB=1. Based on ArmPkg/Library/DefaultExceptionHandlerLib (BSD-2-Clause-Patent).
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = FbExceptionHandlerLib
+  FILE_GUID                      = 6b0f3c52-8e1d-4a77-b3d9-2c41a9e57f08
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = DefaultExceptionHandlerLib|DXE_CORE DXE_DRIVER
+
+[Sources.common]
+  DefaultExceptionHandlerUefi.c
+  FbText.c
+
+[Sources.AARCH64]
+  AArch64/DefaultExceptionHandler.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiLib
+  BaseLib
+  PrintLib
+  DebugLib
+  PcdLib
+  PeCoffGetEntryPointLib
+  ArmDisassemblerLib
+  SerialPortLib
+  UefiBootServicesTableLib
+  CacheMaintenanceLib
+
+[FixedPcd]
+  gNintendoSwitchPkgTokenSpaceGuid.PcdMipiFrameBufferAddress
+  gNintendoSwitchPkgTokenSpaceGuid.PcdMipiFrameBufferWidth
+  gNintendoSwitchPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
+  gNintendoSwitchPkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth
+
+[Guids]
+  gEfiDebugImageInfoTableGuid

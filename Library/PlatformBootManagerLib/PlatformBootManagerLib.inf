@@ -37,6 +37,7 @@
 [Packages]
   MdeModulePkg/MdeModulePkg.dec
   MdePkg/MdePkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
   ShellPkg/ShellPkg.dec
 
 [LibraryClasses]

@@ -33,6 +33,7 @@
 #include <Guid/EventGroup.h>
 #include <Guid/TtyTerm.h>
 
+#include <Device/TouchPanel.h>
 #include "PlatformBm.h"
 
 #define DP_NODE_LEN(Type) { (UINT8)sizeof (Type), (UINT8)(sizeof (Type) >> 8) }
@@ -101,6 +102,8 @@ typedef struct {
   EFI_DEVICE_PATH_PROTOCOL End;
 } PLATFORM_USB_KEYBOARD;
 #pragma pack ()
+
+STATIC TOUCH_DEVICE_PATH mTouchPanel = TOUCH_DEVICE_PATH_INIT;
 
 STATIC PLATFORM_USB_KEYBOARD mUsbKeyboard = {
   //
@@ -495,6 +498,12 @@ PlatformBootManagerBeforeConsole (
   //
   EfiBootManagerUpdateConsoleVariable (ConIn,
     (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard, NULL);
+
+  //
+  // Add the touch panel (EFI_ABSOLUTE_POINTER_PROTOCOL) to ConIn.
+  //
+  EfiBootManagerUpdateConsoleVariable (ConIn,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mTouchPanel, NULL);
 
   //
   // Add the hardcoded serial console device path to ConIn, ConOut, ErrOut.
