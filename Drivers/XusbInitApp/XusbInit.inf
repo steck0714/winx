@@ -1,0 +1,37 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = XusbInit
+  FILE_GUID      = 3b9d7e14-5a62-4c0f-8e31-7c24a9f06d58
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = UefiMain
+
+[Sources]
+  XusbInit.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PrintLib
+  IoLib
+  DebugLib
+  ShellLib
+  CacheMaintenanceLib
+  TimerLib
+
+[Guids]
+  gEfiEventExitBootServicesGuid
+  gEfiAcpi20TableGuid
+
+[Protocols]
+  gEfiShellParametersProtocolGuid

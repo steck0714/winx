@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+# WinbootSpyDxe.inf: diagnostic. Hooks Boot/Runtime Services, BlockIo and SimpleFileSystem file calls and
+# writes every failing call (plus file-open sequence, block devices, memory map) to \winboot_spy.log on the
+# SD/ESP volume once a second. Built with -D SWITCH_WINSPY=1. See WinbootSpyDxe.c.
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = WinbootSpyDxe
+  FILE_GUID                      = 6d1c9a3e-52b0-4f1e-9c47-b0a7d5e3f1c2
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = WinbootSpyEntry
+
+[Sources]
+  WinbootSpyDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  PrintLib
+  UefiLib
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                 ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid        ## CONSUMES
+  gEfiDevicePathProtocolGuid              ## CONSUMES
+  gEfiDevicePathToTextProtocolGuid        ## CONSUMES
+  gEfiPartitionInfoProtocolGuid           ## CONSUMES
+
+[Guids]
+  gEfiFileInfoGuid
+
+[Depex]
+  TRUE

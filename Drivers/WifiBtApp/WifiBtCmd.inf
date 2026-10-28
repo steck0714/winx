@@ -1,0 +1,37 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = WifiBtCommand
+  FILE_GUID      = 5d1f7a36-b2c9-4e84-9a07-3c6e8f2b1d49
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = WifiBtCmdInitialize
+
+[Sources]
+  WifiBt.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PrintLib
+  IoLib
+  DebugLib
+  ShellLib
+  I2cLib
+  TimerLib
+
+[Protocols]
+  gEfiShellParametersProtocolGuid
+  gEfiShellDynamicCommandProtocolGuid
+
+[Depex]
+  TRUE

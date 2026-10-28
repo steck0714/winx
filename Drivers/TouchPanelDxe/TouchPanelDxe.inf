@@ -1,0 +1,46 @@
+# TouchPanelDxe.inf: Nintendo Switch touch panel (STMicro FingerTip "FTS4", I2C3 0x49)
+# exposed as EFI_ABSOLUTE_POINTER_PROTOCOL. Protocol/power-up sequence follows the Linux
+# ftm4 (L4T) / hekate FTS4 drivers.
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = TouchPanelDxe
+  FILE_GUID                      = 7d0f6a52-3c41-4e8b-9a3e-5b1c2d94f0a7
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = TouchPanelDxeInitialize
+
+[Sources.common]
+  TouchPanel.c
+  Fts4.h
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  IoLib
+  UefiLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  CompilerIntrinsicsLib
+  GpioLib
+  I2cLib
+  ClockLib
+  EarlyTimerLib
+
+[Protocols]
+  gEfiAbsolutePointerProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gPmicProtocolGuid
+  gTegraPinMuxProtocolGuid
+
+[Depex]
+  gPmicProtocolGuid AND gTegraPinMuxProtocolGuid

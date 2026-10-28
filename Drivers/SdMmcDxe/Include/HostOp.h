@@ -16,5 +16,14 @@ SdFxInitFinalize
 );
 
 ulong mmc_bread(UINT64 start, UINT64 blkcnt, void *dst);
+ulong mmc_bwrite(UINT64 start, UINT64 blkcnt, const void *src);
+
+// Diagnostics log (SdMmc.c) and "init finished, use the fast data path" flag.
+VOID SdLog (CONST CHAR16 *Fmt, ...);
+VOID SdDiagPublish (VOID);
+extern BOOLEAN mSdFast;
+extern UINT32  mLastXferSts;
+extern UINT16  mLastAcmd12;
+VOID tegra_mmc_recover_lines (VOID);
 
 #endif

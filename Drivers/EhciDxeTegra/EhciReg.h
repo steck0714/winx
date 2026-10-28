@@ -40,6 +40,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define EHC_ASYNC_HEAD_OFFSET   0x18 // Next asynchronous list address offset
 #define EHC_CONFIG_FLAG_OFFSET  0x40 // Configure flag register offset
 #define EHC_PORT_STAT_OFFSET    0x44 // Port status/control offset
+#define EHC_TEGRA_HOSTPC1_OFFSET  0x84 // Tegra210 HOSTPC1_DEVLC (abs 0x1B4, CAPLENGTH 0x30 + 0x100): PSPD [26:25]
 
 #define EHC_FRAME_LEN  1024
 

@@ -102,6 +102,7 @@ FDT_USB mPriv;
 #define USB1_USBCMD                     0x130
 #define USB1_HOSTPC1_DEVLC              0x1B4
 #define USB1_USBMODE                    0x1F8
+#define USB1_PORTSC                     0x174   // op base 0x130 + PORTSC 0x44
 #define USB1_SUSP_CTRL                  0x400
 #define USB1_PHY_VBUS_SENSORS           0x404
 #define USB1_UTMIP_XCVR_CFG0            0x808
@@ -123,6 +124,12 @@ FDT_USB mPriv;
 #define SUSP_CTRL_UTMIP_PHY_ENB         BIT12
 
 #define USBCMD_RUN                      BIT0
+#define PORTSC_PP                       BIT12   // port power
+#define PORTSC_W1C_MASK                 (BIT1 | BIT3 | BIT5)   // CSC / PEC / OCC: write 1 clears, never write them back
+
+#ifndef SWITCH_USB_POWERWATCH
+#define SWITCH_USB_POWERWATCH           1       // 0 = compile the charger/VBUS watcher out
+#endif
 #define USBCMD_RESET                    BIT1
 #define USBMODE_CM_MASK                 0x3
 #define USBMODE_CM_HOST                 0x3
@@ -565,6 +572,8 @@ Bm92tCheck (
     }
 }
 
+STATIC VOID UsbPowerWatch (VOID);
+
 STATIC
 VOID
 EFIAPI
@@ -574,6 +583,7 @@ Bm92tPollTimer (
 )
 {
     Bm92tCheck ();
+    UsbPowerWatch ();
 }
 
 STATIC
@@ -592,6 +602,206 @@ Bm92tEnableSource (
     Bm92tReapply ();
     DEBUG((DEBUG_INFO, "USB: bm92t36 source path enabled\n"));
 }
+
+/*
+ * Switch the Type-C port between "we feed VBUS" (bq24193 OTG boost + GPIO CC4 + bm92t36 source path,
+ * what a USB keyboard needs) and "someone else feeds VBUS" (charger / dock: boost off, charging on,
+ * GPIO CC4 low so we never drive 5 V into the other side's VBUS).
+ */
+STATIC BOOLEAN mSourceOn;
+
+STATIC
+VOID
+UsbVbusSource (
+    IN BOOLEAN On
+)
+{
+    UINT8 Reg;
+
+    // Pad: not the USB function, so the GPIO output drives it (as hekate does).
+    MmioWrite32 (0x70003000 + 0x1A8, (1 << 8) | 1);
+
+    if (!On) {
+        gpio_config (GPIO_PORT_CC, GPIO_PIN_4, GPIO_MODE_GPIO);
+        gpio_write (GPIO_PORT_CC, GPIO_PIN_4, GPIO_LOW);
+        gpio_output_enable (GPIO_PORT_CC, GPIO_PIN_4, GPIO_OUTPUT_ENABLE);
+    }
+
+    // bq24193 (I2C1 0x6B): only touch it if the vendor/part ID matches.
+    if (i2c_recv_byte (I2C_1, 0x6B, 0x0A) == 0x2F) {
+        if (On) {
+            // REG05: disable the I2C watchdog, or it resets OTG back to charge.
+            Reg = i2c_recv_byte (I2C_1, 0x6B, 0x05);
+            Reg &= ~(3 << 4);
+            i2c_send_byte (I2C_1, 0x6B, 0x05, Reg);
+        }
+        // REG01 CHG_CONFIG[5:4]: 10b = OTG boost on, 01b = charge battery.
+        Reg = i2c_recv_byte (I2C_1, 0x6B, 0x01);
+        Reg = (Reg & ~(3 << 4)) | ((On ? 2 : 1) << 4);
+        i2c_send_byte (I2C_1, 0x6B, 0x01, Reg);
+        DEBUG((DEBUG_INFO, "USB: bq24193 %a, REG01=%02x\n", On ? "OTG on" : "charge", i2c_recv_byte (I2C_1, 0x6B, 0x01)));
+    } else {
+        DEBUG((DEBUG_ERROR, "USB: bq24193 not found, no OTG/charge switch\n"));
+    }
+
+    if (On) {
+        Bm92tEnableSource ();
+        // nvidia,vbus-gpio = <&gpio TEGRA_GPIO(CC, 4) GPIO_ACTIVE_HIGH>
+        gpio_config (GPIO_PORT_CC, GPIO_PIN_4, GPIO_MODE_GPIO);
+        gpio_write (GPIO_PORT_CC, GPIO_PIN_4, GPIO_HIGH);
+        gpio_output_enable (GPIO_PORT_CC, GPIO_PIN_4, GPIO_OUTPUT_ENABLE);
+    }
+    mSourceOn = On;
+}
+
+#if SWITCH_USB_POWERWATCH
+/*
+ * Charger / dock hot-plug recovery.
+ *
+ * Everything above runs once at boot. When a charger is plugged or removed afterwards, the PD controller
+ * renegotiates the power role and VBUS changes hands: the keyboard loses its supply and, once the source
+ * comes back, nothing re-enables it and the UsbBus driver never sees the device again.
+ *
+ * Every 250 ms (from the bm92t36 poll timer): sample bq24193 REG08 (VBUS_STAT / PG_STAT) and bm92t36 STATUS1.
+ * When the sample has changed and stayed the same for two polls (~0.5 s), and at most every ~2 s:
+ *   1. VBUS: someone else feeds VBUS (VBUS_STAT = USB host / adapter)  -> boost off, charge on, CC4 low.
+ *            nobody does                                                -> boost on, CC4 high, PD source path.
+ *   2. If anything flipped the USB2 pad mux to XUSB (xusbinit), put it back to EHCI ("back to USB 2.0").
+ *   3. Cycle the root port power so UsbBus drops the device and enumerates it again.
+ * The controller itself (host mode, PHY, running EHCI state) is not touched.
+ */
+#define WATCH_NONE      0xFFFFFFFFu
+#define WATCH_COOLDOWN  8               // polls (250 ms each) between recoveries
+#define CAR_BASE_ADDR   0x60006000UL
+#define CAR_RST_W_REG   0x35C
+#define CAR_ENB_W_REG   0x364
+#define XUSB_RST_W_BIT  BIT15
+#define XUSB_PADCTL_BIT BIT14
+#define XUSB_PADCTL_USB2_PAD_MUX  0x7009F004UL
+
+STATIC UINT32 mWatchStable = WATCH_NONE;    // last signature we acted on / started with
+STATIC UINT32 mWatchSeen   = WATCH_NONE;    // candidate new signature
+STATIC UINT32 mWatchSeenN;
+STATIC UINT32 mWatchCool;
+STATIC UINT32 mWatchRuns;
+
+STATIC
+UINT32
+UsbPowerSample (
+    OUT BOOLEAN *ExternalSource
+)
+{
+    UINT32 S1 = 0;
+    UINT8  B08 = 0xFF;
+    UINT32 Vs;
+
+    *ExternalSource = FALSE;
+    if (i2c_recv_byte (I2C_1, 0x6B, 0x0A) == 0x2F) {
+        B08 = i2c_recv_byte (I2C_1, 0x6B, 0x08);
+    }
+    Bm92tRead16 (0x03, &S1);
+
+    Vs = (B08 >> 6) & 3;                    // 0 none, 1 USB host, 2 adapter, 3 OTG (we are the source)
+    if (B08 != 0xFF && (Vs == 1 || Vs == 2)) {
+        *ExternalSource = TRUE;
+    }
+    return ((UINT32)(B08 & 0xC4)) | ((S1 & 0x1083) << 8);   // VBUS_STAT, PG_STAT | PD insert/src/err bits
+}
+
+STATIC
+VOID
+UsbPortPowerCycle (
+    VOID
+)
+{
+    EFI_TPL Tpl;
+    UINT32  V;
+
+    Tpl = gBS->RaiseTPL (TPL_NOTIFY);       // keep EhciDxe's own PORTSC accesses out of the read-modify-write
+    V = UsbRd (USB1_PORTSC);
+    UsbWr (USB1_PORTSC, V & ~(PORTSC_PP | PORTSC_W1C_MASK));
+    gBS->RestoreTPL (Tpl);
+
+    gBS->Stall (150 * 1000);
+
+    Tpl = gBS->RaiseTPL (TPL_NOTIFY);
+    V = UsbRd (USB1_PORTSC);
+    UsbWr (USB1_PORTSC, (V | PORTSC_PP) & ~PORTSC_W1C_MASK);
+    gBS->RestoreTPL (Tpl);
+}
+
+STATIC
+BOOLEAN
+UsbPadBackToEhci (
+    VOID
+)
+{
+    UINT32 V;
+
+    // Never touch 0x7009xxxx unless the XUSB block is clocked and out of reset (else the CPU stalls).
+    if ((MmioRead32 (CAR_BASE_ADDR + CAR_ENB_W_REG) & XUSB_RST_W_BIT) == 0 ||
+        (MmioRead32 (CAR_BASE_ADDR + CAR_RST_W_REG) & (XUSB_RST_W_BIT | XUSB_PADCTL_BIT)) != 0) {
+        return FALSE;
+    }
+    V = MmioRead32 (XUSB_PADCTL_USB2_PAD_MUX);
+    if ((V & ((3 << 0) | (3 << 18))) == 0) {
+        return FALSE;
+    }
+    MmioWrite32 (XUSB_PADCTL_USB2_PAD_MUX, V & ~((3U << 0) | (3U << 18)));
+    return TRUE;
+}
+
+STATIC
+VOID
+UsbPowerWatch (
+    VOID
+)
+{
+    BOOLEAN Ext;
+    UINT32  Sig;
+
+    if (mWatchCool != 0) mWatchCool--;
+
+    Sig = UsbPowerSample (&Ext);
+    if (mWatchStable == WATCH_NONE) {       // first sample after boot: baseline, nothing to recover
+        mWatchStable = Sig;
+        mWatchSeen   = Sig;
+        return;
+    }
+    if (Sig == mWatchStable) {
+        mWatchSeen  = Sig;
+        mWatchSeenN = 0;
+        return;
+    }
+    if (Sig != mWatchSeen) {                // a new candidate: wait for it to hold
+        mWatchSeen  = Sig;
+        mWatchSeenN = 1;
+        return;
+    }
+    if (++mWatchSeenN < 2 || mWatchCool != 0) {
+        return;
+    }
+
+    // Stable change: re-set the port up.
+    mWatchStable = Sig;
+    mWatchSeenN  = 0;
+    mWatchCool   = WATCH_COOLDOWN;
+    mWatchRuns++;
+    DEBUG((DEBUG_INFO, "USB: power change #%d sig=%08x external=%d -> re-setup\n", mWatchRuns, Sig, Ext));
+
+    if (Ext) {
+        if (mSourceOn) UsbVbusSource (FALSE);
+    } else {
+        UsbVbusSource (TRUE);
+    }
+    if (UsbPadBackToEhci ()) {
+        DEBUG((DEBUG_INFO, "USB: USB2 pad mux restored to EHCI\n"));
+    }
+    UsbPortPowerCycle ();
+}
+#else
+STATIC VOID UsbPowerWatch (VOID) { }
+#endif
 
 /* Set up VBUS for host/device mode */
 static void set_up_vbus(
@@ -612,42 +822,7 @@ static void set_up_vbus(
 
 	if (config->vbus_gpio_valid)
     {
-        UINT8 Reg;
-
-        /*
-         * Erista: VBUS to the USB-C port is sourced by the bq24193 OTG boost
-         * and gated by GPIO CC4 (USB_VBUS_EN0). hekate leaves both off, and
-         * PinMuxDxe routes the pad to the USB function, so GPIO CC4 never
-         * reaches the pad. Fix all three.
-         */
-
-        // Pad: not the USB function, so the GPIO output drives it (as hekate does).
-        MmioWrite32 (0x70003000 + 0x1A8, (1 << 8) | 1);
-
-        // bq24193 (I2C1 0x6B): only touch it if the vendor/part ID matches.
-        if (i2c_recv_byte (I2C_1, 0x6B, 0x0A) == 0x2F) {
-            // REG05: disable the I2C watchdog, or it resets OTG back to charge.
-            Reg = i2c_recv_byte (I2C_1, 0x6B, 0x05);
-            Reg &= ~(3 << 4);
-            i2c_send_byte (I2C_1, 0x6B, 0x05, Reg);
-
-            // REG01 CHG_CONFIG[5:4] = 10b: OTG boost on.
-            Reg = i2c_recv_byte (I2C_1, 0x6B, 0x01);
-            Reg = (Reg & ~(3 << 4)) | (2 << 4);
-            i2c_send_byte (I2C_1, 0x6B, 0x01, Reg);
-
-            DEBUG((DEBUG_INFO, "USB: bq24193 OTG on, REG01=%02x\n",
-                   i2c_recv_byte (I2C_1, 0x6B, 0x01)));
-        } else {
-            DEBUG((DEBUG_ERROR, "USB: bq24193 not found, no OTG boost\n"));
-        }
-
-        Bm92tEnableSource ();
-
-        // nvidia,vbus-gpio = <&gpio TEGRA_GPIO(CC, 4) GPIO_ACTIVE_HIGH>
-        gpio_config(GPIO_PORT_CC, GPIO_PIN_4, GPIO_MODE_GPIO);
-        gpio_write(GPIO_PORT_CC, GPIO_PIN_4, GPIO_HIGH);
-        gpio_output_enable(GPIO_PORT_CC, GPIO_PIN_4, GPIO_OUTPUT_ENABLE);
+        UsbVbusSource (TRUE);
         DEBUG((DEBUG_INFO, "USB: VBUS enabled\n"));
 	}
 }
@@ -836,6 +1011,43 @@ ConfigureUSBHost(
     return EFI_SUCCESS;
 }
 
+#define USB1_PHY_VBUS_WAKEUP_ID         0x408
+#define VBUSS_B_SESS_VLD_WAKEUP_EN      BIT14
+#define VBUSS_A_SESS_VLD_WAKEUP_EN      BIT22
+#define VBUSS_A_VBUS_VLD_WAKEUP_EN      BIT30
+#define WAKEID_ID_INT_EN                BIT0
+#define WAKEID_ID_CHG_DET               BIT1
+#define WAKEID_VBUS_WAKEUP_INT_EN       BIT8
+#define WAKEID_VBUS_WAKEUP_CHG_DET      BIT9
+#define WAKEID_VBUS_WAKEUP_WAKEUP_EN    BIT30
+
+/*
+ * ExitBootServices: leave the USB1 wrapper quiet for the OS.
+ * The ACPI tables describe no USB device, so Windows has no ISR for the controller's IRQ. If a VBUS / ID /
+ * session-valid change (charger, keyboard, PD role swap) raises it after the hand-over, nothing services it.
+ * EhcExitBootService resets the EHCI core; this also disables the wrapper-level wake/interrupt enables and
+ * acknowledges any pending change-detect bits (write 1 to clear).
+ */
+STATIC
+VOID
+EFIAPI
+UsbQuiesceOnExitBootServices (
+    IN EFI_EVENT Event,
+    IN VOID      *Context
+)
+{
+    UINT32 Val;
+
+    Val = UsbRd (USB1_PHY_VBUS_SENSORS);
+    Val &= ~(VBUSS_B_SESS_VLD_WAKEUP_EN | VBUSS_A_SESS_VLD_WAKEUP_EN | VBUSS_A_VBUS_VLD_WAKEUP_EN);
+    UsbWr (USB1_PHY_VBUS_SENSORS, Val);
+
+    Val = UsbRd (USB1_PHY_VBUS_WAKEUP_ID);
+    Val &= ~(WAKEID_ID_INT_EN | WAKEID_VBUS_WAKEUP_INT_EN | WAKEID_VBUS_WAKEUP_WAKEUP_EN);
+    Val |= (WAKEID_ID_CHG_DET | WAKEID_VBUS_WAKEUP_CHG_DET);
+    UsbWr (USB1_PHY_VBUS_WAKEUP_ID, Val);
+}
+
 EFI_STATUS
 EFIAPI
 PciEmulationEntryPoint(
@@ -861,6 +1073,11 @@ PciEmulationEntryPoint(
         if (!EFI_ERROR (gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (VOID **)&Cpu))) {
             Cpu->RegisterInterruptHandler (Cpu, EXCEPT_AARCH64_SYNCHRONOUS_EXCEPTIONS, UsbDiagExceptionHandler);
         }
+    }
+
+    {
+        EFI_EVENT QuiesceEvent;
+        gBS->CreateEvent (EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_CALLBACK, UsbQuiesceOnExitBootServices, NULL, &QuiesceEvent);
     }
 
     {

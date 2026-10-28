@@ -1,0 +1,45 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = UsbPowerAuditDxe
+  FILE_GUID                      = 3056e0a1-4ffe-4d2b-92fb-a117963a0107
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = UsbPowerAuditEntryPoint
+
+[Sources.common]
+  UsbPowerAudit.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  DxeServicesTableLib
+  DxeServicesLib
+  UefiLib
+  IoLib
+  PrintLib
+  CacheMaintenanceLib
+  ArmLib
+  I2cLib
+  NonDiscoverableDeviceRegistrationLib
+
+[Protocols]
+  gPmicProtocolGuid
+  gEfiSimpleTextOutProtocolGuid
+  gEdkiiNonDiscoverableDeviceProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiPciIoProtocolGuid
+  gEfiDriverBindingProtocolGuid
+  gEfiComponentName2ProtocolGuid
+  gEfiUsb2HcProtocolGuid
+  gEfiUsbIoProtocolGuid
+  gEfiBlockIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[Depex]
+  gPmicProtocolGuid AND gEfiSimpleTextOutProtocolGuid

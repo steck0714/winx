@@ -1,0 +1,44 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = XusbInitCommand
+  FILE_GUID      = 8c5e2a97-1d3b-4f60-b7a4-9e0d6c13f2b5
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = XusbCmdInitialize
+
+[Sources]
+  XusbInit.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PrintLib
+  IoLib
+  DebugLib
+  ShellLib
+  CacheMaintenanceLib
+  TimerLib
+
+[Guids]
+  gEfiEventExitBootServicesGuid
+  gEfiAcpi20TableGuid
+
+[Protocols]
+  gEfiShellParametersProtocolGuid
+  gEfiShellDynamicCommandProtocolGuid
+
+[BuildOptions]
+  GCC:*_*_*_CC_FLAGS = -DXUSB_DYNAMIC
+
+[Depex]
+  TRUE

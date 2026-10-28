@@ -60,10 +60,16 @@ struct blk_desc mBlkDesc;
 // on the console right before the boot manager runs (ReadyToBoot), and kept in a volatile
 // variable "SdDiag" (Shell: dmpstore SdDiag).
 //
-STATIC CHAR16 mSdDiag[1536];
+// Data path state. mSdFast is set once the card is fully initialised: from then on the 1 ms
+// pacing delay after every command is dropped (it capped a 32 KiB read at ~6 MiB/s).
+BOOLEAN mSdFast = FALSE;
+#define SD_DMA_BUF_PAGES   128                       // 512 KiB persistent bounce buffer
+#define SD_DMA_BUF_SIZE    (SD_DMA_BUF_PAGES * EFI_PAGE_SIZE)
+STATIC VOID *mDmaBuf = NULL;
+
+STATIC CHAR16 mSdDiag[3072];
 STATIC UINTN  mSdDiagLen;
 
-STATIC
 VOID
 SdLog (
     IN CONST CHAR16 *Fmt,
@@ -78,6 +84,24 @@ SdLog (
     VA_END (Args);
 }
 
+// Publish the log as a volatile variable "SdDiag" (called after every logged read error too, so a
+// tool run later from the Shell, e.g. SdReadTest, can show what happened).
+VOID
+SdDiagPublish (
+    VOID
+)
+{
+    gRT->SetVariable (
+        L"SdDiag",
+        &gEfiCallerIdGuid,
+        EFI_VARIABLE_BOOTSERVICE_ACCESS,
+        (mSdDiagLen + 1) * sizeof (CHAR16),
+        mSdDiag
+    );
+}
+
+STATIC VOID SdLogControllerRegs (VOID);
+
 STATIC
 VOID
 EFIAPI
@@ -86,16 +110,11 @@ SdDiagOnReadyToBoot (
     IN VOID      *Context
 )
 {
+    SdLogControllerRegs ();
     if (gST->ConOut != NULL) {
         gST->ConOut->OutputString (gST->ConOut, mSdDiag);
     }
-    gRT->SetVariable (
-        L"SdDiag",
-        &gEfiCallerIdGuid,
-        EFI_VARIABLE_BOOTSERVICE_ACCESS,
-        (mSdDiagLen + 1) * sizeof (CHAR16),
-        mSdDiag
-    );
+    SdDiagPublish ();
     gBS->CloseEvent (Event);
 }
 
@@ -136,6 +155,44 @@ SdDiagOnReadyToBoot (
 #define SD_AUTOCALCFG               0x1E4
 #define SD_AUTOCALSTS               0x1EC
 #define SD_IOSPARE                  0x1F0
+
+// Standard SDHCI registers + Tegra vendor registers of SDMMC1, logged for Windows bring-up: the
+// in-box SD port driver (sdport/PNP0D40) trusts CAPABILITIES; Linux marks Tegra210 with
+// SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN / NO_HISPD_BIT, so these values show what Windows will see.
+STATIC
+VOID
+SdLogControllerRegs (
+    VOID
+)
+{
+    SdLog (L"[SDDIAG] SDHCI caps=%08x %08x ver=%04x pres=%08x pwr=%02x hc=%02x clk=%04x\r\n",
+           MmioRead32 (SD_BASE + 0x40), MmioRead32 (SD_BASE + 0x44),
+           MmioRead16 (SD_BASE + 0xFE), MmioRead32 (SD_BASE + 0x24),
+           MmioRead8  (SD_BASE + 0x29), MmioRead8  (SD_BASE + 0x28),
+           MmioRead16 (SD_BASE + 0x2C));
+    SdLog (L"[SDDIAG] vendor clk=%08x misc=%08x capov=%08x iotrim=%08x memcmp=%08x autocal=%08x/%08x\r\n",
+           MmioRead32 (SD_BASE + SD_VENCLKCTL), MmioRead32 (SD_BASE + 0x120),
+           MmioRead32 (SD_BASE + 0x10C), MmioRead32 (SD_BASE + SD_VENIOTRIMCTL),
+           MmioRead32 (SD_BASE + SD_SDMEMCMPPADCTL), MmioRead32 (SD_BASE + SD_AUTOCALCFG),
+           MmioRead32 (SD_BASE + SD_AUTOCALSTS));
+}
+
+// Hand the controller to the OS in a quiet, still-powered state: no pending interrupt status, no
+// interrupt signal routed to the GIC (Windows installs its own handler), SDMA idle. Power, pads,
+// clock and the card itself are left alone - the OS driver re-initialises the card (CMD0).
+STATIC
+VOID
+EFIAPI
+SdQuiesceOnExitBootServices (
+    IN EFI_EVENT Event,
+    IN VOID      *Context
+)
+{
+    MmioWrite32 (SD_BASE + 0x38, 0);            // signal enable
+    MmioWrite32 (SD_BASE + 0x34, 0);            // status enable
+    MmioWrite32 (SD_BASE + 0x30, 0xFFFFFFFF);   // clear status
+}
+
 
 STATIC
 BOOLEAN
@@ -358,6 +415,11 @@ void tegra_mmc_set_transfer_mode(
 
 	if (data->flags & MMC_DATA_READ)
 		mode |= TEGRA_MMC_TRNMOD_DATA_XFER_DIR_SEL_READ;
+#ifdef SWITCH_SD_FAST
+	// Auto CMD12: the controller sends the stop command itself (saves one command round trip).
+	if (mSdFast && (data->flags & MMC_DATA_READ) && data->blocks > 1)
+		mode |= (1 << 2);
+#endif
 
 	writew(mode, &priv->reg->trnmod);
 }
@@ -394,6 +456,30 @@ int tegra_mmc_wait_inhibit(
 
 	return 0;
 }
+
+
+// Bring the host controller back to a sane state after a failed command/transfer: reset the CMD and
+// DAT lines and clear every latched status bit. Without this a single CRC/timeout error left the
+// controller wedged and every following read returned Device Error.
+VOID
+tegra_mmc_recover_lines (
+    VOID
+)
+{
+	struct tegra_mmc_priv *priv = &mPriv;
+	unsigned int timeout = 100;
+
+	writeb(TEGRA_MMC_SWRST_SW_RESET_FOR_CMD_LINE | TEGRA_MMC_SWRST_SW_RESET_FOR_DAT_LINE, &priv->reg->swrst);
+	while (readb(&priv->reg->swrst) & (TEGRA_MMC_SWRST_SW_RESET_FOR_CMD_LINE | TEGRA_MMC_SWRST_SW_RESET_FOR_DAT_LINE)) {
+		if (timeout-- == 0) break;
+		udelay(100);
+	}
+	writel(0xffffffff, &priv->reg->norintsts);
+	writew(0xffff, &priv->reg->acmd12errsts);
+}
+
+UINT32 mLastXferSts;
+UINT16 mLastAcmd12;
 
 int tegra_mmc_send_cmd_bounced(
     struct tegra_mmc_priv *priv, 
@@ -475,6 +561,7 @@ int tegra_mmc_send_cmd_bounced(
 	{
 		printf("%s: waiting for status update\n", __func__);
 		writel(mask, &priv->reg->norintsts);
+		if (mSdFast) tegra_mmc_recover_lines();
 		return -ETIMEDOUT;
 	}
 
@@ -483,6 +570,7 @@ int tegra_mmc_send_cmd_bounced(
 		/* Timeout Error */
 		debug("timeout: %08x cmd %d \n", mask, cmd->cmdidx);
 		writel(mask, &priv->reg->norintsts);
+		if (mSdFast) tegra_mmc_recover_lines();
 		return -ETIMEDOUT;
 	} 
 	else if (mask & TEGRA_MMC_NORINTSTS_ERR_INTERRUPT) 
@@ -490,6 +578,7 @@ int tegra_mmc_send_cmd_bounced(
 		/* Error Interrupt */
 		debug("error: %08x cmd %d \n", mask, cmd->cmdidx);
 		writel(mask, &priv->reg->norintsts);
+		if (mSdFast) tegra_mmc_recover_lines();
 		return -1;
 	}
 
@@ -549,9 +638,12 @@ int tegra_mmc_send_cmd_bounced(
 			if (mask & TEGRA_MMC_NORINTSTS_ERR_INTERRUPT) 
 			{
 				/* Error Interrupt */
+				mLastXferSts = mask;
+				mLastAcmd12 = readw(&priv->reg->acmd12errsts);
 				writel(mask, &priv->reg->norintsts);
 				printf("%s: error during transfer: 0x%08x\n",
 						__func__, mask);
+				tegra_mmc_recover_lines();
 				return -1;
 			} 
 			else if (mask & TEGRA_MMC_NORINTSTS_DMA_INTERRUPT) 
@@ -575,6 +667,8 @@ int tegra_mmc_send_cmd_bounced(
 			} 
 			else if (get_timer(start) > 8000UL) 
 			{
+				mLastXferSts = mask;
+				mLastAcmd12 = readw(&priv->reg->acmd12errsts);
 				writel(mask, &priv->reg->norintsts);
 				printf("%s: MMC Timeout\n"
 				       "    Interrupt status        0x%08x\n"
@@ -585,13 +679,14 @@ int tegra_mmc_send_cmd_bounced(
 				       readl(&priv->reg->norintstsen),
 				       readl(&priv->reg->norintsigen),
 				       readl(&priv->reg->prnsts));
+				tegra_mmc_recover_lines();
 				return -1;
 			}
 		}
 		writel(mask, &priv->reg->norintsts);
 	}
 
-	udelay(1000);
+	if (!mSdFast) udelay(1000);
 	return 0;
 }
 
@@ -605,6 +700,7 @@ int tegra_mmc_send_cmd(
 	unsigned int bbflags;
 	size_t len;
 	struct bounce_buffer bbstate;
+	BOOLEAN UseStatic = FALSE;
 	int ret;
 
 	if (data) 
@@ -621,14 +717,42 @@ int tegra_mmc_send_cmd(
 		}
 		len = data->blocks * data->blocksize;
 
-		bounce_buffer_start(&bbstate, buf, len, bbflags);
+		// Zero-copy when the caller's buffer is already DMA-able (64-byte aligned, low memory);
+		// otherwise use the persistent bounce buffer instead of allocating pages on every request.
+		if (mDmaBuf != NULL && len <= SD_DMA_BUF_SIZE &&
+		    (((UINTN) buf & 63) != 0 || (len & 63) != 0 ||
+		     ((UINTN) buf + len) > (UINTN)(FixedPcdGet64(PcdSystemMemoryBase) + SIZE_1GB)))
+		{
+			UseStatic = TRUE;
+			bbstate.user_buffer = buf;
+			bbstate.bounce_buffer = mDmaBuf;
+			bbstate.len = len;
+			bbstate.len_aligned = (len + 63) & ~(size_t) 63;
+			bbstate.flags = bbflags;
+			if (bbflags & GEN_BB_READ) CopyMem(mDmaBuf, buf, len);
+			WriteBackInvalidateDataCacheRange(mDmaBuf, bbstate.len_aligned);
+			ret = 0;
+		}
+		else
+		{
+			ret = bounce_buffer_start(&bbstate, buf, len, bbflags);
+			if (ret) return -ENOMEM;
+		}
 	}
 
 	ret = tegra_mmc_send_cmd_bounced(priv, cmd, data, &bbstate);
 
 	if (data)
 	{
-		bounce_buffer_stop(&bbstate);
+		if (UseStatic)
+		{
+			InvalidateDataCacheRange(mDmaBuf, bbstate.len_aligned);
+			if (bbflags & GEN_BB_WRITE) CopyMem(buf, mDmaBuf, len);
+		}
+		else
+		{
+			bounce_buffer_stop(&bbstate);
+		}
 	}
 
 	return ret;
@@ -723,6 +847,13 @@ int tegra_mmc_set_ios(
 	else
 		ctrl &= ~(1 << 1 | 1 << 5);
 
+#ifdef SWITCH_SD_FAST
+	// High Speed Enable (HOSTCTL[2]): required for the 50 MHz SD high-speed mode.
+	if (mMmcInstance->clock > 26000000)
+		ctrl |= (1 << 2);
+	else
+		ctrl &= ~(1 << 2);
+#endif
 	writeb(ctrl, &priv->reg->hostctl);
 	debug("mmc_set_ios: hostctl = %08X\n", ctrl);
 
@@ -918,7 +1049,21 @@ SdMmcDxeInitialize
         EVT_NOTIFY_SIGNAL, TPL_CALLBACK, SdDiagOnReadyToBoot, NULL,
         &gEfiEventReadyToBootGuid, &DiagEvent
     );
+    {
+        EFI_EVENT ExitEvent;
+        gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, SdQuiesceOnExitBootServices, NULL,
+                            &gEfiEventExitBootServicesGuid, &ExitEvent);
+    }
     SdLog (L"\r\n[SDDIAG] SdMmcDxe start\r\n");
+
+    {
+        EFI_PHYSICAL_ADDRESS DmaAddr = (EFI_PHYSICAL_ADDRESS) (FixedPcdGet64(PcdSystemMemoryBase) + SIZE_1GB - 1);
+        if (EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData, SD_DMA_BUF_PAGES, &DmaAddr))) {
+            SdLog (L"[SDDIAG] WARNING: could not reserve the DMA bounce buffer\r\n");
+        } else {
+            mDmaBuf = (VOID *) (UINTN) DmaAddr;
+        }
+    }
 
     Status = gBS->LocateProtocol(
         &gTegraUBootClockManagementProtocolGuid,
@@ -963,6 +1108,7 @@ SdMmcDxeInitialize
             goto retry;
         }
         Status = EFI_SUCCESS;
+        mSdFast = TRUE;
         break;
 
 retry:
@@ -1026,7 +1172,8 @@ retry:
 			&Instance->DevicePath,
 			NULL
 		);
-        SdLog (L"[SDDIAG] BlockIo install: %r\r\n", Status);
+        SdLog (L"[SDDIAG] BlockIo install: %r (fast=%d clk=%d bw=%d)\r\n", Status, (INT32) mSdFast,
+               (INT32) mMmcInstance.clock, (INT32) mMmcInstance.bus_width);
 	}
 
 exit:
