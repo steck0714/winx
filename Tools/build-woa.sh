@@ -12,6 +12,6 @@ for p in NintendoSwitchPkg/patches/edk2/*.patch; do
 done
 cd edk2 && . edksetup.sh && make -C BaseTools
 build -a AARCH64 -p NintendoSwitchPkg/NintendoSwitch.dsc -t GCC5 -b RELEASE \
-  -D SWITCH_HEKATE=1 -D SWITCH_WOA=1 -D SWITCH_FB_ROTATE=2 "${ARGS[@]}"
+  -D SWITCH_HEKATE=1 -D SWITCH_WOA=1 -D SWITCH_BIGFD=1 -D SWITCH_FB_ROTATE=2 "${ARGS[@]}"
 R=Build/NintendoSwitch-AARCH64/RELEASE_GCC5
 python3 ../NintendoSwitchPkg/Tools/make-bl33.py --fd $R/FV/TEGRA210_EFI.fd --map $R/FV/FVMAIN_COMPACT.Fv.map -o bl33.bin
