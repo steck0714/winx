@@ -2,7 +2,7 @@
 
 A fork-style patch set on top of [imbushuo/NintendoSwitchPkg](https://github.com/imbushuo/NintendoSwitchPkg)
 (commit `09c3ade`, EDK2 `edk2-stable202402`). Goal: boot Windows on ARM on a Tegra210 Switch.
-**Work in progress - Windows has not been booted yet.** / 作業中。Windowsはまだ起動していません。
+**Work in progress.** Windows 11 ARM64 boots from an NTFS partition on the SD card (2026-10-28, author's console); USB, touch, Wi-Fi/BT, sound and GPU are not working in Windows yet. See `README.md` (Windows Boot Status) for the current table. / 作業中。SD上のNTFSパーティションからWindows 11 ARM64が起動します。WindowsでのUSB・タッチ・Wi-Fi/BT・音・GPUはまだ動きません。
 
 ## Status (reported from a real Erista console)
 | | |
@@ -12,7 +12,9 @@ A fork-style patch set on top of [imbushuo/NintendoSwitchPkg](https://github.com
 | USB host + **USB keyboard** in the Shell | works (bm92t36 PD + bq24193 OTG handling) |
 | microSD visible (`map`) after hekate | works with the SDMMC power-up patch |
 | `startup.nsh` auto-run | not confirmed |
-| Windows boot manager / WinPE | **not tried yet** |
+| Windows boot manager / WinPE | works (see `README.md`) |
+| Windows 11 from NTFS on the SD card | boots; BSOD when charging; xHCI BSOD; touch no response |
+| NTFS etc. read-only in UEFI (`SWITCH_FSDRV`) | NTFS works on hardware |
 | USB mass storage, PD/charging side effects | untested |
 
 Not verified: Mariko / Lite / OLED consoles. Only the author's console was used.
@@ -58,7 +60,7 @@ each experiment writes a log file (`xusb.log`, `wifibt.log`) whose LAST line nam
 ## Known caveats
 * Windows on a Cortex-A57 (ARMv8.0): recent Windows 11 builds need ARMv8.1 atomics, so use Windows 10 ARM64
   or an older Windows 11 build (about 23H2 and earlier).
-* The ACPI tables only describe CPU/GIC/timer/UART at the moment; Windows has no SD, USB, GPU, input drivers yet.
+* The ACPI tables now also describe SD, XHC0/EHC0, I2C, touch, battery, fan, RTC and the `SWOA*` devices (see `AcpiTables/Dsdt/Dsdt.asl`); the matching Windows drivers are in `WindowsDrivers/` and mostly unverified.
 * After `ExitBootServices` the firmware USB/PD handling stops.
 
 ## Optional feature switches (all UNTESTED on hardware until verified, see docs/ in the release notes)
