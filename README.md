@@ -29,16 +29,37 @@ The following features are reported as working in the supplied project notes:
 - Filesystem access through mappings such as `fs0:`.
 - FAT32 filesystem access.
 - Windows Boot Manager (`bootmgfw.efi`) starts and loads a 412 MiB `boot.wim` from the SD card (see Windows Boot Status).
+- Windows 11 ARM64 boots from an NTFS partition on the SD card (FAT32 holds `bl33.bin` and the boot files; see Windows Boot Status, 2026-10-28).
+- Read-only NTFS / exFAT / ext2-4 / XFS / Btrfs / F2FS / EROFS access in UEFI via EfiFs-based drivers (`README.fsdrv`); NTFS confirmed on hardware.
 
-## Windows Boot Status (2026-10-19, one Erista console)
+## Windows Boot Status (2026-10-28, one Erista console)
+
+Reported by the author from real-hardware tests. Items not listed here are untested.
+
+| Stage | Result |
+|---|---|
+| hekate -> BL31 -> bl33 -> UEFI Shell, SD (FAT32) read | works |
+| NTFS partition on the SD card readable from UEFI (EfiFs NTFS driver) | works |
+| Windows 11 ARM64 started from the NTFS partition (FAT32 partition: `bl33.bin` etc.) | **boots** |
+| Booting while the console is charging | **BSOD** (unresolved) |
+| xHCI (XUSB) reaches Windows | partly: Windows sees it, then **BSOD** |
+| Custom EHCI / xHCI path | works in UEFI only; no working USB in Windows yet |
+| Touch panel (`TCH0` / `touch-fts4`) in Windows | **no response** (no BSOD either) |
+| Windows keyboard / Wi-Fi / Bluetooth / sound / GPU acceleration | not working yet |
+
+Next steps: get the BSOD bugcheck code (kernel debugger below, or the memory dump), compare the `XHC0` / `EHC0` / `TCH0` / `I2C*`
+entries in `AcpiTables/Dsdt/Dsdt.asl` with what the Windows drivers expect, then rerun the A/B EHCI test in `TEST_PLAN.md`.
+Note: recent Windows 11 builds need ARMv8.1 atomics (Cortex-A57 is ARMv8.0); the author's working image is not a 24H2-era one.
+
+## Windows Boot Status - older notes (2026-10-19, WinPE from a RAM disk; kept for history)
 
 | Stage | Result |
 |---|---|
 | hekate -> BL31 -> bl33 -> UEFI Shell, SD (FAT32) read | works |
 | `bootmgfw.efi` (ARM64 Windows Boot Manager) started from the Shell or `\EFI\BOOT\BOOTAA64.EFI` | works (`bootmgr.efi` is not accepted; use the `bootmgfw.efi` name) |
 | Loading `\sources\boot.wim` (about 412 MiB) into a RAM disk | works with the SD fix in this tree (no more `0xc0000185`) |
-| Windows logo | shown, then the screen **stays there (hang)**; the next stage has not been analysed yet |
-| WinPE desktop / command prompt | **not reached** |
+| Windows logo | shown, then the screen **stayed there (hang)** with the 24H2-era WinPE (later: Windows 11 itself boots, see above) |
+| WinPE desktop / command prompt | not reached at that time |
 
 What was found on the way (details for anyone retracing this):
 
@@ -69,7 +90,7 @@ What was found on the way (details for anyone retracing this):
   **Untested.** If you try it, run a whole-file read test (hash compare) before booting Windows.
 * `release/1/bl33.bin` is the older basic release (no SD fix); `release/2/bl33.bin` is the newer one. Same file names, separate folders (`patches/1`, `patches/2` likewise).
 
-### Why the boot probably stops at the logo (not verified)
+### Why the old WinPE test stopped at the logo (not verified; historical)
 
 * The WinPE used for the tests (TPE-ARM-64) is a Windows 11 24H2 era image (boot manager 10.0.26089, WIM 10.0.26100).
   The Switch's Cortex-A57 is ARMv8.0 and has no LSE atomics, which recent Windows 11 kernels need. A hang or crash right
@@ -85,13 +106,13 @@ What was found on the way (details for anyone retracing this):
 - **Clocks:** Clock, reset, PLL, and related services.
 - **Power management:** PMC, PMIC, regulators, and related components.
 - **GPIO and pin multiplexing.**
-- **MicroSD:** SDSC and SDHC support. SDXC has been probed and its partition table detected (a 125 GB card is used for the Windows tests). Read-only from UEFI. Transfer errors are recovered and retried (see Windows Boot Status).
+- **MicroSD:** SDSC and SDHC support. SDXC has been probed and its partition table detected (a 125 GB card is used for the Windows tests). Read-only from UEFI unless the `sd-write` change is built in (untested). Transfer errors are recovered and retried (see Windows Boot Status).
 - **eMMC:** I don't have any plans to provide support at the moment.
 - **Display and framebuffer:** Display output is working in the documented setup. The framebuffer path requires a compatible Coreboot implementation.
 - **Sideband buttons:** Not yet registered as UEFI input devices.
 - **UART:** 115200 baud, 8N1, through the right-side rail connector.
 - **ACPI:** Platform device descriptions, including SD/MMC controllers.
-- **RTC and time:** No real-time clock is available. The `date` and `time` commands report values based on the build time. Changes are lost after power-off.
+- **RTC and time:** Real RTC via the MAX77620 with `-D SWITCH_RTC=1` (see `README.winx.md`); without it `date` / `time` use the build time and are lost after power-off.
 - **SMBIOS:** Platform information and clock-measurement support.
 - **Fan control:** Fan-control driver integration.
 - **USB 2.0:** Available, but may stop working after a voltage or connection-state change, such as disconnecting a keyboard while charging.
@@ -148,7 +169,9 @@ Connect the serial interface through the right-side rail connector to a compatib
 
 ## Planned / In-Progress
 
-- Get past the Windows logo (older WinPE, kernel debugger, ACPI/driver work).
+- Fix the BSOD when booting while charging, and the xHCI BSOD in Windows.
+- Make touch work in Windows (currently no response).
+- Windows keyboard (USB / EHCI via ACPI, see `TEST_PLAN.md`), Wi-Fi, Bluetooth, sound.
 - Test the fast SD build (`SWITCH_SD_FAST=1`).
 - EHCI / USB 3.0 host support.
 - eMMC support?
@@ -167,11 +190,25 @@ Refer to Lumia950XLPkg for the general build workflow, and consult the WinX and 
 
 ## Credits
 
+- [hayato41200](https://github.com/hayato41200) — Windows 10 on ARM for the Nintendo Switch: the XUSB/xHCI bring-up, USB-C PD and charging, CPU clock, fan, backlight and touch power code (`Drivers/UsbPowerAuditDxe`), the `SWOA*` ACPI devices, the XhciDxe write-combine patch, and the Windows kernel drivers and SwitchCenter app (`WindowsDrivers/`). Ported into winx as the `SWITCH_WOA` build.
+  - [hayato41200/Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch) — UEFI / DSDT / bring-up notes (GPL-2.0).
+  - [hayato41200/Windows-for-Switch-Drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers) — Windows drivers and SwitchCenter (GPL-2.0).
 - [NintendoSwitchPkg](https://github.com/steck0714/NintendoSwitchPkg) — Base firmware package.
 - [Lumia950XLPkg](https://github.com/WOA-Project/Lumia950XLPkg) — Build environment reference.
 - [EDK II](https://github.com/tianocore/edk2) — UEFI development framework.
 - [Hekate](https://github.com/CTCaer/hekate) — Bootloader and configuration integration.
 - [Switchroot](https://switchroot.org/) — Source of compatible BL31 firmware through Switchroot/LineageOS packages. BL31 is supplied separately and is not included in this repository.
+
+## Windows-for-Switch stack (`SWITCH_WOA`)
+
+`Tools/build-woa.sh` builds winx with the hardware bring-up from
+[hayato41200/Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch) instead of the EHCI stack:
+`UsbPowerAuditDxe` (XUSB firmware load, xHCI, USB-C PD / charging, CPU clock, fan, backlight, touch power),
+the stock `XhciDxe` (with `patches/edk2/0001-*.patch`), and the `SWOA0101..0801` ACPI devices. The matching Windows
+drivers and the SwitchCenter app from
+[hayato41200/Windows-for-Switch-Drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers) are in `WindowsDrivers/`.
+Upstream READMEs and bring-up notes are kept in `docs/hayato41200/`. See `docs/SWOA-PORT-ja.md` for what was changed and what is untested.
+You must supply `Firmware/tegra21x_xusb_firmware` (see `Firmware/README.md`). Experimental; not verified on hardware in the hekate boot chain.
 
 ## Disclaimer
 
