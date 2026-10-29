@@ -76,13 +76,19 @@
 !else
   DEFINE ACPI_ASL_EHCI_TXFILL    =
 !endif
+!ifdef SWITCH_ACPI_SD_NVTSDHC
+  # SDM1 is described for the Windows-for-Switch nvtsdhc driver (Windows 11): see Dsdt.asl.
+  DEFINE ACPI_ASL_SDNV           = -DSWITCH_ACPI_SD_NVTSDHC
+!else
+  DEFINE ACPI_ASL_SDNV           =
+!endif
 !ifdef SWITCH_ACPI_SWOA
   # Windows-for-Switch SWOA0101..0801 devices (GPIO/I2C/battery/fan/touch/power/CPU/RTC): see Dsdt.asl.
   DEFINE ACPI_ASL_SWOA           = -DSWITCH_ACPI_SWOA_ENABLE
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
