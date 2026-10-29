@@ -124,12 +124,23 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         // and clock/power state at ExitBootServices are unverified.
         Device (SDM1)
         {
+#ifdef SWITCH_ACPI_SD_NVTSDHC
+            // Windows 11 (22621+): the inbox sdbus cannot boot from this SD host, so bind the
+            // Windows-for-Switch nvtsdhc miniport (ACPI\NVDA0101) instead. The compatible ID is NVD0D40 so
+            // that sdbus does not claim it. Same description as SDLOADAA64-NOCID.EFI's SSDT (\_SB.SDH0):
+            // do NOT also use that loader, it would describe the same host twice. nvtsdhc is test-signed.
+            Name (_HID, "NVDA0101")
+            Name (_CID, "NVD0D40")
+            Name (_CCA, Zero)
+            Name (_RMV, One)
+#else
             Method (_HID, 0, NotSerialized)
             {
                 Return ("NVDA0212")
             }
 
             Name (_CID, "PNP0D40" /* SDA Standard Compliant SD Host Controller */)
+#endif
             Name (_UID, Zero)
             Method (_CRS, 0, NotSerialized)
             {
