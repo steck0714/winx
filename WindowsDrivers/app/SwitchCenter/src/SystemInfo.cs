@@ -85,6 +85,7 @@ namespace SwitchCenter
             ("SWOA0601", "switchpwrbtn",  "電源ボタン",          "Power button"),
             ("SWOA0701", "switchcpu",     "CPU のクロック",      "CPU clock"),
             ("SWOA0801", "switchrtc",     "時計（RTC）",         "Clock (RTC)"),
+            ("SWOA0901", "switchsensor",  "明るさ・傾きセンサー", "Light, tilt sensors"),
         };
 
         /// <summary>The known devices, plus any other device the release has a driver for (named from the manifest).</summary>
@@ -158,7 +159,7 @@ namespace SwitchCenter
     static class DiagnosticReport
     {
         static readonly string[] Services =
-            { "tegra210gpio", "tegra210i2c", "switchbattery", "switchfan", "switchtouch", "switchpwrbtn", "switchcpu", "switchrtc" };
+            { "tegra210gpio", "tegra210i2c", "switchbattery", "switchfan", "switchtouch", "switchpwrbtn", "switchcpu", "switchrtc", "switchsensor" };
 
         public static string BuildText(SystemUsage usage)
         {

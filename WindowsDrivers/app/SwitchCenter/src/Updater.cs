@@ -18,6 +18,8 @@
 // in the DSDT proves the UEFI is new enough for it; minUefi only explains why
 // a device is missing.
 //
+// Fetching and checking a release is shared with SwitchPatcher (app\Shared\ReleaseClient.cs).
+//
 // The control center updates itself as the normal user: the new ZIP (SHA-256
 // checked) is unpacked under %LOCALAPPDATA%, and that copy, started with
 // --self-update <folder> <pid>, waits for this process to exit, copies itself
@@ -44,18 +46,6 @@ using static SwitchCenter.Lang;
 
 namespace SwitchCenter
 {
-    sealed class ManifestDriver
-    {
-        public string Service, Inf, Hwid, Version, MinUefi, SysSha256, NameJa, NameEn;
-        public bool AtNextBoot;           // replaced at the next boot instead of live (GPIO, I2C)
-    }
-
-    sealed class Release
-    {
-        public string Tag, PageUrl, AppVersion, AppFile, AppSha256, AppUrl, DriversFile, DriversSha256, DriversUrl;
-        public List<ManifestDriver> Drivers = new List<ManifestDriver>();
-    }
-
     /// <summary>One driver of the release compared with this Switch.</summary>
     sealed class UpdateRow
     {
@@ -68,78 +58,12 @@ namespace SwitchCenter
 
     static class Updater
     {
-        public const string Repo = "hayato41200/Windows-for-Switch-Drivers";
-        /// <summary>Thumbprint of "CN=SwitchWOA Test Driver Signing"; every .cat must be signed with it.</summary>
-        public const string Signer = "A9E1F054DFCC96F43010918892C3C30D5A522712";
-        static readonly Regex TagPattern = new Regex(@"^drivers-\d{4}\.\d{1,2}\.\d{1,2}(\.\d+)?$");
-        static readonly Regex ServicePattern = new Regex(@"^[a-z0-9]{1,32}$");
-        /// <summary>Drivers replaced at the next boot when the manifest has no "installAt" (releases up to drivers-2026.10.27).</summary>
-        static readonly string[] AtNextBoot = { "tegra210gpio", "tegra210i2c" };
-        static readonly Regex HwidPattern = new Regex(@"^ACPI\\[A-Z0-9]{4,8}$");
         static readonly TimeSpan PnputilTimeout = TimeSpan.FromMinutes(2);
 
-        static HttpClient NewClient()
-        {
-            var c = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            c.DefaultRequestHeaders.UserAgent.ParseAdd("SwitchCenter/" + Application.ProductVersion);
-            return c;
-        }
-
-        /// <summary>Reads releases/latest (tag == null) or the given tag, and its manifest.json.</summary>
-        public static async Task<Release> FetchAsync(string tag)
-        {
-            if (tag != null && !TagPattern.IsMatch(tag)) throw new InvalidDataException("bad tag " + tag);
-            using HttpClient http = NewClient();
-            string api = $"https://api.github.com/repos/{Repo}/releases/" + (tag == null ? "latest" : "tags/" + tag);
-            using JsonDocument rel = JsonDocument.Parse(await http.GetStringAsync(api));
-            var r = new Release
-            {
-                Tag = rel.RootElement.GetProperty("tag_name").GetString(),
-                PageUrl = rel.RootElement.GetProperty("html_url").GetString(),
-            };
-            if (!TagPattern.IsMatch(r.Tag) || (tag != null && r.Tag != tag)) throw new InvalidDataException("unexpected tag " + r.Tag);
-            var assets = new Dictionary<string, string>();
-            foreach (JsonElement a in rel.RootElement.GetProperty("assets").EnumerateArray())
-            {
-                string url = a.GetProperty("browser_download_url").GetString();
-                // Only files attached to a release of this repository, over HTTPS.
-                if (url.StartsWith($"https://github.com/{Repo}/releases/download/", StringComparison.Ordinal))
-                    assets[a.GetProperty("name").GetString()] = url;
-            }
-            if (!assets.TryGetValue("manifest.json", out string manifestUrl)) throw new InvalidDataException("manifest.json is missing in " + r.Tag);
-
-            using JsonDocument m = JsonDocument.Parse(await http.GetStringAsync(manifestUrl));
-            JsonElement root = m.RootElement;
-            if (root.GetProperty("release").GetString() != r.Tag) throw new InvalidDataException("manifest.json is for another release");
-            JsonElement app = root.GetProperty("app");
-            r.AppVersion = app.GetProperty("version").GetString();
-            r.AppFile = app.GetProperty("file").GetString();
-            r.AppSha256 = app.GetProperty("sha256").GetString().ToLowerInvariant();
-            assets.TryGetValue(r.AppFile, out r.AppUrl);
-            JsonElement drv = root.GetProperty("drivers");
-            r.DriversFile = drv.GetProperty("file").GetString();
-            r.DriversSha256 = drv.GetProperty("sha256").GetString().ToLowerInvariant();
-            if (!assets.TryGetValue(r.DriversFile, out r.DriversUrl)) throw new InvalidDataException(r.DriversFile + " is missing in " + r.Tag);
-            foreach (JsonElement i in drv.GetProperty("items").EnumerateArray())
-            {
-                var d = new ManifestDriver
-                {
-                    Service = i.GetProperty("service").GetString(),
-                    Inf = i.GetProperty("inf").GetString(),
-                    Hwid = i.GetProperty("hwid").GetString(),
-                    Version = i.GetProperty("version").GetString(),
-                    MinUefi = i.GetProperty("minUefi").GetString(),
-                    SysSha256 = i.GetProperty("sysSha256").GetString().ToLowerInvariant(),
-                    NameJa = i.TryGetProperty("nameJa", out JsonElement ja) ? ja.GetString() : null,
-                    NameEn = i.TryGetProperty("nameEn", out JsonElement en) ? en.GetString() : null,
-                };
-                d.AtNextBoot = i.TryGetProperty("installAt", out JsonElement at) ? at.GetString() == "boot" : Array.IndexOf(AtNextBoot, d.Service) >= 0;
-                if (!ServicePattern.IsMatch(d.Service) || !System.Version.TryParse(d.Version, out _) || !HwidPattern.IsMatch(d.Hwid))
-                    throw new InvalidDataException("bad manifest entry " + d.Service);
-                r.Drivers.Add(d);
-            }
-            return r;
-        }
+        public static Task<Release> FetchAsync(string tag) => ReleaseClient.FetchAsync(tag);
+        public static Task<Release> FetchChannelAsync(bool beta) => ReleaseClient.FetchChannelAsync(beta);
+        static HttpClient NewClient() => ReleaseClient.NewClient();
+        static string Sha256(string path) => ReleaseClient.Sha256(path);
 
         // ------------------------------------------------------------ compare
 
@@ -235,7 +159,7 @@ namespace SwitchCenter
             }
             if (chosen.Count == 0) throw new InvalidOperationException(T("入れるドライバーがありません。", "Nothing to install."));
 
-            string work = CreateAdminOnlyFolder();
+            string work = ReleaseClient.CreateAdminOnlyFolder();
             bool leaveFiles = false;
             try
             {
@@ -255,14 +179,7 @@ namespace SwitchCenter
 
                 foreach (ManifestDriver d in chosen)
                 {
-                    string inf = Path.GetFullPath(Path.Combine(files, d.Inf));
-                    if (!inf.StartsWith(files + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(inf))
-                        throw new InvalidDataException(d.Inf + T(" がありません。", " is missing."));
-                    string dir = Path.GetDirectoryName(inf);
-                    string sys = Path.Combine(dir, d.Service + ".sys"), cat = Path.Combine(dir, d.Service + ".cat");
-                    if (!File.Exists(sys) || Sha256(sys) != d.SysSha256)
-                        throw new InvalidDataException(T($"{d.Service}.sys が manifest と合いません。", $"{d.Service}.sys does not match the manifest."));
-                    CheckCatalogSigner(cat);
+                    ReleaseClient.VerifyDriver(files, d);
                     log(T($"{d.Service} {d.Version}: .sys と署名を確かめました。", $"{d.Service} {d.Version}: .sys and signature checked."));
                 }
 
@@ -436,36 +353,6 @@ namespace SwitchCenter
                 try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
 
-        static string Sha256(string path)
-        {
-            using FileStream f = File.OpenRead(path);
-            return Convert.ToHexString(SHA256.HashData(f)).ToLowerInvariant();
-        }
-
-        /// <summary>The catalog must be a valid PKCS #7 signature by the project's test certificate.</summary>
-        static void CheckCatalogSigner(string cat)
-        {
-            if (!File.Exists(cat)) throw new InvalidDataException(Path.GetFileName(cat) + T(" がありません。", " is missing."));
-            var cms = new SignedCms();
-            cms.Decode(File.ReadAllBytes(cat));
-            cms.CheckSignature(true);                                    // the signature itself; trust is Windows' job
-            if (cms.SignerInfos.Count != 1 || !string.Equals(cms.SignerInfos[0].Certificate?.Thumbprint, Signer, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException(T($"{Path.GetFileName(cat)} の署名が、このプロジェクトの証明書ではありません。",
-                                                 $"{Path.GetFileName(cat)} is not signed with this project's certificate."));
-        }
-
-        /// <summary>A new folder under %windir%\Temp that only SYSTEM and Administrators can access.</summary>
-        static string CreateAdminOnlyFolder()
-        {
-            var sec = new DirectorySecurity();
-            sec.SetAccessRuleProtection(true, false);
-            foreach (WellKnownSidType sid in new[] { WellKnownSidType.LocalSystemSid, WellKnownSidType.BuiltinAdministratorsSid })
-                sec.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid, null), FileSystemRights.FullControl,
-                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-            string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp", "SwitchCenter-OTA-" + Guid.NewGuid().ToString("N"));
-            sec.CreateDirectory(path);
-            return path;
-        }
     }
 
     /// <summary>The elevated process's window: progress log, then the result.</summary>

@@ -77,8 +77,7 @@ typedef struct _TEGRA_I2C_DEVICE {
     volatile UCHAR *Base;
     ULONG Length;
     ULONG PhysLow;              /* low 32 bits of the MMIO base, for logging */
-    WDFTIMER TraceTimer;
-    volatile LONG Transfers, Errors, Nacks, Timeouts, LastError, LastAddress;
+    volatile LONG Errors, Nacks, Timeouts, LastError, LastAddress;
 } TEGRA_I2C_DEVICE, *PTEGRA_I2C_DEVICE;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(TEGRA_I2C_DEVICE, TegraI2cGetDevice)
 
@@ -87,11 +86,6 @@ typedef struct _TEGRA_I2C_TARGET {
     ULONG Speed;
 } TEGRA_I2C_TARGET, *PTEGRA_I2C_TARGET;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(TEGRA_I2C_TARGET, TegraI2cGetTarget)
-
-typedef struct _TEGRA_I2C_TIMER {
-    WDFDEVICE Device;
-} TEGRA_I2C_TIMER, *PTEGRA_I2C_TIMER;
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(TEGRA_I2C_TIMER, TegraI2cGetTimer)
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD TegraI2cEvtDeviceAdd;
@@ -102,7 +96,6 @@ EVT_SPB_TARGET_CONNECT TegraI2cEvtTargetConnect;
 EVT_SPB_CONTROLLER_READ TegraI2cEvtRead;
 EVT_SPB_CONTROLLER_WRITE TegraI2cEvtWrite;
 EVT_SPB_CONTROLLER_SEQUENCE TegraI2cEvtSequence;
-EVT_WDF_TIMER TegraI2cEvtTraceTimer;
 
 /* ------------------------------------------------------------ diagnostics */
 
@@ -121,6 +114,16 @@ static VOID TegraI2cTrace(PTEGRA_I2C_DEVICE Dev, PCWSTR Name, ULONG Value)
         Full[Str.Length / sizeof(WCHAR)] = L'\0';
         (VOID)RtlWriteRegistryValue(RTL_REGISTRY_ABSOLUTE, TegraI2cParamsPath, Full, REG_DWORD, &Value, sizeof(Value));
     }
+}
+
+/* Error counters, written when an error happens (errors are rare; PASSIVE only). */
+static VOID TegraI2cTraceErrors(PTEGRA_I2C_DEVICE Dev)
+{
+    TegraI2cTrace(Dev, L"Errors", (ULONG)Dev->Errors);
+    TegraI2cTrace(Dev, L"Nacks", (ULONG)Dev->Nacks);
+    TegraI2cTrace(Dev, L"Timeouts", (ULONG)Dev->Timeouts);
+    TegraI2cTrace(Dev, L"LastErrorStatus", (ULONG)Dev->LastError);
+    TegraI2cTrace(Dev, L"LastErrorAddr", (ULONG)Dev->LastAddress);
 }
 
 /* -------------------------------------------------------------- hardware */
@@ -184,7 +187,6 @@ static NTSTATUS TegraI2cTransfer(PTEGRA_I2C_DEVICE Dev, USHORT Address, BOOLEAN 
     if (Length == 0 || Length > I2C_MAX_TRANSFER) {
         return STATUS_INVALID_PARAMETER;
     }
-    InterlockedIncrement(&Dev->Transfers);
     TegraI2cResetFifos(Dev);
 
     WrReg(Dev, I2C_TX_FIFO, HDR0_I2C_PACKET1);
@@ -246,10 +248,12 @@ Error:
     if ((Status & INT_NO_ACK) != 0) {
         InterlockedIncrement(&Dev->Nacks);
         TegraI2cResetFifos(Dev);
+        TegraI2cTraceErrors(Dev);
         return STATUS_NO_SUCH_DEVICE;
     }
     TegraI2cResetFifos(Dev);
     TegraI2cBusClear(Dev);
+    TegraI2cTraceErrors(Dev);
     return STATUS_IO_DEVICE_ERROR;
 
 Timeout:
@@ -257,6 +261,7 @@ Timeout:
     InterlockedExchange(&Dev->LastAddress, Address);
     TegraI2cResetFifos(Dev);
     TegraI2cBusClear(Dev);
+    TegraI2cTraceErrors(Dev);
     return STATUS_IO_TIMEOUT;
 }
 
@@ -341,40 +346,28 @@ NTSTATUS TegraI2cEvtTargetConnect(WDFDEVICE Controller, SPBTARGET Target)
     PPNP_I2C_SERIAL_BUS_DESCRIPTOR I2c;
     PTEGRA_I2C_TARGET Tgt = TegraI2cGetTarget(Target);
     PTEGRA_I2C_DEVICE Dev = TegraI2cGetDevice(Controller);
-    static LONG ConnectCount;
 
-    /* v2: record every connect attempt (the battery's open failed with
-     * STATUS_INVALID_PARAMETER and this is the only place returning it). */
-    TegraI2cTrace(Dev, L"ConnectCount", (ULONG)InterlockedIncrement(&ConnectCount));
     SPB_CONNECTION_PARAMETERS_INIT(&Params);
     SpbTargetGetConnectionParameters(Target, &Params);
     Conn = (PRH_QUERY_CONNECTION_PROPERTIES_OUTPUT_BUFFER)Params.ConnectionParameters;
-    TegraI2cTrace(Dev, L"ConnectHasParams", Conn != NULL);
     if (Conn == NULL) {
+        TegraI2cTrace(Dev, L"ConnectNoParams", 1);
         return STATUS_INVALID_PARAMETER;
     }
-    TegraI2cTrace(Dev, L"ConnectPropsLength", Conn->PropertiesLength);
     {
-        /* v3: v2 saw PropertiesLength = 1 on this Windows build, so the
-         * buffer layout is not the documented length + descriptor. Dump the
-         * first 32 bytes and find the ACPI GenericSerialBus descriptor
-         * (large item tag 0x8E, SerialBusType 1 = I2C) instead of trusting
-         * the length field. */
+        /* PropertiesLength reads 1 on this Windows build, so the buffer layout
+         * is not the documented length + descriptor: find the ACPI
+         * GenericSerialBus descriptor (large item tag 0x8E, SerialBusType 1 =
+         * I2C) in the first bytes instead of trusting the length field. */
         PUCHAR Raw = (PUCHAR)Conn;
         ULONG Offset;
-        WCHAR Name[16] = L"ConnectRaw0";
         I2c = NULL;
-        for (Offset = 0; Offset < 32; Offset += 4) {
-            Name[10] = (WCHAR)(L'0' + Offset / 4);
-            TegraI2cTrace(Dev, Name, *(ULONG UNALIGNED *)(Raw + Offset));
-        }
         for (Offset = 0; Offset <= 16; ++Offset) {
             PPNP_I2C_SERIAL_BUS_DESCRIPTOR Candidate = (PPNP_I2C_SERIAL_BUS_DESCRIPTOR)(Raw + Offset);
             if (Candidate->SerialBusDescriptor.Tag == 0x8E &&
                 Candidate->SerialBusDescriptor.SerialBusType == I2C_SERIAL_BUS_TYPE &&
                 Candidate->SerialBusDescriptor.Length >= sizeof(PNP_I2C_SERIAL_BUS_DESCRIPTOR) - 3) {
                 I2c = Candidate;
-                TegraI2cTrace(Dev, L"ConnectDescriptorOffset", Offset);
                 break;
             }
         }
@@ -383,16 +376,11 @@ NTSTATUS TegraI2cEvtTargetConnect(WDFDEVICE Controller, SPBTARGET Target)
             return STATUS_INVALID_PARAMETER;
         }
     }
-    TegraI2cTrace(Dev, L"ConnectTypeFlags", I2c->SerialBusDescriptor.TypeSpecificFlags);
-    TegraI2cTrace(Dev, L"ConnectTypeDataLength", I2c->SerialBusDescriptor.TypeDataLength);
-    TegraI2cTrace(Dev, L"ConnectAddrRaw", I2c->SlaveAddress);
     if ((I2c->SerialBusDescriptor.TypeSpecificFlags & I2C_10BIT_ADDRESS_FLAG) != 0 || I2c->SlaveAddress > 0x7F) {
         return STATUS_NOT_SUPPORTED;
     }
     Tgt->Address = I2c->SlaveAddress;
     Tgt->Speed = I2c->ConnectionSpeed;
-    TegraI2cTrace(Dev, L"LastConnectAddr", Tgt->Address);
-    TegraI2cTrace(Dev, L"LastConnectSpeed", Tgt->Speed);
     return STATUS_SUCCESS;
 }
 
@@ -414,17 +402,6 @@ VOID TegraI2cEvtSequence(WDFDEVICE Controller, SPBTARGET Target, SPBREQUEST Requ
 }
 
 /* ------------------------------------------------------------------- PnP */
-
-VOID TegraI2cEvtTraceTimer(WDFTIMER Timer)
-{
-    PTEGRA_I2C_DEVICE Dev = TegraI2cGetDevice(TegraI2cGetTimer(Timer)->Device);
-    TegraI2cTrace(Dev, L"Transfers", (ULONG)Dev->Transfers);
-    TegraI2cTrace(Dev, L"Errors", (ULONG)Dev->Errors);
-    TegraI2cTrace(Dev, L"Nacks", (ULONG)Dev->Nacks);
-    TegraI2cTrace(Dev, L"Timeouts", (ULONG)Dev->Timeouts);
-    TegraI2cTrace(Dev, L"LastErrorStatus", (ULONG)Dev->LastError);
-    TegraI2cTrace(Dev, L"LastErrorAddr", (ULONG)Dev->LastAddress);
-}
 
 NTSTATUS TegraI2cEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated)
 {
@@ -461,21 +438,6 @@ NTSTATUS TegraI2cEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRES
     TegraI2cResetFifos(Dev);
     TegraI2cTrace(Dev, L"CnfgAfter", RdReg(Dev, I2C_CNFG));
 
-    if (Dev->TraceTimer == NULL) {
-        WDF_TIMER_CONFIG TimerConfig;
-        WDF_OBJECT_ATTRIBUTES Attributes;
-        WDF_TIMER_CONFIG_INIT_PERIODIC(&TimerConfig, TegraI2cEvtTraceTimer, 2000);
-        TimerConfig.AutomaticSerialization = FALSE;
-        WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, TEGRA_I2C_TIMER);
-        Attributes.ParentObject = Device;
-        Attributes.ExecutionLevel = WdfExecutionLevelPassive;
-        if (NT_SUCCESS(WdfTimerCreate(&TimerConfig, &Attributes, &Dev->TraceTimer))) {
-            TegraI2cGetTimer(Dev->TraceTimer)->Device = Device;
-            WdfTimerStart(Dev->TraceTimer, WDF_REL_TIMEOUT_IN_MS(2000));
-        } else {
-            Dev->TraceTimer = NULL;
-        }
-    }
     return STATUS_SUCCESS;
 }
 
@@ -483,11 +445,6 @@ NTSTATUS TegraI2cEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
 {
     PTEGRA_I2C_DEVICE Dev = TegraI2cGetDevice(Device);
     UNREFERENCED_PARAMETER(Translated);
-    if (Dev->TraceTimer != NULL) {
-        WdfTimerStop(Dev->TraceTimer, TRUE);
-        WdfObjectDelete(Dev->TraceTimer);
-        Dev->TraceTimer = NULL;
-    }
     if (Dev->Base != NULL) {
         MmUnmapIoSpace((PVOID)Dev->Base, Dev->Length);
         Dev->Base = NULL;
@@ -573,7 +530,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&TegraI2cParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, TegraI2cParamsPath);
     }
-    TegraI2cTrace(NULL, L"DriverVersion", 3);
+    TegraI2cTrace(NULL, L"DriverVersion", 4);
 
     WDF_DRIVER_CONFIG_INIT(&Config, TegraI2cEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);

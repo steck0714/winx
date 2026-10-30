@@ -16,7 +16,8 @@ param(
   [string]$Inf,
   [string]$KmdfVersion = '1.15',
   [string[]]$ExtraIncludes = @(),   # searched after the WDK 10.0.19041 headers (e.g. km\spb\1.0)
-  [switch]$NoSign
+  [switch]$NoSign,
+  [switch]$Wdm                      # plain WDM driver (DriverEntry, no KMDF), e.g. an sdport miniport
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,12 +60,13 @@ foreach ($s in @($Sources) + (Join-Path $PSScriptRoot 'kmdf_support.c')) {
 }
 
 $sys = Join-Path $OutDir "$Name.sys"
-$libPaths = @("$KmdfLib\WdfDriverEntry.lib", "$KmdfLib\WdfLdr.lib", "$KmLib\ntoskrnl.lib", "$KmLib\hal.lib",
+$kmdfLibs = if ($Wdm) { @() } else { @("$KmdfLib\WdfDriverEntry.lib", "$KmdfLib\WdfLdr.lib") }
+$libPaths = $kmdfLibs + @("$KmLib\ntoskrnl.lib", "$KmLib\hal.lib",
               "$KmLib\ntstrsafe.lib", "$KmLib\bufferoverflowfastfailk.lib") +($Libs | ForEach-Object { if (Test-Path $_) { $_ } else { Get-ChildItem $KmLib -Recurse -Filter $_ | Select-Object -First 1 -ExpandProperty FullName } })
 # Match what MSVC link /driver produces: resident (non-paged, "P") sections,
 # discardable INIT ("D"), separate .rdata, no TERMINAL_SERVER_AWARE. SwoaHello
 # built without these failed to start with error 487 on the Switch.
-& "$Llvm\lld-link.exe" '/nologo' '/driver' '/subsystem:native,10.0' '/machine:arm64' '/entry:FxDriverEntry' `
+& "$Llvm\lld-link.exe" '/nologo' '/driver' '/subsystem:native,10.0' '/machine:arm64' $(if ($Wdm) { '/entry:DriverEntry' } else { '/entry:FxDriverEntry' }) `
   '/nodefaultlib' '/release' '/opt:ref' '/opt:icf' '/tsaware:no' `
   '/section:.text,ERP' '/section:.rdata,RP' '/section:.data,RWP' '/section:.pdata,RP' '/section:INIT,ERD' `
   "/out:$sys" @objs @libPaths

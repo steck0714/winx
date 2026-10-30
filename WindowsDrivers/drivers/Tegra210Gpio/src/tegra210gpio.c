@@ -44,20 +44,7 @@
 typedef struct _TEGRA_GPIO_CONTEXT {
     volatile UCHAR *Base;
     ULONG Length;
-    WDFTIMER TraceTimer;
 } TEGRA_GPIO_CONTEXT, *PTEGRA_GPIO_CONTEXT;
-
-typedef struct _TEGRA_GPIO_TIMER_CONTEXT {
-    PTEGRA_GPIO_CONTEXT Gpio;
-} TEGRA_GPIO_TIMER_CONTEXT, *PTEGRA_GPIO_TIMER_CONTEXT;
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(TEGRA_GPIO_TIMER_CONTEXT, TegraGpioTimerContext)
-
-/* v3 diagnostics: interrupt-path counters, updated at any IRQL and copied to
- * the registry by a passive-level timer every 2 s. */
-static volatile LONG TegraGpioEnableCount, TegraGpioDisableCount, TegraGpioMaskCount;
-static volatile LONG TegraGpioUnmaskCount, TegraGpioQueryActiveCount, TegraGpioActiveHitCount;
-static volatile LONG TegraGpioClearCount, TegraGpioReconfigureCount;
-static volatile LONG TegraGpioLastEnable, TegraGpioLastActive;
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD TegraGpioEvtDeviceAdd;
@@ -130,31 +117,6 @@ static VOID TegraGpioSetLevel(PTEGRA_GPIO_CONTEXT Ctx, BANK_ID Bank, PIN_NUMBER 
     WRITE_REGISTER_ULONG((PULONG)Lvl, Value);
 }
 
-/* Port X (bank 5, port 3) holds the volume buttons PX6/PX7; dump its state. */
-static VOID TegraGpioEvtTraceTimer(WDFTIMER Timer)
-{
-    PTEGRA_GPIO_CONTEXT Ctx = TegraGpioTimerContext(Timer)->Gpio;
-    if (Ctx == NULL || Ctx->Base == NULL) {
-        return;
-    }
-    TegraGpioTrace(L"T_EnableCount", (ULONG)TegraGpioEnableCount);
-    TegraGpioTrace(L"T_DisableCount", (ULONG)TegraGpioDisableCount);
-    TegraGpioTrace(L"T_MaskCount", (ULONG)TegraGpioMaskCount);
-    TegraGpioTrace(L"T_UnmaskCount", (ULONG)TegraGpioUnmaskCount);
-    TegraGpioTrace(L"T_QueryActiveCount", (ULONG)TegraGpioQueryActiveCount);
-    TegraGpioTrace(L"T_ActiveHitCount", (ULONG)TegraGpioActiveHitCount);
-    TegraGpioTrace(L"T_ClearCount", (ULONG)TegraGpioClearCount);
-    TegraGpioTrace(L"T_ReconfigureCount", (ULONG)TegraGpioReconfigureCount);
-    TegraGpioTrace(L"T_LastEnable", (ULONG)TegraGpioLastEnable);     /* bank<<24 | pin<<16 | mode<<8 | polarity */
-    TegraGpioTrace(L"T_LastActive", (ULONG)TegraGpioLastActive);     /* bank<<24 | low 24 bits of active mask */
-    TegraGpioTrace(L"X_CNF", READ_REGISTER_ULONG((PULONG)TegraGpioReg(Ctx, 5, 3, REG_CNF)));
-    TegraGpioTrace(L"X_OE", READ_REGISTER_ULONG((PULONG)TegraGpioReg(Ctx, 5, 3, REG_OE)));
-    TegraGpioTrace(L"X_IN", READ_REGISTER_ULONG((PULONG)TegraGpioReg(Ctx, 5, 3, REG_IN)));
-    TegraGpioTrace(L"X_INT_STA", READ_REGISTER_ULONG((PULONG)TegraGpioReg(Ctx, 5, 3, REG_INT_STA)));
-    TegraGpioTrace(L"X_INT_ENB", READ_REGISTER_ULONG((PULONG)TegraGpioReg(Ctx, 5, 3, REG_INT_ENB)));
-    TegraGpioTrace(L"X_INT_LVL", READ_REGISTER_ULONG((PULONG)TegraGpioReg(Ctx, 5, 3, REG_INT_LVL)));
-}
-
 /* ---------------------------------------------------------------- GpioClx */
 
 static NTSTATUS TegraGpioPrepareController(WDFDEVICE Device, PVOID Context, WDFCMRESLIST ResourcesRaw, WDFCMRESLIST ResourcesTranslated)
@@ -169,9 +131,6 @@ static NTSTATUS TegraGpioPrepareController(WDFDEVICE Device, PVOID Context, WDFC
     TegraGpioTrace(L"PrepareResourceCount", Count);
     for (Index = 0; Index < Count; ++Index) {
         PCM_PARTIAL_RESOURCE_DESCRIPTOR Desc = WdfCmResourceListGetDescriptor(ResourcesTranslated, Index);
-        WCHAR Name[16] = L"Res0Type";
-        Name[3] = (WCHAR)(L'0' + (Index % 10));
-        TegraGpioTrace(Name, (Desc != NULL) ? Desc->Type : 0xFF);
         if (Desc != NULL && Desc->Type == CmResourceTypeMemory && Ctx->Base == NULL) {
             if (Desc->u.Memory.Length < TEGRA_GPIO_MMIO_SIZE) {
                 Status = STATUS_DEVICE_CONFIGURATION_ERROR;
@@ -190,21 +149,6 @@ static NTSTATUS TegraGpioPrepareController(WDFDEVICE Device, PVOID Context, WDFC
     if (NT_SUCCESS(Status) && Ctx->Base == NULL) {
         Status = STATUS_DEVICE_CONFIGURATION_ERROR;
     }
-    if (NT_SUCCESS(Status) && Ctx->TraceTimer == NULL) {
-        WDF_TIMER_CONFIG TimerConfig;
-        WDF_OBJECT_ATTRIBUTES TimerAttributes;
-        WDF_TIMER_CONFIG_INIT_PERIODIC(&TimerConfig, TegraGpioEvtTraceTimer, 2000);
-        TimerConfig.AutomaticSerialization = FALSE;
-        WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&TimerAttributes, TEGRA_GPIO_TIMER_CONTEXT);
-        TimerAttributes.ParentObject = Device;
-        TimerAttributes.ExecutionLevel = WdfExecutionLevelPassive;
-        if (NT_SUCCESS(WdfTimerCreate(&TimerConfig, &TimerAttributes, &Ctx->TraceTimer))) {
-            TegraGpioTimerContext(Ctx->TraceTimer)->Gpio = Ctx;
-            WdfTimerStart(Ctx->TraceTimer, WDF_REL_TIMEOUT_IN_MS(2000));
-        } else {
-            Ctx->TraceTimer = NULL;
-        }
-    }
     TegraGpioTrace(L"PrepareStatus", (ULONG)Status);
     return Status;
 }
@@ -213,11 +157,6 @@ static NTSTATUS TegraGpioReleaseController(WDFDEVICE Device, PVOID Context)
 {
     PTEGRA_GPIO_CONTEXT Ctx = (PTEGRA_GPIO_CONTEXT)Context;
     UNREFERENCED_PARAMETER(Device);
-    if (Ctx->TraceTimer != NULL) {
-        WdfTimerStop(Ctx->TraceTimer, TRUE);
-        WdfObjectDelete(Ctx->TraceTimer);
-        Ctx->TraceTimer = NULL;
-    }
     if (Ctx->Base != NULL) {
         MmUnmapIoSpace((PVOID)Ctx->Base, Ctx->Length);
         Ctx->Base = NULL;
@@ -350,9 +289,6 @@ static NTSTATUS TegraGpioEnableInterrupt(PVOID Context, PGPIO_ENABLE_INTERRUPT_P
     PTEGRA_GPIO_CONTEXT Ctx = (PTEGRA_GPIO_CONTEXT)Context;
     PIN_NUMBER Pin = Params->PinNumber;
     ULONG Port = Pin / 8, Bit = 1u << (Pin % 8);
-    InterlockedIncrement(&TegraGpioEnableCount);
-    InterlockedExchange(&TegraGpioLastEnable, (LONG)(((ULONG)Params->BankId << 24) | ((ULONG)Pin << 16) |
-                                                     ((ULONG)Params->InterruptMode << 8) | (ULONG)Params->Polarity));
     if (Pin >= TEGRA_GPIO_PINS_PER_BANK) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -370,7 +306,6 @@ static NTSTATUS TegraGpioDisableInterrupt(PVOID Context, PGPIO_DISABLE_INTERRUPT
     PTEGRA_GPIO_CONTEXT Ctx = (PTEGRA_GPIO_CONTEXT)Context;
     PIN_NUMBER Pin = Params->PinNumber;
     ULONG Port = Pin / 8, Bit = 1u << (Pin % 8);
-    InterlockedIncrement(&TegraGpioDisableCount);
     if (Pin >= TEGRA_GPIO_PINS_PER_BANK) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -381,7 +316,6 @@ static NTSTATUS TegraGpioDisableInterrupt(PVOID Context, PGPIO_DISABLE_INTERRUPT
 
 static NTSTATUS TegraGpioMaskInterrupts(PVOID Context, PGPIO_MASK_INTERRUPT_PARAMETERS Params)
 {
-    InterlockedIncrement(&TegraGpioMaskCount);
     TegraGpioMaskedWriteBank((PTEGRA_GPIO_CONTEXT)Context, Params->BankId, REG_INT_ENB, Params->PinMask, 0);
     Params->FailedMask = 0;
     return STATUS_SUCCESS;
@@ -391,7 +325,6 @@ static NTSTATUS TegraGpioUnmaskInterrupt(PVOID Context, PGPIO_ENABLE_INTERRUPT_P
 {
     PIN_NUMBER Pin = Params->PinNumber;
     ULONG Bit = 1u << (Pin % 8);
-    InterlockedIncrement(&TegraGpioUnmaskCount);
     if (Pin >= TEGRA_GPIO_PINS_PER_BANK) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -404,11 +337,6 @@ static NTSTATUS TegraGpioQueryActiveInterrupts(PVOID Context, PGPIO_QUERY_ACTIVE
     PTEGRA_GPIO_CONTEXT Ctx = (PTEGRA_GPIO_CONTEXT)Context;
     Params->ActiveMask = TegraGpioReadBank(Ctx, Params->BankId, REG_INT_STA) &
                          TegraGpioReadBank(Ctx, Params->BankId, REG_INT_ENB) & Params->EnabledMask;
-    InterlockedIncrement(&TegraGpioQueryActiveCount);
-    if (Params->ActiveMask != 0) {
-        InterlockedIncrement(&TegraGpioActiveHitCount);
-        InterlockedExchange(&TegraGpioLastActive, (LONG)(((ULONG)Params->BankId << 24) | ((ULONG)Params->ActiveMask & 0xFFFFFF)));
-    }
     return STATUS_SUCCESS;
 }
 
@@ -416,7 +344,6 @@ static NTSTATUS TegraGpioClearActiveInterrupts(PVOID Context, PGPIO_CLEAR_ACTIVE
 {
     PTEGRA_GPIO_CONTEXT Ctx = (PTEGRA_GPIO_CONTEXT)Context;
     ULONG Port;
-    InterlockedIncrement(&TegraGpioClearCount);
     for (Port = 0; Port < 4; ++Port) {
         ULONG Bits = (ULONG)(Params->ClearActiveMask >> (Port * 8)) & 0xFF;
         if (Bits != 0) {
@@ -430,7 +357,6 @@ static NTSTATUS TegraGpioClearActiveInterrupts(PVOID Context, PGPIO_CLEAR_ACTIVE
 static NTSTATUS TegraGpioReconfigureInterrupt(PVOID Context, PGPIO_RECONFIGURE_INTERRUPTS_PARAMETERS Params)
 {
     PTEGRA_GPIO_CONTEXT Ctx = (PTEGRA_GPIO_CONTEXT)Context;
-    InterlockedIncrement(&TegraGpioReconfigureCount);
     if (Params->PinNumber >= TEGRA_GPIO_PINS_PER_BANK) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -480,7 +406,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&TegraGpioParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, TegraGpioParamsPath);
     }
-    TegraGpioTrace(L"DriverVersion", 3);
+    TegraGpioTrace(L"DriverVersion", 4);
 
     WDF_DRIVER_CONFIG_INIT(&Config, TegraGpioEvtDeviceAdd);
     Config.EvtDriverUnload = TegraGpioEvtDriverUnload;

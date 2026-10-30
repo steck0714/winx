@@ -18,6 +18,7 @@ namespace SwitchCenter
     {
         readonly Func<int, bool> chooseProfile;          // TrayApp.ChooseProfile (asks for experimental profiles)
         readonly SystemUsage usage;                      // sampled by the tray every 2 s
+        readonly AutoScreen auto;                        // automatic brightness and rotation (owned by the tray)
         readonly Timer timer = new Timer { Interval = 2000 };
         readonly Font tileValueFont = new Font("Segoe UI", 22f, FontStyle.Bold);
         readonly Font tileTitleFont = new Font("Yu Gothic UI", 10f);
@@ -41,13 +42,24 @@ namespace SwitchCenter
         readonly Label brightnessLabel = new Label { Dock = DockStyle.Top, Height = 48 };
         readonly Label displayState = new Label { Dock = DockStyle.Top, Height = 40 };
         readonly Timer brightnessApply = new Timer { Interval = 150 };
+        readonly CheckBox autoBright = new CheckBox { Dock = DockStyle.Top, Height = 40 };
+        readonly CheckBox autoRotate = new CheckBox { Dock = DockStyle.Top, Height = 40 };
+        readonly CheckBox rotateReverse = new CheckBox { Dock = DockStyle.Top, Height = 40 };
+        readonly Button rotateBase = new Button { Dock = DockStyle.Top, Height = 44 };
+        readonly Button rotateTurn = new Button { Dock = DockStyle.Top, Height = 44 };
+        readonly Label sensorValues = new Label { Dock = DockStyle.Top, Height = 72 };
+        readonly Timer sensorTimer = new Timer { Interval = 500 };
         bool updatingBar;
 
-        public MainForm(Func<int, bool> chooseProfile, SystemUsage usage)
+        /// <summary>This control center's version, e.g. 0.5.3 (shown in the title and on the Drivers tab).</summary>
+        static string AppVersion => Application.ProductVersion.Split('+')[0];
+
+        public MainForm(Func<int, bool> chooseProfile, SystemUsage usage, AutoScreen auto)
         {
             this.chooseProfile = chooseProfile;
             this.usage = usage;
-            Text = T("Switch コントロールセンター", "Switch Control Center");
+            this.auto = auto;
+            Text = T("Switch コントロールセンター", "Switch Control Center") + " " + AppVersion;
             Font = bodyFont;
             AutoScaleMode = AutoScaleMode.Dpi;
             StartPosition = FormStartPosition.CenterScreen;
@@ -72,7 +84,12 @@ namespace SwitchCenter
 
             timer.Tick += (_, _) => RefreshAll();
             brightnessApply.Tick += (_, _) => { brightnessApply.Stop(); ApplyBrightness(); };
-            VisibleChanged += (_, _) => { if (Visible) { RefreshAll(); timer.Start(); } else timer.Stop(); };
+            sensorTimer.Tick += (_, _) => RefreshSensors();
+            VisibleChanged += (_, _) =>
+            {
+                auto.Watching = Visible;
+                if (Visible) { RefreshAll(); timer.Start(); sensorTimer.Start(); } else { timer.Stop(); sensorTimer.Stop(); }
+            };
             FormClosing += (_, e) =>
             {
                 if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); }
@@ -191,8 +208,34 @@ namespace SwitchCenter
                          "- The brightness you choose is restored at the next boot.\n" +
                          "- The Windows brightness setting does not work with the current display driver."),
             };
+            autoBright.Text = T("明るさを自動で調整する（明るさセンサー）", "Adjust the brightness automatically (light sensor)");
+            autoRotate.Text = T("画面を自動で回転する（傾きセンサー）", "Rotate the screen automatically (tilt sensor)");
+            rotateReverse.Text = T("回転の向きを逆にする（横と縦の両方を覚えたら不要）", "Reverse the rotation (not needed once landscape and portrait are remembered)");
+            rotateTurn.Text = T("画面を 90° 回す（向きを手で直す）", "Turn the screen 90° (put it right by hand)");
+            rotateBase.Text = T("今の画面の向きを、今の持ち方の正しい向きとして覚える", "Remember this orientation as right for how the Switch is held now");
+            autoBright.Checked = auto.AutoBrightness;
+            autoRotate.Checked = auto.AutoRotate;
+            rotateReverse.Checked = auto.RotateReverse;
+            autoBright.CheckedChanged += (_, _) => { auto.AutoBrightness = autoBright.Checked; brightnessBar.Enabled = !autoBright.Checked; };
+            autoRotate.CheckedChanged += (_, _) => auto.AutoRotate = autoRotate.Checked;
+            rotateReverse.CheckedChanged += (_, _) => auto.RotateReverse = rotateReverse.Checked;
+            rotateBase.Click += (_, _) =>
+            {
+                if (!auto.SetBaseFromNow())
+                    MessageBox.Show(this, T("本体の向きが分かりませんでした。机に置かずに、横か縦にまっすぐ持って、もう一度押してください。",
+                                            "Could not tell how the Switch is held. Hold it upright (not flat), landscape or portrait, and press again."),
+                                    Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                RefreshSensors();
+            };
+            rotateTurn.Click += (_, _) => { AutoScreen.TurnScreen(); RefreshSensors(); };
+            page.Controls.Add(sensorValues);
+            page.Controls.Add(rotateBase);
+            page.Controls.Add(rotateTurn);
+            page.Controls.Add(rotateReverse);
+            page.Controls.Add(autoRotate);
             page.Controls.Add(note);
             page.Controls.Add(displayState);
+            page.Controls.Add(autoBright);
             page.Controls.Add(brightnessBar);
             page.Controls.Add(brightnessLabel);
             return page;
@@ -299,6 +342,8 @@ namespace SwitchCenter
         readonly Label updateStatus = new Label { AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(3, 8, 3, 3) };
         // Kept away from the buttons (a tap meant for them opened it), at the bottom.
         readonly LinkLabel releaseLink = new LinkLabel { AutoSize = true, MaximumSize = new Size(520, 0), Visible = false, Margin = new Padding(3, 24, 3, 3) };
+        readonly ComboBox channel = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330 };
+        const string ChannelKey = @"Software\SwitchWOA\SwitchClock";     // DriverChannel: 0 stable, 1 beta
         Release latest;                       // set by "Check for updates"
         List<UpdateRow> updates;
 
@@ -310,7 +355,7 @@ namespace SwitchCenter
             driverList.Columns.Add(T("入っている版", "Installed"), 90);
             driverList.Columns.Add(T("動作中", "Running"), 60);
             driverList.Columns.Add(T("最新", "Latest"), 100);
-            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 250, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 300, FlowDirection = FlowDirection.TopDown, WrapContents = false };
             var reload = new Button { Text = T("再読み込み", "Reload"), Width = 120, Height = 40 };
             reload.Click += (_, _) => LoadDrivers();
             checkButton.Text = T("更新を確認", "Check for updates");
@@ -320,6 +365,14 @@ namespace SwitchCenter
             appButton.Click += async (_, _) => await UpdateApp();
             releaseLink.Text = T("リリースのページを開く", "Open the release page");
             releaseLink.LinkClicked += (_, _) => { if (latest != null) OpenInBrowser(latest.PageUrl); };
+            channel.Items.Add(T("安定版のドライバー", "Stable drivers"));
+            channel.Items.Add(T("ベータ版のドライバー（試験中のものを含む）", "Beta drivers (includes ones in testing)"));
+            channel.SelectedIndex = ReadChannel();
+            channel.SelectionChangeCommitted += async (_, _) => await ChangeChannel();
+            var channelRow = new FlowLayoutPanel { AutoSize = true };
+            channelRow.Controls.Add(new Label { Text = T("更新の種類:", "Channel:"), AutoSize = true, Margin = new Padding(3, 10, 3, 3) });
+            channelRow.Controls.Add(channel);
+            bottom.Controls.Add(channelRow);
             var buttons = new FlowLayoutPanel { AutoSize = true };
             buttons.Controls.Add(reload);
             buttons.Controls.Add(checkButton);
@@ -328,7 +381,8 @@ namespace SwitchCenter
             bottom.Controls.Add(appButton);
             bottom.Controls.Add(updateStatus);
             bottom.Controls.Add(releaseLink);
-            updateStatus.Text = T("「更新を確認」で、GitHub の最新のリリースと比べます。", "\"Check for updates\" compares with the latest release on GitHub.");
+            updateStatus.Text = T($"コントロールセンター {AppVersion}。「更新を確認」で、GitHub の最新のリリースと比べます。",
+                                  $"Control center {AppVersion}. \"Check for updates\" compares with the latest release on GitHub.");
             page.Controls.Add(driverList);
             page.Controls.Add(bottom);
             return page;
@@ -347,6 +401,33 @@ namespace SwitchCenter
                 }
             }
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
+        }
+
+        static int ReadChannel()
+        {
+            using Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(ChannelKey);
+            return k?.GetValue("DriverChannel") is int v && v == 1 ? 1 : 0;
+        }
+
+        bool Beta => channel.SelectedIndex == 1;
+
+        async System.Threading.Tasks.Task ChangeChannel()
+        {
+            if (Beta && ReadChannel() == 0 &&
+                MessageBox.Show(this,
+                    T("ベータ版では、GitHub のプレリリースにある試験中のドライバーも、更新の候補になります。\n\n" +
+                      "まだ十分に試していないので、動かなかったり、起動に影響したりすることがあります。" +
+                      "そのときは、「安定版」に戻して、ドライバーを入れ直してください。\n\nベータ版にしますか？",
+                      "With the beta channel, drivers still in testing (GitHub pre-releases) are offered as updates too.\n\n" +
+                      "They are not fully tested and may not work or may affect booting. If that happens, switch back to stable and reinstall the drivers.\n\nUse the beta channel?"),
+                    T("ベータ版のドライバー", "Beta drivers"), MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK)
+            {
+                channel.SelectedIndex = 0;
+                return;
+            }
+            using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(ChannelKey))
+                k.SetValue("DriverChannel", channel.SelectedIndex);
+            if (latest != null) await CheckUpdates();      // compare with the other channel's release right away
         }
 
         void LoadDrivers()
@@ -384,13 +465,15 @@ namespace SwitchCenter
             updateStatus.Text = T("GitHub を確認しています…", "Checking GitHub...");
             try
             {
-                latest = await Updater.FetchAsync(null);
+                latest = await Updater.FetchChannelAsync(Beta);
                 LoadDrivers();
                 int count = updates.FindAll(x => x.Update).Count;
                 int pending = updates.Sum(x => x.Pending);
                 int uefi = Updater.EstimateUefi();
                 updateStatus.Text =
-                    T($"最新のリリース: {latest.Tag}", $"Latest release: {latest.Tag}") + "\n" +
+                    T($"最新のリリース: {latest.Tag}", $"Latest release: {latest.Tag}") +
+                    (latest.Prerelease ? T("（ベータ版）", " (beta)") : "") + "\n" +
+                    T($"コントロールセンター: 今 {AppVersion} / 最新 {latest.AppVersion}", $"Control center: {AppVersion} installed / {latest.AppVersion} latest") + "\n" +
                     (count > 0 ? T($"更新できるドライバー: {count} 件（青い行）", $"Driver updates: {count} (blue rows)")
                                : T("ドライバーはすべて最新です。", "All drivers are up to date.")) + "\n" +
                     (pending > 0 ? T($"再起動を待っているデバイス: {pending} 個\n", $"Devices waiting for a restart: {pending}\n") : "") +
@@ -420,9 +503,12 @@ namespace SwitchCenter
                 ? T("\n\nGPIO と I2C は、ほかのドライバーが使っているので、今は Windows に登録だけして、次に起動したときに入れ替えます。",
                     "\n\nGPIO and I2C are used by the other drivers, so they are only added now and replaced at the next boot.")
                 : "";
+            string betaNote = latest.Prerelease
+                ? T("\n\nこれはベータ版（プレリリース）です。試験中のドライバーが含まれます。", "\n\nThis is a beta (pre-release) with drivers still in testing.")
+                : "";
             if (MessageBox.Show(this,
-                    T($"{latest.Tag} から、次のドライバーを入れます。\n\n{list}\n\n管理者の確認が出ます。入れる前に、SHA-256 と署名を確かめます。{bootNote}",
-                      $"Install these drivers from {latest.Tag}?\n\n{list}\n\nWindows will ask for administrator approval. SHA-256 and signatures are checked first.{bootNote}"),
+                    T($"{latest.Tag} から、次のドライバーを入れます。\n\n{list}\n\n管理者の確認が出ます。入れる前に、SHA-256 と署名を確かめます。{bootNote}{betaNote}",
+                      $"Install these drivers from {latest.Tag}?\n\n{list}\n\nWindows will ask for administrator approval. SHA-256 and signatures are checked first.{bootNote}{betaNote}"),
                     T("ドライバーの更新", "Driver update"), MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
 
             installButton.Enabled = checkButton.Enabled = false;
@@ -498,8 +584,37 @@ namespace SwitchCenter
 
         void LoadReport() => reportBox.Text = DiagnosticReport.BuildText(usage).Replace("\n", Environment.NewLine).Replace("\r\r", "\r");
 
+        void RefreshSensors()
+        {
+            Sensors.Status s = auto.Last;
+            autoBright.Checked = auto.AutoBrightness;     // the tray menu may have changed them
+            autoRotate.Checked = auto.AutoRotate;
+            if (s == null)
+            {
+                sensorValues.Text = T("センサーのドライバーに接続できません（UEFI R379 以降と switchsensor が必要）。",
+                                      "Cannot reach the sensor driver (needs UEFI R379 or later and switchsensor).") +
+                                    (auto.LastError != null ? $" ({auto.LastError})" : "");
+                autoBright.Enabled = autoBright.Checked;
+                autoRotate.Enabled = autoRotate.Checked;
+                return;
+            }
+            autoBright.Enabled = s.LightValid || autoBright.Checked;
+            autoRotate.Enabled = s.AccelValid || autoRotate.Checked;
+            string light = s.LightValid
+                ? $"{s.Lux:0.#} lux (DATA0 {s.Data0}, DATA1 {s.Data1}, x{s.Gain}) -> {AutoScreen.PercentForLux(s.Lux)}%"
+                : T("なし", "none");
+            string tilt = s.AccelValid
+                ? $"X {s.X}  Y {s.Y}  Z {s.Z} mg  " + T("上の軸: ", "up: ") + (AutoScreen.UpAxisName(s) ?? T("不明（平ら・斜め）", "unclear (flat or tilted)"))
+                : T("なし", "none") + $" (ID {s.ImuId:X2})";
+            string orientation = Display.Current() is int o ? $"{o * 90}°" : "—";
+            sensorValues.Text = T("明るさセンサー: ", "Light sensor: ") + light + "\n" +
+                                T("傾きセンサー: ", "Tilt sensor: ") + tilt + "\n" +
+                                T("今の画面の向き: ", "Screen orientation now: ") + orientation;
+        }
+
         void ApplyBrightness()
         {
+            if (autoBright.Checked) autoBright.Checked = false;     // a manual choice turns the automatic one off
             try { Backlight.Set(Backlight.PercentToLevel(brightnessBar.Value)); }
             catch (Win32Exception e) { brightnessLabel.Text = T("明るさを変えられませんでした: ", "Could not change the brightness: ") + e.Message; }
         }
@@ -572,7 +687,7 @@ namespace SwitchCenter
                     2 => T("暗くしている", "dimmed"),
                     _ => T("オン", "on"),
                 };
-                brightnessBar.Enabled = true;
+                brightnessBar.Enabled = !autoBright.Checked;
             }
             else
             {
@@ -588,6 +703,7 @@ namespace SwitchCenter
             {
                 timer.Dispose();
                 brightnessApply.Dispose();
+                sensorTimer.Dispose();
                 tileValueFont.Dispose();
                 tileTitleFont.Dispose();
                 bodyFont.Dispose();

@@ -98,6 +98,33 @@ namespace SwitchCenter
         public static int LevelToPercent(int level) => level * 100 / Max;
     }
 
+    /// <summary>switchsensor.sys (\\.\SwitchSensor, UEFI R379+): light in lux and acceleration in mg.</summary>
+    static class Sensors
+    {
+        const string Device = @"\\.\SwitchSensor";
+        const uint GetCode = 0x00226080;
+        const int LightFlag = 1, AccelFlag = 2;
+
+        public sealed class Status
+        {
+            public bool LightValid, AccelValid;
+            public double Lux;
+            public int Data0, Data1, Gain, X, Y, Z, ImuId, Samples;
+        }
+
+        public static Status Get()
+        {
+            byte[] b = Native.Ioctl(Device, GetCode, null, 44);
+            int flags = Native.I32(b, 1);
+            return new Status
+            {
+                LightValid = (flags & LightFlag) != 0, AccelValid = (flags & AccelFlag) != 0,
+                Lux = (uint)Native.I32(b, 2) / 1000.0, Data0 = Native.I32(b, 3), Data1 = Native.I32(b, 4), Gain = Native.I32(b, 5),
+                X = Native.I32(b, 6), Y = Native.I32(b, 7), Z = Native.I32(b, 8), ImuId = Native.I32(b, 9), Samples = Native.I32(b, 10),
+            };
+        }
+    }
+
     /// <summary>The DWORD traces every driver writes under Services\name\Parameters.</summary>
     static class DriverTrace
     {

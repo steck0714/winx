@@ -38,6 +38,9 @@ namespace SwitchCenter
         readonly ContextMenuStrip menu = new ContextMenuStrip();
         readonly ToolStripMenuItem header = new ToolStripMenuItem { Enabled = false };
         readonly ToolStripMenuItem brightness = new ToolStripMenuItem();
+        readonly ToolStripMenuItem autoBrightness = new ToolStripMenuItem();
+        readonly ToolStripMenuItem autoRotate = new ToolStripMenuItem();
+        readonly AutoScreen auto = new AutoScreen();
         readonly ToolStripMenuItem startup = new ToolStripMenuItem();
         readonly ToolStripMenuItem language = new ToolStripMenuItem("言語 / Language");
         readonly ToolStripMenuItem openWindow = new ToolStripMenuItem();
@@ -54,6 +57,8 @@ namespace SwitchCenter
         public TrayApp(bool openWindowAtStart)
         {
             startup.Click += (_, _) => SetStartup(!startup.Checked);
+            autoBrightness.Click += (_, _) => auto.AutoBrightness = !auto.AutoBrightness;
+            autoRotate.Click += (_, _) => auto.AutoRotate = !auto.AutoRotate;
             menu.Opening += (_, _) => { RefreshCpu(); RefreshBrightness(); };
             tray.ContextMenuStrip = menu;
             tray.MouseUp += (_, e) =>
@@ -73,7 +78,7 @@ namespace SwitchCenter
             language.DropDownItems.Add(japanese);
             language.DropDownItems.Add(english);
             language.DropDownOpening += (_, _) => { japanese.Checked = !English; english.Checked = English; };
-            window = new MainForm(ChooseProfile, usage); // created hidden so the chart collects history
+            window = new MainForm(ChooseProfile, usage, auto); // created hidden so the chart collects history
             BuildMenu();
             tray.Visible = true;
             timer.Tick += (_, _) => { usage.Sample(); RefreshCpu(); };
@@ -108,7 +113,7 @@ namespace SwitchCenter
             Lang.Set(english);
             bool visible = window.Visible;
             var old = window;
-            window = new MainForm(ChooseProfile, usage);
+            window = new MainForm(ChooseProfile, usage, auto);
             window.CopyHistoryFrom(old);
             old.Dispose();
             BuildMenu();
@@ -123,6 +128,8 @@ namespace SwitchCenter
             openWindow.Text = T("コントロールセンターを開く", "Open control center");
             brightness.Text = T("画面の明るさ", "Screen brightness");
             startup.Text = T("ログイン時に起動", "Start at login");
+            autoBrightness.Text = T("明るさを自動で調整", "Automatic brightness");
+            autoRotate.Text = T("画面を自動で回転", "Automatic rotation");
             menu.Items.Add(openWindow);
             menu.Items.Add(header);
             menu.Items.Add(new ToolStripSeparator());
@@ -149,6 +156,8 @@ namespace SwitchCenter
                 brightness.DropDownItems.Add(item);
             }
             menu.Items.Add(brightness);
+            menu.Items.Add(autoBrightness);
+            menu.Items.Add(autoRotate);
             menu.Items.Add(new ToolStripSeparator());
             startup.Checked = IsStartup();
             menu.Items.Add(startup);
@@ -202,6 +211,7 @@ namespace SwitchCenter
 
         void SetBrightness(int percent)
         {
+            auto.AutoBrightness = false;        // a manual choice turns the automatic one off
             try { Backlight.Set(Backlight.PercentToLevel(percent)); }
             catch (Win32Exception e)
             {
@@ -225,6 +235,8 @@ namespace SwitchCenter
             }
             foreach (ToolStripMenuItem item in brightness.DropDownItems) item.Checked = (int)item.Tag == nearest;
             brightness.Text = T($"画面の明るさ（{Backlight.LevelToPercent(b.Level)}%）", $"Screen brightness ({Backlight.LevelToPercent(b.Level)}%)");
+            autoBrightness.Checked = auto.AutoBrightness;
+            autoRotate.Checked = auto.AutoRotate;
         }
 
         void RefreshCpu()
@@ -315,6 +327,7 @@ namespace SwitchCenter
             tray.Visible = false;
             tray.Dispose();
             window.Dispose();
+            auto.Dispose();
             base.ExitThreadCore();
         }
     }

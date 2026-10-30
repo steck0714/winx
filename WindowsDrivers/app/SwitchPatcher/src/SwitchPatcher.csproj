@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SwitchPatcher: puts the Switch drivers, test signing and the control
+       center into the Windows on a Switch SD card, from a PC. Design:
+       docs\Design-SwitchPatcher-ja.md. One self-contained exe for x64 PCs;
+       it always runs as administrator (app.manifest). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>SwitchPatcher</AssemblyName>
+    <RootNamespace>SwitchPatcher</RootNamespace>
+    <Version>0.3.0</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>ja;en</SatelliteResourceLanguages>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Release reading and checking, and the UI language, shared with SwitchCenter. -->
+    <Compile Include="..\..\Shared\*.cs" />
+    <Compile Include="..\..\SwitchCenter\src\Lang.cs" />
+  </ItemGroup>
+
+</Project>
