@@ -3675,6 +3675,119 @@ STATIC VOID R373PrintTouch (VOID) {
   }
 }
 
+// R379: sensors for switchsensor.sys. L4T DT: BH1730FVC light sensor 0x29 on
+// i2c@7000c400 (I2C2; VID from LDO6, which R373 already turned on), and the
+// LSM6DS3H IMU on spi@7000da00 (SPI4, CS0, mode 3). UEFI only clocks the two
+// controllers, sets their pins and reads the chip IDs; the Windows driver
+// configures the chips.
+#define I2C2_BASE_R379       0x7000C400UL
+#define SPI4_BASE            0x7000DA00UL
+#define GPIO_PC_OFFSET       0x008U      // port C: bank 0, port 2
+#define GPIO_PD_OFFSET       0x00CU      // port D: bank 0, port 3
+#define ALS_ADDR             0x29
+#define PINMUX_GEN2_I2C_SCL  0x0C4U
+#define PINMUX_GEN2_I2C_SDA  0x0C8U
+#define PINMUX_SPI4_MOSI     0x078U
+#define PINMUX_SPI4_MISO     0x07CU
+#define PINMUX_SPI4_SCK      0x080U
+#define PINMUX_SPI4_CS0      0x084U
+#define PINMUX_PULL_DOWN_BITS (1U << 2)
+#define CAR_RST_DEVICES_H    0x008U
+#define CAR_CLK_OUT_ENB_H    0x014U
+#define CAR_CLK_SOURCE_I2C2  0x16CU
+#define CAR_CLK_SOURCE_SBC4  0x1B4U
+#define CAR_RST_DEV_H_SET    0x308U
+#define CAR_RST_DEV_H_CLR    0x30CU
+#define CAR_CLK_ENB_H_SET    0x328U
+#define CLK_H_I2C2_BIT       (1U << 22)
+#define CLK_U_SBC4_BIT       (1U << 4)
+#define SPI_COMMAND1         (0x000U / 4)
+#define SPI_TRANS_STATUS     (0x010U / 4)
+#define SPI_FIFO_STATUS      (0x014U / 4)
+#define SPI_DMA_BLK          (0x024U / 4)
+#define SPI_TX_FIFO          (0x108U / 4)
+#define SPI_RX_FIFO          (0x188U / 4)
+#define SPI_CMD1_IMU         ((1U << 30) | (3U << 28) | (1U << 22) | (1U << 12) | (1U << 11) | 7U)  // master, mode 3, CS0 idle high, RX+TX, 8 bit
+#define SPI_PIO              (1U << 31)
+#define SPI_RDY              (1U << 30)
+#define SPI_FIFO_FLUSH       ((1U << 15) | (1U << 14))
+#define SPI_FIFO_ERRORS      0xF0U
+
+// Turns a peripheral clock on and pulses its reset when it is off or in reset.
+STATIC BOOLEAN R379ClockOn (UINT32 EnbReg, UINT32 RstReg, UINT32 EnbSet, UINT32 RstSet, UINT32 RstClr,
+                            UINT32 Bit, UINT32 SourceReg, UINT32 Source) {
+  volatile UINT32 *Car = (volatile UINT32 *)CAR_BASE;
+  if ((Car[EnbReg / 4] & Bit) != 0 && (Car[RstReg / 4] & Bit) == 0) return FALSE;
+  Car[RstSet / 4] = Bit;
+  Car[SourceReg / 4] = Source;
+  Car[EnbSet / 4] = Bit;
+  gBS->Stall (10);
+  Car[RstClr / 4] = Bit;
+  gBS->Stall (10);
+  return TRUE;
+}
+
+// One full-duplex SPI4 block of Len (<= 16) bytes with the hardware CS0.
+STATIC BOOLEAN R379SpiXfer (CONST UINT8 *Tx, UINT8 *Rx, UINTN Len) {
+  volatile UINT32 *S = (volatile UINT32 *)SPI4_BASE;
+  UINTN I;
+  S[SPI_FIFO_STATUS] = SPI_FIFO_FLUSH | SPI_FIFO_ERRORS;
+  for (I = 0; I < 1000 && (S[SPI_FIFO_STATUS] & SPI_FIFO_FLUSH) != 0; ++I) gBS->Stall (1);
+  S[SPI_TRANS_STATUS] = SPI_RDY;
+  S[SPI_COMMAND1] = SPI_CMD1_IMU;
+  S[SPI_DMA_BLK] = (UINT32)(Len - 1);
+  for (I = 0; I < Len; ++I) S[SPI_TX_FIFO] = Tx[I];
+  S[SPI_COMMAND1] = SPI_CMD1_IMU | SPI_PIO;
+  for (I = 0; I < 1000 && (S[SPI_TRANS_STATUS] & SPI_RDY) == 0; ++I) gBS->Stall (1);
+  if ((S[SPI_TRANS_STATUS] & SPI_RDY) == 0) return FALSE;
+  for (I = 0; I < Len; ++I) Rx[I] = (UINT8)S[SPI_RX_FIFO];
+  S[SPI_TRANS_STATUS] = SPI_RDY;
+  return TRUE;
+}
+
+STATIC VOID R379SensorsPowerOn (VOID) {
+  volatile UINT32 *Pin = (volatile UINT32 *)PINMUX_BASE;
+  volatile UINT32 *B = (volatile UINT32 *)I2C2_BASE_R379;
+  CONST UINT8 PartCmd = 0x80U | 0x12U;                        // BH1730 command: register 0x12 PART_ID
+  CONST UINT8 WhoAmI[2] = { 0x80U | 0x0FU, 0x00 };            // IMU read of WHO_AM_I
+  UINT8 Part = 0, Id[2] = { 0, 0 };
+  BOOLEAN Pulsed, Ok;
+  UINT32 St = 0;
+  UINTN Retry;
+
+  // Light sensor: GEN2_I2C pins, I2C2 clock (CLK_M, like I2C3), packet mode.
+  Pin[PINMUX_GEN2_I2C_SCL / 4] = PINMUX_INPUT_EN_BIT;
+  Pin[PINMUX_GEN2_I2C_SDA / 4] = PINMUX_INPUT_EN_BIT;
+  R366GpioSet (GPIO_PJ_OFFSET, GPIO_CNF, 2, FALSE);           // PJ2/PJ3 to the controller
+  R366GpioSet (GPIO_PJ_OFFSET, GPIO_CNF, 3, FALSE);
+  Pulsed = R379ClockOn (CAR_CLK_OUT_ENB_H, CAR_RST_DEVICES_H, CAR_CLK_ENB_H_SET, CAR_RST_DEV_H_SET,
+                        CAR_RST_DEV_H_CLR, CLK_H_I2C2_BIT, CAR_CLK_SOURCE_I2C2, 6U << 29);
+  i2c_init (I2C_2);
+  B[CNFG] |= 0x400U;
+  B[CONFIG_LOAD] = 0x25;
+  for (Retry = 0; Retry < 10000 && (B[CONFIG_LOAD] & 1U) != 0; ++Retry) gBS->Stall (10);
+  Ok = R373I2cXfer (B, ALS_ADDR, &PartCmd, 1, &Part, 1, &St);
+  Print (L"R379 light sensor: I2C2 clock %s, BH1730 PART_ID %s %02x I2C=%08x (expect 7x)\r\n",
+         Pulsed ? L"started" : L"already on", Ok ? L"read" : L"FAIL", Part, St);
+
+  // IMU: SPI4 pins as in the L4T pinmux, clock PLLP / 100 = 4.08 MHz.
+  Pin[PINMUX_SPI4_MOSI / 4] = PINMUX_PULL_DOWN_BITS;
+  Pin[PINMUX_SPI4_MISO / 4] = PINMUX_PULL_UP_BITS | PINMUX_TRISTATE_BIT | PINMUX_INPUT_EN_BIT;
+  Pin[PINMUX_SPI4_SCK / 4] = PINMUX_PULL_DOWN_BITS;
+  Pin[PINMUX_SPI4_CS0 / 4] = PINMUX_PULL_UP_BITS;
+  R366GpioSet (GPIO_PC_OFFSET, GPIO_CNF, 5, FALSE);           // PC5-PC7, PD0 to the controller
+  R366GpioSet (GPIO_PC_OFFSET, GPIO_CNF, 6, FALSE);
+  R366GpioSet (GPIO_PC_OFFSET, GPIO_CNF, 7, FALSE);
+  R366GpioSet (GPIO_PD_OFFSET, GPIO_CNF, 0, FALSE);
+  Pulsed = R379ClockOn (CAR_CLK_OUT_ENB_U, CAR_RST_DEVICES_U, CAR_CLK_ENB_U_SET, CAR_RST_DEV_U_SET,
+                        CAR_RST_DEV_U_CLR, CLK_U_SBC4_BIT, CAR_CLK_SOURCE_SBC4, 198U);
+  ((volatile UINT32 *)SPI4_BASE)[SPI_COMMAND1] = SPI_CMD1_IMU;
+  gBS->Stall (10);
+  Ok = R379SpiXfer (WhoAmI, Id, 2);
+  Print (L"R379 IMU: SPI4 clock %s, WHO_AM_I %s %02x (69 = LSM6DS3H, 6C = LSM6DSO)\r\n",
+         Pulsed ? L"started" : L"already on", Ok ? L"read" : L"FAIL", Id[1]);
+}
+
 // Raise VDD_CPU first, park CCLK on PLLP (408 MHz), reprogram and relock
 // PLLX, then return CCLK to PLLX. Any failure puts the old PLLX/voltage back.
 STATIC VOID R364RaiseCpuClock (VOID) {
@@ -3937,7 +4050,7 @@ STATIC VOID EFIAPI RunTest (EFI_EVENT Event, VOID *Context) {
   St->ConOut->SetAttribute (St->ConOut, EFI_WHITE | EFI_BACKGROUND_BLUE);
   St->ConOut->ClearScreen (St->ConOut);
   Print (L"============================================================\r\n");
-  Print (L" Nintendo Switch UEFI XUSB bring-up R378 (ACPI GPIO/buttons/I2C/battery/fan/touch/power button/CPU clock/RTC + USB hot-plug + backlight PWM + touch power + fan + CPU 1020 MHz + USB + hub charging)\r\n");
+  Print (L" Nintendo Switch UEFI XUSB bring-up R379 (ACPI GPIO/buttons/I2C/battery/fan/touch/power button/CPU clock/RTC/sensors + USB hot-plug + backlight PWM + touch power + fan + CPU 1020 MHz + USB + hub charging)\r\n");
   Print (L" host or sink gate -> VBUS/charge -> path -> firmware/Falcon -> PADCTL -> XhciDxe\r\n");
   Print (L"============================================================\r\n\r\n");
   Print (L"OTG: USB device directly (Switch supplies VBUS), or a USB-C hub with its\r\n");
@@ -3964,6 +4077,7 @@ STATIC VOID EFIAPI RunTest (EFI_EVENT Event, VOID *Context) {
   R366StartFan ();
   R376BacklightPwm ();
   R373TouchPowerOn ();
+  R379SensorsPowerOn ();
 
   if (!R288Read16 (BM_FW_TYPE, &FwType, &S) ||
       !R288Read16 (BM_FW_REV, &FwRev, &S) ||
