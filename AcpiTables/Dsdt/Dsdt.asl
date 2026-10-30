@@ -531,6 +531,42 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+        // R379: I2C2 (GEN2_I2C, 0x7000C400) for the BH1730FVC light sensor. UEFI R379 clocks it.
+        Device (I2C2)
+        {
+            Name (_HID, "SWOA0201")
+            Name (_UID, 0x02)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x7000C400, 0x00000100)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x00000074 }
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
+        // R379: sensors for switchsensor.sys (ACPI\SWOA0901). SPI4 controller (the driver runs it in
+        // PIO mode; IMU LSM6DS3H on CS0, UEFI R379 clocks it) and the BH1730FVC light sensor 0x29 on I2C2.
+        // Needs UsbPowerAuditDxe >= R379: SPI4 reads stall while its clock is gated.
+        Device (SENS)
+        {
+            Name (_HID, "SWOA0901")
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x7000DA00, 0x00000200)
+                I2cSerialBusV2 (0x0029, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C2", 0x00, ResourceConsumer, , Exclusive, )
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
         // R373: STM FTM4 touch controller (ACPI\SWOA0501), 0x49 on I2C3,
         // interrupt PX1 (GPIO 185) level low.
         Device (TCH0)
