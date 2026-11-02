@@ -21,6 +21,8 @@
   DxeServicesTableLib
   DxeServicesLib
   UefiLib
+  BaseLib
+  BaseMemoryLib
   IoLib
   PrintLib
   CacheMaintenanceLib
@@ -40,6 +42,9 @@
   gEfiUsbIoProtocolGuid
   gEfiBlockIoProtocolGuid
   gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiAcpi20TableGuid
 
 [Depex]
   gPmicProtocolGuid AND gEfiSimpleTextOutProtocolGuid

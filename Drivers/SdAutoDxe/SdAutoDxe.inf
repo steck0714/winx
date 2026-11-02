@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+# SdAutoDxe: picks the SD host description for the installed Windows. Just before the boot option runs it looks for
+# \Windows\System32\drivers\nvtsdhc.sys on the file systems (NTFS needs the EfiFs driver) and sets the DSDT value SDMD:
+#   0x02 nvtsdhc found   -> SDM1 = NVDA0101 / NVD0D40 (Windows 11 with the Windows-for-Switch nvtsdhc driver)
+#   0x01 Windows without -> SDM1 = NVDA0212 / PNP0D40 (inbox sdbus)
+#   0x10 nothing found   -> the DSDT falls back to _OSI ("Windows 2021") (Windows 11 yes, Windows 10 no)
+# Built with -D SWITCH_ACPI_SD_AUTO=1. See SdAutoDxe.c.
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = SdAutoDxe
+  FILE_GUID                      = 3b7e1d52-8c04-4a6f-b2e9-5d10c7f4a1e8
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = SdAutoEntry
+
+[Sources]
+  SdAutoDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  PrintLib
+  UefiLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                 ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid        ## CONSUMES
+
+[Guids]
+  gEfiAcpi20TableGuid
+  gEfiEventReadyToBootGuid
+
+[Depex]
+  TRUE
