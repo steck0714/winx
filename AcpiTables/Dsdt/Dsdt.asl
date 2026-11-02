@@ -124,7 +124,64 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         // and clock/power state at ExitBootServices are unverified.
         Device (SDM1)
         {
-#ifdef SWITCH_ACPI_SD_NVTSDHC
+#ifdef SWITCH_ACPI_SD_AUTO
+            // One ROM for Windows 10 and Windows 11. SdAutoDxe looks for \Windows\System32\drivers\nvtsdhc.sys on the
+            // SD card just before the boot option starts and patches SDMD (AML: 08 'SDMD' 0A 10):
+            //   0x02 nvtsdhc found -> NVDA0101 / NVD0D40 (nvtsdhc), 0x01 Windows without it -> NVDA0212 / PNP0D40 (sdbus),
+            //   0x10 nothing found -> _OSI ("Windows 2021"): Windows 11 (build 22000+) yes, Windows 10 no.
+            Name (SDMD, 0x10)
+            Method (SDNV, 0, NotSerialized)
+            {
+                If ((SDMD == 0x02))
+                {
+                    Return (One)
+                }
+
+                If ((SDMD == 0x01))
+                {
+                    Return (Zero)
+                }
+
+                If (_OSI ("Windows 2021"))
+                {
+                    Return (One)
+                }
+
+                Return (Zero)
+            }
+
+            Method (_HID, 0, NotSerialized)
+            {
+                If (SDNV ())
+                {
+                    Return ("NVDA0101")
+                }
+
+                Return ("NVDA0212")
+            }
+
+            Method (_CID, 0, NotSerialized)
+            {
+                If (SDNV ())
+                {
+                    Return ("NVD0D40")
+                }
+
+                Return ("PNP0D40")
+            }
+
+            Method (_CCA, 0, NotSerialized)
+            {
+                If (SDNV ())
+                {
+                    Return (Zero)
+                }
+
+                Return (One)
+            }
+
+            Name (_RMV, One)
+#elif defined(SWITCH_ACPI_SD_NVTSDHC)
             // Windows 11 (22621+): the inbox sdbus cannot boot from this SD host, so bind the
             // Windows-for-Switch nvtsdhc miniport (ACPI\NVDA0101) instead. The compatible ID is NVD0D40 so
             // that sdbus does not claim it. Same description as SDLOADAA64-NOCID.EFI's SSDT (\_SB.SDH0):
@@ -232,6 +289,13 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                 }
             })
 
+#ifndef SWITCH_ACPI_USB_SELECT
+            // R389 (hayato41200/Windows-for-Switch): hidden unless UsbPowerAuditDxe brought XUSB up.
+            // It patches this byte (AML 08 'XSTA' 0A 10) to 0x0F and fixes the DSDT checksum.
+            // usbxhci touching an XUSB that was never started froze Windows at the logo.
+            Name (XSTA, 0x10)
+#endif
+
             Method (_STA, 0, NotSerialized)
             {
 #ifdef SWITCH_ACPI_USB_SELECT
@@ -242,7 +306,7 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
 
                 Return (Zero)
 #else
-                Return (0x0F)
+                Return (XSTA)
 #endif
             }
         }
@@ -408,11 +472,11 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_UID, Zero)
             Name (_CRS, ResourceTemplate ()
             {
-                GpioInt (Edge, ActiveBoth, Exclusive, PullUp, 0x0000, "\\_SB.GPI0", 0x00, ResourceConsumer, ,)
+                GpioInt (Edge, ActiveBoth, Exclusive, PullUp, 0x07D0, "\\_SB.GPI0", 0x00, ResourceConsumer, ,)
                 {
                     190     // PX6: volume up
                 }
-                GpioInt (Edge, ActiveBoth, Exclusive, PullUp, 0x0000, "\\_SB.GPI0", 0x00, ResourceConsumer, ,)
+                GpioInt (Edge, ActiveBoth, Exclusive, PullUp, 0x07D0, "\\_SB.GPI0", 0x00, ResourceConsumer, ,)
                 {
                     191     // PX7: volume down
                 }
@@ -567,6 +631,25 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+        // R390 (hayato41200/Windows-for-Switch): Bluetooth for switchbt.sys (ACPI\SWOA0B01).
+        // BCM4356A3 on UART-D (GIC SPI 90 = GSI 122, level high). UEFI R390 sets the pins,
+        // clocks the UART and powers the chip (PH4).
+        Device (BTH0)
+        {
+            Name (_HID, "SWOA0B01")
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x70006300, 0x00000040)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x0000007A }
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
         // R373: STM FTM4 touch controller (ACPI\SWOA0501), 0x49 on I2C3,
         // interrupt PX1 (GPIO 185) level low.
         Device (TCH0)
@@ -577,6 +660,26 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             {
                 I2cSerialBusV2 (0x0049, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C3", 0x00, ResourceConsumer, , Exclusive, )
                 GpioInt (Level, ActiveLow, Exclusive, PullUp, 0x0000, "\\_SB.GPI0", 0x00, ResourceConsumer, , ) { 185 }
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
+        // R402: audio for switchaudio.sys (ACPI\SWOA0C01). AHUB (ADMAIF, XBAR,
+        // I2S1 at 0x702D1000), ADMA, and the ALC5639 codec on I2C1. UEFI turns
+        // on the APE clocks, sets up the codec and starts I2S1.
+        Device (AUD0)
+        {
+            Name (_HID, "SWOA0C01")
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x702D0000, 0x00002000)
+                Memory32Fixed (ReadWrite, 0x702E2000, 0x00001000)
+                I2cSerialBusV2 (0x001C, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
             })
 
             Method (_STA, 0, NotSerialized)
