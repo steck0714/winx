@@ -120,3 +120,27 @@ GPL-2.0-only overall. See `LICENSE` and `NOTICE.winx.md` (components, hekate att
 - [hayato41200](https://github.com/hayato41200) — Windows 10 on ARM for the Nintendo Switch: the XUSB/xHCI bring-up, USB-C PD and charging, CPU clock, fan, backlight and touch power code (`Drivers/UsbPowerAuditDxe`), the `SWOA*` ACPI devices, the XhciDxe write-combine patch, and the Windows kernel drivers and SwitchCenter app (`WindowsDrivers/`). Ported into winx as the `SWITCH_WOA` build.
   - [hayato41200/Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch) — UEFI / DSDT / bring-up notes (GPL-2.0).
   - [hayato41200/Windows-for-Switch-Drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers) — Windows drivers and SwitchCenter (GPL-2.0).
+
+## R392 sync with hayato41200/Windows-for-Switch
+`Drivers/UsbPowerAuditDxe` is now hayato41200's R392 (was R379), and the DSDT carries his R389/R390 changes: `BTH0` (`SWOA0B01`, for `switchbt.sys`),
+`XSTA` (XHC0 stays hidden until XUSB is really running, patched by UsbPowerAuditDxe), and 20 ms volume-button debounce. This matches the drivers in
+Windows-for-Switch-Drivers (SwitchDrivers 2026-10-31). The XUSB firmware is no longer embedded by default (NVIDIA licence): put `tegra21x_xusb_firmware`
+(124,416 B L4T build, tested) in the root of the SD card's ESP, or build with `-D EMBED_XUSB_FIRMWARE=TRUE` after placing it in `Firmware/`.
+Build: `Tools/setup_efifs.sh <edk2>` then `Tools/build-woa.sh -D SWITCH_FSDRV=1` (add `-D SWITCH_ACPI_SD_NVTSDHC=1` for the nvtsdhc SD driver, Windows 11 22621+).
+Prebuilt: `release/R392/bl33.bin` (inbox sdbus, Windows 10) and `release/R392/bl33_nvtsdhc.bin`.
+
+## R402 sync (audio bring-up)
+`Drivers/UsbPowerAuditDxe` is hayato41200's R402 and the DSDT has `AUD0` (`SWOA0C01`, for switchaudio.sys). UEFI powers the codec (RT5639 on I2C1 0x1C),
+the APE clocks and I2S1 and leaves the audio path running; no tone is played at boot (`SWITCH_AUDIO_TEST_TONE 0`).
+Build variants (all with `-D SWITCH_HEKATE=1 -D SWITCH_BIGFD=1 -D SWITCH_FB_ROTATE=2 -D SWITCH_FSDRV=1 -D SWITCH_ACPI_SD_NVTSDHC=1`):
+- `bl33_R402_woa_nvt_efifs.bin`: `-D SWITCH_WOA=1` (R402, audio, Bluetooth, touch power, XUSB from the ESP)
+- `bl33_R392_woa_nvt_efifs.bin`: same with R392 (no audio)
+- `bl33_R392_base_nvt_efifs.bin`: no `SWITCH_WOA` (no UsbPowerAuditDxe); `-D SWITCH_USB=1`. The SWOA DSDT devices exist but nothing powers touch, fan, etc.
+Hekate chain: Windows may hang at the logo with no blue screen; see the R386/R388/R389 notes in hayato41200/Windows-for-Switch.
+
+### One ROM for Windows 10 and Windows 11 (`-D SWITCH_ACPI_SD_AUTO=1`)
+`Drivers/SdAutoDxe` runs just before the boot option starts, connects the block devices and looks for `\Windows\System32\drivers\nvtsdhc.sys`
+(NTFS needs `-D SWITCH_FSDRV=1`). It patches `SDMD` in the DSDT (`Name (SDMD, 0x10)`): `0x02` nvtsdhc found (SDM1 = NVDA0101 / NVD0D40),
+`0x01` a Windows without it (NVDA0212 / PNP0D40, inbox sdbus), unchanged `0x10` when no Windows volume was read: the DSDT then uses
+`_OSI ("Windows 2021")` (Windows 11 yes, Windows 10 no). The screen shows one `SdAuto: ...` line. `_CCA` is 0 with nvtsdhc and 1 with sdbus (UNTESTED).
+So: install nvtsdhc (and its certificate) into a Windows 11 image and leave it out of a Windows 10 image; the ROM is the same.

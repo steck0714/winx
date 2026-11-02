@@ -20,6 +20,8 @@
 #
 ################################################################################
 [Defines]
+  # R392 (hayato41200): embed NVIDIA's XUSB firmware in the image (private builds only; see Firmware/README.md)
+  DEFINE EMBED_XUSB_FIRMWARE     = FALSE
   PLATFORM_NAME                  = NintendoSwitch
   PLATFORM_GUID                  = f5e5d453-b715-4e01-8c50-fb298a273fd7
   PLATFORM_VERSION               = 0.1
@@ -76,11 +78,16 @@
 !else
   DEFINE ACPI_ASL_EHCI_TXFILL    =
 !endif
+!ifdef SWITCH_ACPI_SD_AUTO
+  # SDM1 picks nvtsdhc (Windows 11) or sdbus (Windows 10) at run time with _OSI: see Dsdt.asl.
+  DEFINE ACPI_ASL_SDNV           = -DSWITCH_ACPI_SD_AUTO
+!else
 !ifdef SWITCH_ACPI_SD_NVTSDHC
   # SDM1 is described for the Windows-for-Switch nvtsdhc driver (Windows 11): see Dsdt.asl.
   DEFINE ACPI_ASL_SDNV           = -DSWITCH_ACPI_SD_NVTSDHC
 !else
   DEFINE ACPI_ASL_SDNV           =
+!endif
 !endif
 !ifdef SWITCH_ACPI_SWOA
   # Windows-for-Switch SWOA0101..0801 devices (GPIO/I2C/battery/fan/touch/power/CPU/RTC): see Dsdt.asl.
@@ -570,6 +577,9 @@
 !endif
 !ifdef SWITCH_WINSPY
   NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
+!endif
+!ifdef SWITCH_ACPI_SD_AUTO
+  NintendoSwitchPkg/Drivers/SdAutoDxe/SdAutoDxe.inf
 !endif
 !ifdef SWITCH_FSDRV
   # Read-only non-FAT file systems (pbatard/EfiFs v1.12 + GRUB 2.14, GPLv3): NTFS/exFAT (Windows),
