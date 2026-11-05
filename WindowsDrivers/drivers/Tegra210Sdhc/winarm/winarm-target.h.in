@@ -5,6 +5,7 @@
 #define WINARM_COUNT  @WINARM_COUNT@u
 #define WINARM_SERIAL @WINARM_SERIAL@ULL
 #define LITE_CARD_BYTES @LITE_CARD_BYTES@ULL
+#define WINARM_MBR_SIGNATURE @WINARM_MBR_SIGNATURE@u
 
 static inline unsigned int LiteU32(const unsigned char *p)
 {
@@ -65,6 +66,7 @@ static inline int LiteSelectWindowsPartition(unsigned char *sector)
         !LiteBytesEqual(sector + 440, original, sizeof(original))) return 0;
     for (unsigned int i = 0; i < 16; ++i) sector[446 + i] = sector[494 + i];
     for (unsigned int i = 462; i < 510; ++i) sector[i] = 0;
+    sector[446] = 0x80; // Present WINARM as the active system partition.
     return 1;
 }
 #endif

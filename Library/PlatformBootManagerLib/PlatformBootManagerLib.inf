@@ -33,8 +33,7 @@
 
 [Sources]
   PlatformBm.c
-  LiteSdBoot.c
-  WinPeGptView.c
+  LiteHomeBoot.c
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec

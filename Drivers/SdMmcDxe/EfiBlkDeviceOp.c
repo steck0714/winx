@@ -20,6 +20,7 @@
 #include "Include/SdMmc.h"
 #include "Include/HostOp.h"
 #include "Include/EfiProto.h"
+#include <winarm-target.h>
 
 STATIC BIO_INSTANCE mBioTemplate = {
     BIO_INSTANCE_SIGNATURE,
@@ -169,60 +170,81 @@ fail:
     return 0;
 }
 
+// Validate the physical disk before publishing a single-partition, read-only MBR
+// view. Windows sees this same signature and offset through its native SD driver.
+EFI_STATUS
+LitePrepareWindowsDisk (BIO_INSTANCE *Instance)
+{
+    EFI_STATUS Status = EFI_COMPROMISED_DATA;
+    if (Instance->BlockMedia.BlockSize != 512 ||
+        Instance->BlockMedia.LastBlock != LITE_CARD_BYTES / 512 - 1)
+        return EFI_UNSUPPORTED;
+
+    UINT8 *Data = AllocatePages (1);
+    if (Data == NULL) return EFI_OUT_OF_RESOURCES;
+    // LBA 0, the GPT header and the entire 11-entry GPT array fit in one page.
+    if (!MmcReadInternal (Instance, 0, (UINT32 *)Data, 5 * 512)) {
+        Status = EFI_DEVICE_ERROR;
+        goto Exit;
+    }
+    UINT8 *Header = Data + 512;
+    UINT8 *Entries = Data + 1024;
+    if (!LiteSelectWindowsPartition (Data) || !LiteIsHeader (Header) ||
+        !LiteIsPartition (Entries + 1024)) goto Exit;
+    UINT32 HeaderBytes = LiteU32 (Header + 12);
+    UINT32 HeaderCrc = LiteU32 (Header + 16);
+    UINT32 ActualCrc;
+    if (HeaderBytes < 92 || HeaderBytes > 512) goto Exit;
+    ZeroMem (Header + 16, 4);
+    if (EFI_ERROR (gBS->CalculateCrc32 (Header, HeaderBytes, &ActualCrc)) || ActualCrc != HeaderCrc ||
+        EFI_ERROR (gBS->CalculateCrc32 (Entries, 11 * 128, &ActualCrc)) || ActualCrc != LiteU32 (Header + 88))
+        goto Exit;
+    CopyMem (Instance->WindowsMbr, Data, 512);
+    if (!MmcReadInternal (Instance, (UINT64)WINARM_FIRST * 512, (UINT32 *)Data, 512)) {
+        Status = EFI_DEVICE_ERROR;
+        goto Exit;
+    }
+    if (LiteIsBootSector (Data)) Status = EFI_SUCCESS;
+Exit:
+    FreePages (Data, 1);
+    return Status;
+}
+
 EFI_STATUS
 EFIAPI
-MMCHSReadBlocks(
-    IN EFI_BLOCK_IO_PROTOCOL          *This,
-    IN UINT32                         MediaId,
-    IN EFI_LBA                        Lba,
-    IN UINTN                          BufferSize,
-    OUT VOID                          *Buffer
+MMCHSReadBlocks (
+    IN EFI_BLOCK_IO_PROTOCOL *This,
+    IN UINT32 MediaId,
+    IN EFI_LBA Lba,
+    IN UINTN BufferSize,
+    OUT VOID *Buffer
 )
 {
-    BIO_INSTANCE              *Instance;
-    EFI_BLOCK_IO_MEDIA        *Media;
-    UINTN                     BlockSize;
-    UINTN                     rc;
-
-    Instance  = BIO_INSTANCE_FROM_BLOCKIO_THIS(This);
-    Media     = &Instance->BlockMedia;
-    BlockSize = Media->BlockSize;
-
-    if (MediaId != Media->MediaId) 
-    {
-        return EFI_MEDIA_CHANGED;
-    }
-
-    if (Lba > Media->LastBlock) 
-    {
+    BIO_INSTANCE *Instance = BIO_INSTANCE_FROM_BLOCKIO_THIS (This);
+    EFI_BLOCK_IO_MEDIA *Media = &Instance->BlockMedia;
+    if (MediaId != Media->MediaId) return EFI_MEDIA_CHANGED;
+    if (BufferSize % 512 != 0) return EFI_BAD_BUFFER_SIZE;
+    if (BufferSize == 0) return EFI_SUCCESS;
+    UINTN Blocks = BufferSize / 512;
+    if (Buffer == NULL || Lba > Media->LastBlock || Blocks - 1 > Media->LastBlock - Lba)
         return EFI_INVALID_PARAMETER;
-    }
 
-    if ((Lba + (BufferSize / BlockSize) - 1) > Media->LastBlock) 
-    {
-        return EFI_INVALID_PARAMETER;
+    EFI_LBA End = Lba + Blocks;
+    EFI_LBA First = MAX (Lba, (EFI_LBA)WINARM_FIRST);
+    EFI_LBA Last = MIN (End, (EFI_LBA)WINARM_FIRST + WINARM_COUNT);
+    if (First != Lba || Last != End) {
+        ZeroMem (Buffer, BufferSize);
+        if (Lba == 0) CopyMem (Buffer, Instance->WindowsMbr, 512);
     }
-
-    if (BufferSize % BlockSize != 0) 
-    {
-        return EFI_BAD_BUFFER_SIZE;
+    if (First >= Last) return EFI_SUCCESS;
+    UINT8 *Out = (UINT8 *)Buffer + (UINTN)(First - Lba) * 512;
+    while (First < Last) {
+        UINT32 Count = (UINT32)MIN (Last - First, 2048ULL);
+        if (!MmcReadInternal (Instance, First * 512, (UINT32 *)Out, Count * 512)) return EFI_DEVICE_ERROR;
+        Out += Count * 512;
+        First += Count;
     }
-
-    if (Buffer == NULL) 
-    {
-        return EFI_INVALID_PARAMETER;
-    }
-
-    if (BufferSize == 0) 
-    {
-        return EFI_SUCCESS;
-    }
-
-    rc = MmcReadInternal(Instance, (UINT64) Lba * BlockSize, Buffer, BufferSize);
-    if (rc == 1)
-        return EFI_SUCCESS;
-    else
-        return EFI_DEVICE_ERROR;
+    return EFI_SUCCESS;
 }
 
 //

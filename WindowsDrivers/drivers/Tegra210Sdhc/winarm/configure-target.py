@@ -89,6 +89,7 @@ def identity(image):
         "WINARM_FIRST": str(start), "WINARM_COUNT": str(length),
         "WINARM_SERIAL": f"0x{serial:016x}", "LITE_CARD_BYTES": str(size),
         "NTFS_SERIAL_HEX": f"{serial:016x}",
+        "WINARM_MBR_SIGNATURE": f"0x{struct.unpack_from('<I', mbr, 440)[0]:08x}",
         "DISK_GUID": c_bytes(gpt[56:72], 16, ","),
         "TYPE_AND_GUID": c_bytes(target[:32], 16, ","),
         "MBR_TAIL": c_bytes(mbr[440:510], 14, ", "),

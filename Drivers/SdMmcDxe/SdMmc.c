@@ -1161,6 +1161,12 @@ retry:
 		Instance->BlockMedia.BlockSize = mBlkDesc.blksz;
 		// mBlkDesc.lba is the block COUNT; Media->LastBlock is the index of the last block.
 		Instance->BlockMedia.LastBlock = mBlkDesc.lba - 1;
+        Status = LitePrepareWindowsDisk (Instance);
+        if (EFI_ERROR (Status)) {
+            SdLog (L"WINARM identity check: %r\r\n", Status);
+            FreePool (Instance);
+            goto exit;
+        }
 		Status = gBS->InstallMultipleProtocolInterfaces(
 			&Instance->Handle,
 			&gEfiBlockIoProtocolGuid,    

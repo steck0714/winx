@@ -2,3 +2,6 @@
 /WindowsDrivers/drivers/Tegra210Sdhc/src/winarm-target.h
 /docs/hdh001-winarm-r3/generated/
 /LiteSdTest/exfat_aa64.efi
+/Include/winarm-target.h
+/LiteSdTest/ntfs_aa64_ro.efi
+/docs/hdh001-home/generated/

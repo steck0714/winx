@@ -95,9 +95,9 @@ READ_LOCK_STATUS   = TRUE
   INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
-  # Read-only exFAT filesystem driver from the upstream EfiFs v1.12 release.
-  FILE DRIVER = 33CB60C4-18E1-416C-9568-26F3585F34D0 {
-    SECTION PE32 = NintendoSwitchPkg/LiteSdTest/exfat_aa64.efi
+  # Read-only NTFS-3G UEFI 1.9 for the dedicated WINARM boot volume.
+  FILE DRIVER = E607DA2C-5D59-43C3-894B-533847989930 {
+    SECTION PE32 = NintendoSwitchPkg/LiteSdTest/ntfs_aa64_ro.efi
   }
 
   # Display

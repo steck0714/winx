@@ -1,15 +1,14 @@
+# WinX · Switch Lite Windows ARM64
 
-# WinX
+此分支整合 HDH-001 的 Windows 11 ARM64 家庭版启动、microSD、GPIO、I²C3 和 FTM4 触屏源码。Hekate 入口为 **Lite Windows 11 Home**。
 
-## Switch Lite HDH-001 · WINARM R3 实机源码
+2026-11-05，一台 Switch Lite 已从 microSD 上的 NTFS 卷启动 Windows 11 家庭版 23H2（22631.2861），进入首次安装配置。用户确认触摸可点击安装程序的“确定”。首次配置曾因 BCD 系统分区识别失败而中断，本分支加入活动分区标记和失败状态重试说明，完整 OOBE 与桌面尚待实机结果。
 
-这台 Switch Lite 用 ARM64 WinPE 22621.1 在指定的 80 GiB NTFS 分区写入测试文件。关机后再次启动，读回收据 **1381004739**，显示 **COLD READ OK - WINARM PERSISTENCE PASS**。
-
-- [R3 构建说明、测试步骤和实机照片](docs/hdh001-winarm-r3/README.md)
-- [Windows SD 驱动](WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c) · [UEFI 分区校验](Library/PlatformBootManagerLib/WinPeGptView.c) · [UEFI 启动入口](Library/PlatformBootManagerLib/LiteSdBoot.c)
-- [从本地镜像生成专属配置和 WinPE 测试脚本](WindowsDrivers/drivers/Tegra210Sdhc/winarm/) · [此前的只读版本](https://github.com/ruje0504-2/winx/tree/e50754107c5db2a8a93ffdebc4da7fceb843c2c4)
-
-对应的上游草稿把 R3 写入支持整理成可选配置。[Windows 驱动 PR #3](https://github.com/hayato41200/Windows-for-Switch-Drivers/pull/3) · [实机报告 #5](https://github.com/steck0714/winx/issues/5)
+- [Stage 6 构建、驱动安装与首启排错](docs/hdh001-home/README.md)
+- [Windows 启动管理器入口](Library/PlatformBootManagerLib/LiteHomeBoot.c)
+- [SD miniport 与本地目标配置生成器](WindowsDrivers/drivers/Tegra210Sdhc/)
+- [触屏驱动与三点检测程序](LiteTouch/README.md)
+- [R3 写入与关机后冷读记录](docs/hdh001-winarm-r3/README.md)
 
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />
 
