@@ -8,7 +8,7 @@ Class       = System
 ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider    = %Mfg%
 CatalogFile = switchfan.cat
-DriverVer   = 10/25/2026,1.0.0.2
+DriverVer   = 11/05/2026,1.0.0.3
 PnpLockdown = 1
 
 [DestinationDirs]
@@ -25,6 +25,7 @@ switchfan.sys = 1
 
 [Std.NTarm64]
 %DeviceDesc% = SwFan_Inst, ACPI\SWOA0401
+%LiteDeviceDesc% = SwFan_Inst, ACPI\SWOA0402
 
 [SwFan_Inst.NT]
 CopyFiles = SwFan_Copy
@@ -61,3 +62,5 @@ Mfg         = "SwitchWOA"
 DiskName    = "SwitchWOA Fan"
 DeviceDesc  = "Nintendo Switch Fan and Backlight Control"
 ServiceDesc = "Nintendo Switch Fan Control"
+
+LiteDeviceDesc = "Nintendo Switch Lite Fan and CPU Control"

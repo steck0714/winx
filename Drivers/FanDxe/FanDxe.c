@@ -1,5 +1,6 @@
 /** @file
-  FanDxe - fixed-duty fan setup for the Nintendo Switch (Erista, Tegra210 / "T210").
+  FanDxe - initial fan setup for Nintendo Switch. The default profile is Erista;
+  SWITCH_LITE_FAN selects Mariko/HDH-001 and prepares I2C1 for the Windows fan driver.
 
   STATUS: NOT TESTED ON HARDWARE.
     The register sequence below is a port of hekate's fan driver (bdk/thermal/fan.c,
@@ -10,8 +11,8 @@
     injected bugs are caught, 1 is an equivalent change. That says nothing about the board itself.
 
   WHY A FIXED DUTY
-    Boot Services timers stop at ExitBootServices() and Windows has no driver for this fan, so a
-    firmware-side control loop cannot outlive the boot. The only thing firmware can do is leave
+    Boot Services timers stop at ExitBootServices(), so a firmware-side control loop cannot
+    outlive the boot. The Lite Windows driver takes over the initial duty after loading. The only thing firmware can do is leave
     the fan running at a constant duty. Nothing here reads a temperature; pick a value that is
     safe at your worst-case load. The fan is off (hekate's main bootloader never starts it) when
     this module is not built in, and that is the default.
@@ -26,7 +27,8 @@
       to a dock / OTG device under Windows. The 5V source selection is automatic in hardware
       (hekate's comment), so the fan needs only the battery 5V regulator enable (GPIO A5).
     * The two PMC writes are skipped when the bit already has the wanted value.
-    * T210 (Erista) only. On anything else (GP_HIDREV major != 1) the module does nothing.
+    * The default build accepts T210 only. The opt-in Lite build accepts T210B01 only.
+      Both boards use the same fan 5V enable and PWM1 polarity in Hekate.
 
   KNOWN LIMITS
     * No sleep/resume support: PWM and GPIO state would have to be re-applied after resume.
@@ -52,6 +54,10 @@
 #include <Foundation/Types.h>
 #include <Device/T210.h>
 #include <Library/GpioLib.h>
+#ifdef SWITCH_LITE_FAN
+#include <Library/ClockLib.h>
+#include <Library/I2cLib.h>
+#endif
 
 // ---- registers (hekate bdk/soc/t210.h, pinmux.h, pmc_t210.h, clock.h) ---------------------
 
@@ -205,12 +211,25 @@ FanDxeInitialize (
   }
 
   HidRev = APB_MISC (APB_MISC_GP_HIDREV);
+#ifdef SWITCH_LITE_FAN
+  if ((HidRev & 0xFFF0) != 0x2120) {
+    return EFI_UNSUPPORTED;
+  }
+#else
   if (((HidRev >> 4) & 0xF) != GP_HIDREV_MAJOR_T210) {
     DEBUG ((DEBUG_WARN, "FanDxe: GP_HIDREV 0x%08x is not Tegra210 (Erista); fan left alone\n", HidRev));
     return EFI_UNSUPPORTED;
   }
+#endif
 
   FanApplyDuty (Duty);
+
+#ifdef SWITCH_LITE_FAN
+  // Hekate uses the same PA5 supply and inverted PWM1 on Hoag. I2C1
+  // supplies the TMP451; switchfan.sys configures its Mariko offset.
+  clock_enable_i2c (I2C_1);
+  i2c_init (I2C_1);
+#endif
 
   Csr = PWM (PWM_CONTROLLER_PWM_CSR_1);
   DEBUG ((

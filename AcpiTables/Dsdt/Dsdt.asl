@@ -514,28 +514,6 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
-        // R370: Tegra210 I2C controllers for the Windows driver tegra210i2c.sys
-        // (SpbCx, ACPI\SWOA0201). Only the buses whose clock/reset UEFI
-        // already enables (PmicDxe: I2C1 and I2C5). Interrupts are from the
-        // L4T DT (GIC SPI 38 and 53 = GSI 70 and 85); driver v1 polls.
-        //   I2C1 0x7000C000, 100 kHz: BM92T 0x18, MAX17050 0x36, TMP451 0x4C, BQ24193 0x6B
-        //   I2C5 0x7000D000, 400 kHz: MAX77621 CPU 0x1B / GPU 0x1C, MAX77620 PMIC 0x3C
-        Device (I2C1)
-        {
-            Name (_HID, "SWOA0201")
-            Name (_UID, One)
-            Name (_CRS, ResourceTemplate ()
-            {
-                Memory32Fixed (ReadWrite, 0x7000C000, 0x00000100)
-                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x00000046 }
-            })
-
-            Method (_STA, 0, NotSerialized)
-            {
-                Return (0x0F)
-            }
-        }
-
         // R371: system battery for switchbattery.sys (ACPI\SWOA0301, battc).
         // Connection 0 = MAX17050 fuel gauge, 1 = BQ24193 charger, both on I2C1.
         Device (BAT0)
@@ -557,23 +535,6 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
-        // R372: fan control for switchfan.sys (ACPI\SWOA0401). PWM controller
-        // (the driver only writes PWM_CSR_1 = fan) and the TMP451 sensor on I2C1.
-        Device (FAN0)
-        {
-            Name (_HID, "SWOA0401")
-            Name (_UID, Zero)
-            Name (_CRS, ResourceTemplate ()
-            {
-                Memory32Fixed (ReadWrite, 0x7000A000, 0x00000100)
-                I2cSerialBusV2 (0x004C, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
-            })
-
-            Method (_STA, 0, NotSerialized)
-            {
-                Return (0x0F)
-            }
-        }
 
 #endif
 #if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_TOUCH)
@@ -764,6 +725,63 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_CRS, ResourceTemplate ()
             {
                 I2cSerialBusV2 (0x003C, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
+#endif
+
+
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_FAN)
+        // TMP451 temperature sensor bus. Firmware enables I2C1 before Windows.
+        Device (I2C1)
+        {
+            Name (_HID, "SWOA0201")
+            Name (_UID, One)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x7000C000, 0x00000100)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x00000046 }
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
+        // R372: fan control for switchfan.sys (ACPI\SWOA0401). PWM controller
+        // (the driver only writes PWM_CSR_1 = fan) and the TMP451 sensor on I2C1.
+        Device (FAN0)
+        {
+            #ifdef SWITCH_LITE_FAN
+            Name (_HID, "SWOA0402")
+#else
+            Name (_HID, "SWOA0401")
+#endif
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                #ifdef SWITCH_LITE_FAN
+                // Expose only PWM1; the Lite fan driver cannot access PWM0/backlight.
+                Memory32Fixed (ReadWrite, 0x7000A010, 0x00000004)
+#ifdef SWITCH_LITE_PERFORMANCE
+                Memory32Fixed (ReadWrite, 0x60006000, 0x00000100)
+                Memory32Fixed (ReadOnly,  0xA9FB0000, 0x00001000)
+#endif
+#else
+                Memory32Fixed (ReadWrite, 0x7000A000, 0x00000100)
+#endif
+                I2cSerialBusV2 (0x004C, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
+#ifdef SWITCH_LITE_PERFORMANCE
+                // Only the detected phase variant is opened by switchlitefan.
+                I2cSerialBusV2 (0x0031, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+                I2cSerialBusV2 (0x0033, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+#endif
             })
 
             Method (_STA, 0, NotSerialized)

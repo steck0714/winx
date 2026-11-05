@@ -121,7 +121,11 @@ static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] =
 	{
 		// DRAM up to bl33.bin
 		0xa0100000,
+#ifdef SWITCH_LITE_PERFORMANCE
+		0x09eb0000,
+#else
 		0x09f00000,
+#endif
 		EFI_RESOURCE_SYSTEM_MEMORY,
 		SYSTEM_MEMORY_RESOURCE_ATTR_CAPABILITIES,
 		ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK,
@@ -129,6 +133,18 @@ static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] =
 		EfiConventionalMemory
 	},
 	{
+#ifdef SWITCH_LITE_PERFORMANCE
+		// Preserve Hekate's BL33 environment and the Windows clock handoff.
+		0xa9fb0000,
+		0x00050000,
+		EFI_RESOURCE_MEMORY_RESERVED,
+		EFI_RESOURCE_ATTRIBUTE_WRITE_THROUGH_CACHEABLE,
+		ARM_MEMORY_REGION_ATTRIBUTE_WRITE_THROUGH,
+		AddMem,
+		EfiMaxMemoryType
+	},
+	{
+#endif
 		// bl33.bin: entry stub + UEFI FD
 		0xaa000000,
 		0x00100000,

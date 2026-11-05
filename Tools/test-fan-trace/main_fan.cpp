@@ -16,6 +16,11 @@ void shim_debug (unsigned level, const char *fmt, ...) {
 
 extern EFI_STATUS FanDxeInitialize (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable);
 
+#ifdef SWITCH_LITE_FAN
+void clock_enable_i2c (uint32_t bus) { if (bus != 0) abort (); }
+void i2c_init (uint32_t bus) { if (bus != 0) abort (); }
+#endif
+
 int main (int argc, char **argv) {
   Scenario s = parse_scenario (argc, argv);
   prefill_registers (s);

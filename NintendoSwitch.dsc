@@ -31,6 +31,31 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE LITE_PERFORMANCE_FLAGS =
+!ifdef SWITCH_LITE_PERFORMANCE
+  DEFINE LITE_PERFORMANCE_FLAGS = -DSWITCH_LITE_PERFORMANCE=1
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_PERFORMANCE requires Lite fan control"
+  !endif
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_LITE_PERFORMANCE requires the I2C5 power profile"
+  !endif
+!endif
+!ifdef SWITCH_LITE_RESET
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_RESET requires the HDH-001 profile"
+  !endif
+!endif
+  DEFINE LITE_FAN_FLAGS          =
+!ifdef SWITCH_LITE_FAN
+  DEFINE LITE_FAN_FLAGS          = -DSWITCH_LITE_FAN=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_FAN requires the HDH-001 touch profile"
+  !endif
+  !ifndef SWITCH_FAN_DUTY
+    !error "SWITCH_LITE_FAN requires an initial SWITCH_FAN_DUTY (normally 76)"
+  !endif
+!endif
   DEFINE LITE_POWER_FLAGS        =
 !ifdef SWITCH_LITE_POWER
   DEFINE LITE_POWER_FLAGS        = -DSWITCH_LITE_POWER=1
@@ -64,7 +89,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -115,7 +140,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -515,6 +540,12 @@
   NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
   NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_PERFORMANCE
+  NintendoSwitchPkg/Drivers/ClockManagementDxe/t214/LitePerformanceDxe.inf
+!endif
+!ifdef SWITCH_LITE_RESET
+  NintendoSwitchPkg/Drivers/PmicDxe/t214/LiteResetDxe.inf
+!endif
 !ifdef SWITCH_LITE_TOUCH
   NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
 !endif
@@ -530,7 +561,11 @@
 !ifndef SWITCH_WOA
   NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !ifdef SWITCH_FAN_DUTY
+!ifdef SWITCH_LITE_FAN
+  NintendoSwitchPkg/Drivers/FanDxe/LiteFanPower.inf
+!else
   NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
+!endif
 !endif
   NintendoSwitchPkg/Drivers/EhciPciEmulationDxe/PciEmulation.inf
 !endif

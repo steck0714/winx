@@ -1,31 +1,12 @@
-/*
- * Nintendo Switch fan control driver, KMDF.
- *
- * ACPI device FAN0 (ACPI\SWOA0401):
- *   Memory32Fixed 0x7000A000: PWM controller. Only PWM_CSR_1 (+0x10) is
- *     touched; the fan uses PWM1 with inverted polarity (register duty =
- *     236 - duty, bit 24 = absolute off), as Hekate bdk/thermal/fan.c.
- *   I2cSerialBus 0x4C on I2C1: TMP451 (reg 0x00 board, 0x01 SoC/remote, C).
- * UEFI R366+ already powers the fan (5V EN on PA5), clocks PWM and routes
- * LCD_GPIO2 to PWM1, and starts it at duty 76/236. This driver only changes
- * the duty from the temperature every 2 s.
- *
- * Steps (Hekate fan_set_from_temp, plus two higher steps for overclocking):
- *   >= 68 C: 236 (100%)   >= 60 C: 153 (65%)   >= 52 C: 102 (43%)
- *   >= 47 C:  76 (32%)    >= 42 C:  51 (22%)   <= 39 C:   0 (off)
- *   40-41 C keeps the previous duty (hysteresis).
- * If the sensor cannot be read 3 times in a row, the fan goes to 153.
- *
- * v2: the same PWM block also drives the panel backlight (PWM_CSR_0, duty
- * 0..255, not inverted). UEFI R376+ routes LCD_BL_PWM (PV0) to PWM0 at duty
- * 255; this driver restores the saved brightness, follows the console display
- * state (off = 0, dimmed = 1/3) and takes brightness changes from the tray app
- * through \\.\SwitchBacklight. Without R376 the CSR_0 writes do nothing.
+/* Shared Nintendo Switch fan driver. Erista retains its backlight interface;
+ * T214/HDH-001 is detected from its PWM1-only ACPI resource and uses the
+ * optional t214 clock helper. Sensor configuration is model-specific.
  */
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <wdf.h>
 #include <spb.h>
+#include "t214/performance.h"
 
 #define PWM_CSR_0        0x00
 #define BACKLIGHT_MIN    8u
@@ -44,7 +25,7 @@ typedef struct _SWBL_STATUS {
     ULONG DisplayState;     /* 0 off, 1 on, 2 dimmed */
 } SWBL_STATUS;
 
-#define PWM_CSR_1        0x10
+#define PWM_CSR_1        0x00  /* ACPI maps only 0x7000A010..13 */
 #define PWM_CSR_EN       (1u << 31)
 #define PWM_DUTY_MAX     236u
 #define PWM_ABSOLUTE_OFF (0x100u << 16)
@@ -56,6 +37,19 @@ typedef struct _SWBL_STATUS {
 typedef struct _SWFAN_DEVICE {
     volatile UCHAR *Pwm;
     ULONG PwmLength;
+    ULONG FanOffset;
+    BOOLEAN IsLite;
+    WDFWAITLOCK BacklightLock;
+    PVOID DisplayCallback;
+    ULONG Brightness, DisplayState;
+    volatile UCHAR *Car;
+    LITE_PERFORMANCE Config;
+    LARGE_INTEGER PmicIds[2];
+    ULONG ConnectionCount;
+    WDFIOTARGET Pmic;
+    ULONG BootPllx, BootCpuKhz;
+    UCHAR BootVout;
+    BOOLEAN CpuConfigured, CpuApplied, CpuThrottled;
     LARGE_INTEGER SensorId;
     WDFIOTARGET Sensor;
     WDFTIMER Timer;
@@ -63,10 +57,6 @@ typedef struct _SWFAN_DEVICE {
     ULONG Duty;
     ULONG Failures;
     LONG Runs;
-    WDFWAITLOCK BacklightLock;
-    PVOID DisplayCallback;
-    ULONG Brightness;
-    ULONG DisplayState;
 } SWFAN_DEVICE, *PSWFAN_DEVICE;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWFAN_DEVICE, SwFanGetDevice)
 
@@ -82,6 +72,8 @@ EVT_WDF_DEVICE_RELEASE_HARDWARE SwFanEvtReleaseHardware;
 EVT_WDF_DEVICE_SELF_MANAGED_IO_INIT SwFanEvtSelfManagedIoInit;
 EVT_WDF_DEVICE_SELF_MANAGED_IO_CLEANUP SwFanEvtSelfManagedIoCleanup;
 EVT_WDF_TIMER SwFanEvtTimer;
+EVT_WDF_DEVICE_SELF_MANAGED_IO_SUSPEND SwFanEvtSuspend;
+EVT_WDF_DEVICE_SELF_MANAGED_IO_RESTART SwFanEvtRestart;
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL SwFanEvtIoDeviceControl;
 POWER_SETTING_CALLBACK SwFanDisplayStateCallback;
 
@@ -146,6 +138,30 @@ static NTSTATUS SwFanReadReg(WDFIOTARGET Target, UCHAR Register, PUCHAR Value)
     return Status;
 }
 
+/* Same TMP451 configuration as Hekate: normal range, Mariko -12.5 C
+ * remote offset, 4-second conversion period. All transfers run at PASSIVE_LEVEL. */
+static NTSTATUS SwFanConfigureSensor(WDFIOTARGET Target)
+{
+    static const UCHAR Setup[][2] = {{0x09, 0x80}, {0x11, 0xF3}, {0x12, 0x80}, {0x0A, 0x02}};
+    ULONG Index;
+    for (Index = 0; Index < RTL_NUMBER_OF(Setup); ++Index) {
+        UCHAR Buffer[2] = {Setup[Index][0], Setup[Index][1]};
+        WDF_MEMORY_DESCRIPTOR Memory;
+        WDF_REQUEST_SEND_OPTIONS Options;
+        ULONG_PTR Bytes = 0;
+        NTSTATUS Status;
+        WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&Memory, Buffer, sizeof(Buffer));
+        WDF_REQUEST_SEND_OPTIONS_INIT(&Options, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+        Options.Timeout = WDF_REL_TIMEOUT_IN_MS(500);
+        Status = WdfIoTargetSendWriteSynchronously(Target, NULL, &Memory, NULL, &Options, &Bytes);
+        if (!NT_SUCCESS(Status)) return Status;
+        if (Bytes != sizeof(Buffer)) return STATUS_DEVICE_PROTOCOL_ERROR;
+    }
+    return STATUS_SUCCESS;
+}
+
+#include "t214/clock.h"
+
 /* ------------------------------------------------------------------- fan */
 
 static VOID SwFanSetDuty(PSWFAN_DEVICE Dev, ULONG Duty)
@@ -155,7 +171,7 @@ static VOID SwFanSetDuty(PSWFAN_DEVICE Dev, ULONG Duty)
         Duty = PWM_DUTY_MAX;
     }
     Csr = (Duty == 0) ? (PWM_CSR_EN | PWM_ABSOLUTE_OFF) : (PWM_CSR_EN | ((PWM_DUTY_MAX - Duty) << 16));
-    WRITE_REGISTER_ULONG((PULONG)(Dev->Pwm + PWM_CSR_1), Csr);
+    WRITE_REGISTER_ULONG((PULONG)(Dev->Pwm + Dev->FanOffset), Csr);
     Dev->Duty = Duty;
 }
 
@@ -176,6 +192,7 @@ VOID SwFanEvtTimer(WDFTIMER Timer)
     UCHAR Local = 0, Remote = 0;
     NTSTATUS Status;
 
+    if (Dev->Stopping) return;
     Status = SwFanReadReg(Dev->Sensor, TMP451_REMOTE, &Remote);
     if (NT_SUCCESS(Status)) {
         Status = SwFanReadReg(Dev->Sensor, TMP451_LOCAL, &Local);
@@ -183,16 +200,22 @@ VOID SwFanEvtTimer(WDFTIMER Timer)
     if (NT_SUCCESS(Status)) {
         ULONG Temp = (Remote > Local) ? Remote : Local;
         Dev->Failures = 0;
-        SwFanSetDuty(Dev, SwFanDutyForTemp(Temp, Dev->Duty));
+        ULONG Duty = SwFanDutyForTemp(Temp, Dev->Duty);
+        if (Dev->CpuConfigured && Duty < 51) Duty = 51;
+        SwFanSetDuty(Dev, Duty);
+        SwCpuTemperature(Dev, Temp, TRUE);
         SwFanTrace(L"TempSoC", Remote);
         SwFanTrace(L"TempBoard", Local);
     } else {
         SwFanTrace(L"LastSensorError", (ULONG)Status);
         if (++Dev->Failures >= 3) {
             SwFanSetDuty(Dev, FAILSAFE_DUTY);
+            SwCpuTemperature(Dev, 0, FALSE);
         }
     }
     SwFanTrace(L"Duty", Dev->Duty);
+    SwFanTrace(L"SensorFailures", Dev->Failures);
+    if (Dev->Car != NULL) SwFanTrace(L"CpuActualKhz", SwCpuKhz(Dev));
     SwFanTrace(L"Runs", (ULONG)InterlockedIncrement(&Dev->Runs));
     if (!Dev->Stopping) {
         WdfTimerStart(Timer, WDF_REL_TIMEOUT_IN_MS(POLL_MS));    /* one-shot passive timer, re-armed */
@@ -224,6 +247,7 @@ static ULONG SwFanReadParam(PCWSTR Name, ULONG Default)
 static ULONG SwFanApplyBacklight(PSWFAN_DEVICE Dev)
 {
     ULONG Duty = Dev->Brightness;
+    if (Dev->IsLite) return 0;
     if (Dev->DisplayState == 0) {
         Duty = 0;
     } else if (Dev->DisplayState == 2) {
@@ -257,6 +281,7 @@ VOID SwFanEvtIoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLengt
     UNREFERENCED_PARAMETER(OutLength);
     UNREFERENCED_PARAMETER(InLength);
 
+    if (Dev->IsLite) { WdfRequestComplete(Request, STATUS_NOT_SUPPORTED); return; }
     WdfWaitLockAcquire(Dev->BacklightLock, NULL);
     if (Code == IOCTL_SWBL_GET) {
         SWBL_STATUS *Out;
@@ -289,6 +314,7 @@ NTSTATUS SwFanEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIS
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     ULONG Count = WdfCmResourceListGetCount(Translated), Index;
     BOOLEAN HaveSensor = FALSE;
+    Dev->ConnectionCount = 0;
     UNREFERENCED_PARAMETER(Raw);
 
     for (Index = 0; Index < Count; ++Index) {
@@ -296,28 +322,52 @@ NTSTATUS SwFanEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIS
         if (Desc == NULL) {
             continue;
         }
-        if (Desc->Type == CmResourceTypeMemory && Dev->Pwm == NULL) {
-            if (Desc->u.Memory.Length < 0x20) {
-                return STATUS_DEVICE_CONFIGURATION_ERROR;
+        if (Desc->Type == CmResourceTypeMemory) {
+            if (Desc->u.Memory.Start.QuadPart == 0x7000A010 && Desc->u.Memory.Length == sizeof(ULONG)) {
+                Dev->Pwm = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, sizeof(ULONG), PAGE_READWRITE | PAGE_NOCACHE);
+                if (Dev->Pwm == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+                Dev->PwmLength = sizeof(ULONG);
+                Dev->FanOffset = 0; Dev->IsLite = TRUE;
+            } else if (Desc->u.Memory.Start.QuadPart == 0x7000A000 && Desc->u.Memory.Length >= 0x20) {
+                Dev->Pwm = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, Desc->u.Memory.Length, PAGE_READWRITE | PAGE_NOCACHE);
+                if (Dev->Pwm == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+                Dev->PwmLength = Desc->u.Memory.Length;
+                Dev->FanOffset = 0x10; Dev->IsLite = FALSE;
+            } else if (Desc->u.Memory.Start.QuadPart == 0x60006000 && Desc->u.Memory.Length == 0x100) {
+                Dev->Car = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, 0x100, PAGE_READWRITE | PAGE_NOCACHE);
+                if (Dev->Car == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+            } else if (Desc->u.Memory.Start.QuadPart == LITE_PERF_ADDRESS && Desc->u.Memory.Length == 0x1000) {
+                volatile ULONG *Map = (volatile ULONG *)MmMapIoSpaceEx(Desc->u.Memory.Start, 0x1000, PAGE_READONLY | PAGE_NOCACHE);
+                ULONG I;
+                if (Map == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+                for (I = 0; I < sizeof(Dev->Config)/sizeof(ULONG); ++I)
+                    ((PULONG)&Dev->Config)[I] = READ_REGISTER_ULONG((PULONG)&Map[I]);
+                MmUnmapIoSpace((PVOID)Map, 0x1000);
+                if (Dev->Config.Magic != LITE_PERF_MAGIC || Dev->Config.Version != LITE_PERF_VERSION)
+                    RtlZeroMemory(&Dev->Config, sizeof(Dev->Config));
             }
-            Dev->Pwm = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, Desc->u.Memory.Length,
-                                                        PAGE_READWRITE | PAGE_NOCACHE);
-            if (Dev->Pwm == NULL) {
-                return STATUS_INSUFFICIENT_RESOURCES;
-            }
-            Dev->PwmLength = Desc->u.Memory.Length;
-        } else if (Desc->Type == CmResourceTypeConnection && !HaveSensor &&
+        } else if (Desc->Type == CmResourceTypeConnection &&
                    Desc->u.Connection.Class == CM_RESOURCE_CONNECTION_CLASS_SERIAL &&
                    Desc->u.Connection.Type == CM_RESOURCE_CONNECTION_TYPE_SERIAL_I2C) {
-            Dev->SensorId.LowPart = Desc->u.Connection.IdLowPart;
-            Dev->SensorId.HighPart = (LONG)Desc->u.Connection.IdHighPart;
-            HaveSensor = TRUE;
+            LARGE_INTEGER Id;
+            Id.LowPart = Desc->u.Connection.IdLowPart;
+            Id.HighPart = (LONG)Desc->u.Connection.IdHighPart;
+            if (Dev->ConnectionCount == 0) { Dev->SensorId = Id; HaveSensor = TRUE; }
+            else if (Dev->ConnectionCount <= 2) Dev->PmicIds[Dev->ConnectionCount - 1] = Id;
+            ++Dev->ConnectionCount;
         }
     }
     if (Dev->Pwm == NULL || !HaveSensor) {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
-    SwFanTrace(L"CsrAtStart", READ_REGISTER_ULONG((PULONG)(Dev->Pwm + PWM_CSR_1)));
+    SwFanTrace(L"CpuRequestedKhz", Dev->Config.CpuKhz);
+    SwFanTrace(L"RamRequestedKhz", Dev->Config.RamKhz);
+    SwFanTrace(L"RamActualKhz", Dev->Config.RamActualKhz);
+    SwFanTrace(L"HandoffStatus", Dev->Config.Status);
+    SwFanTrace(L"PmicAddress", Dev->Config.PmicAddress);
+    SwFanTrace(L"CoreMv", Dev->Config.CoreMv);
+    SwFanTrace(L"BpmpError", Dev->Config.BpmpError);
+    SwFanTrace(L"CsrAtStart", READ_REGISTER_ULONG((PULONG)(Dev->Pwm + Dev->FanOffset)));
     return STATUS_SUCCESS;
 }
 
@@ -326,10 +376,11 @@ NTSTATUS SwFanEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     UNREFERENCED_PARAMETER(Translated);
     if (Dev->Pwm != NULL) {
-        SwFanSetDuty(Dev, 76);      /* leave the UEFI default running when the driver goes away */
+        (VOID)SwFanEvtSuspend(Device); /* stop polling before removing the PWM mapping */
         MmUnmapIoSpace((PVOID)Dev->Pwm, Dev->PwmLength);
         Dev->Pwm = NULL;
     }
+    if (Dev->Car != NULL) { MmUnmapIoSpace((PVOID)Dev->Car, 0x100); Dev->Car = NULL; }
     return STATUS_SUCCESS;
 }
 
@@ -338,6 +389,7 @@ NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     NTSTATUS Status;
 
+    if (!Dev->IsLite) {
     /* Backlight first: it must not depend on the temperature sensor. */
     WdfWaitLockAcquire(Dev->BacklightLock, NULL);
     Dev->Brightness = SwFanReadParam(L"Brightness", BACKLIGHT_MAX);
@@ -356,6 +408,8 @@ NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
         if (!NT_SUCCESS(Status)) {
             Dev->DisplayCallback = NULL;
         }
+    }
+
     }
 
     Status = SwFanOpenTarget(Device, Dev->SensorId, &Dev->Sensor);
@@ -381,7 +435,31 @@ NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
         }
         SwFanGetTimer(Dev->Timer)->Device = Device;
     }
+    return SwFanEvtRestart(Device);
+}
+
+NTSTATUS SwFanEvtSuspend(WDFDEVICE Device)
+{
+    PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
+    Dev->Stopping = TRUE;
+    if (Dev->Timer != NULL) WdfTimerStop(Dev->Timer, TRUE);
+    (VOID)SwCpuApply(Dev, FALSE);
+    if (Dev->Pwm != NULL) SwFanSetDuty(Dev, 76);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS SwFanEvtRestart(WDFDEVICE Device)
+{
+    PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
+    NTSTATUS Status = Dev->IsLite ? SwFanConfigureSensor(Dev->Sensor) : STATUS_SUCCESS;
+    SwFanTrace(L"ConfigureSensorStatus", (ULONG)Status);
+    if (!NT_SUCCESS(Status)) {
+        SwFanSetDuty(Dev, FAILSAFE_DUTY);
+        return Status;
+    }
+    if (Dev->IsLite) SwCpuPrepare(Device);
     Dev->Stopping = FALSE;
+    Dev->Failures = 0;
     WdfTimerStart(Dev->Timer, WDF_REL_TIMEOUT_IN_MS(500));
     return STATUS_SUCCESS;
 }
@@ -389,18 +467,23 @@ NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
 VOID SwFanEvtSelfManagedIoCleanup(WDFDEVICE Device)
 {
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
-    Dev->Stopping = TRUE;
-    if (Dev->Timer != NULL) {
-        WdfTimerStop(Dev->Timer, TRUE);
-    }
+    (VOID)SwFanEvtSuspend(Device);
+    if (Dev->Pmic != NULL) { WdfObjectDelete(Dev->Pmic); Dev->Pmic = NULL; }
+    Dev->CpuConfigured = FALSE;
     if (Dev->DisplayCallback != NULL) {
         (VOID)PoUnregisterPowerSettingCallback(Dev->DisplayCallback);
         Dev->DisplayCallback = NULL;
     }
-    WdfWaitLockAcquire(Dev->BacklightLock, NULL);
-    Dev->DisplayState = 1;              /* never leave the panel dark behind */
-    (VOID)SwFanApplyBacklight(Dev);
-    WdfWaitLockRelease(Dev->BacklightLock);
+    if (!Dev->IsLite) {
+        WdfWaitLockAcquire(Dev->BacklightLock, NULL);
+        Dev->DisplayState = 1;
+        (VOID)SwFanApplyBacklight(Dev);
+        WdfWaitLockRelease(Dev->BacklightLock);
+    }
+    if (Dev->Sensor != NULL) {
+        WdfObjectDelete(Dev->Sensor);
+        Dev->Sensor = NULL;
+    }
 }
 
 NTSTATUS SwFanEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
@@ -419,6 +502,8 @@ NTSTATUS SwFanEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Pnp.EvtDeviceReleaseHardware = SwFanEvtReleaseHardware;
     Pnp.EvtDeviceSelfManagedIoInit = SwFanEvtSelfManagedIoInit;
     Pnp.EvtDeviceSelfManagedIoCleanup = SwFanEvtSelfManagedIoCleanup;
+    Pnp.EvtDeviceSelfManagedIoSuspend = SwFanEvtSuspend;
+    Pnp.EvtDeviceSelfManagedIoRestart = SwFanEvtRestart;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &Pnp);
     Status = WdfDeviceInitAssignName(DeviceInit, &DeviceName);
     if (!NT_SUCCESS(Status)) {
@@ -454,7 +539,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&SwFanParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, SwFanParamsPath);
     }
-    SwFanTrace(L"DriverVersion", 2);
+    SwFanTrace(L"DriverVersion", 3);
     WDF_DRIVER_CONFIG_INIT(&Config, SwFanEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);
 }

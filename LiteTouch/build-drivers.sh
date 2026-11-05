@@ -9,10 +9,11 @@ out=${2:?output directory}
 : "${WDF_LIB:?WDK Lib/wdf/kmdf/ARM64/1.15}"
 extra=${WDK_EXTRA_LIB:-$WDK_LIB}
 cc=${CLANG_CL:-clang-cl}; ld=${LLD_LINK:-lld-link}
-for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch SwitchPowerButton:switchpwrbtn; do
+for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch SwitchPowerButton:switchpwrbtn SwitchFan:switchfan; do
     dir=${pair%:*}; name=${pair#*:}; dest="$out/$name"
+    driver_dir="$src/drivers/$dir"
     mkdir -p "$dest"
-    for file in "$src/drivers/$dir/src/$name.c" "$src/tools/kmdf_support.c"; do
+    for file in "$driver_dir/src/$name.c" "$src/tools/kmdf_support.c"; do
         obj=${file##*/}; obj=${obj%.c}.obj
         "$cc" --target=aarch64-pc-windows-msvc /nologo /c /kernel /GS- /Gy /Zl /O2 /W4 /WX \
             -Wno-unused-parameter -Wno-microsoft-anon-tag -Wno-ignored-pragma-intrinsic \
@@ -26,6 +27,7 @@ for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switch
     case "$dir" in
         Tegra210Gpio) set -- "$extra/msgpioclxstub.lib" ;;
         Tegra210I2c)  set -- "$extra/spb/1.0/spbcxstubs.lib" ;;
+        SwitchFan) set -- ;;
         SwitchTouch|SwitchPowerButton)  set -- "$extra/vhfkm.lib" "$extra/libcntpr.lib" ;;
     esac
     "$ld" /nologo /driver /subsystem:native,10.0 /machine:arm64 /entry:FxDriverEntry /nodefaultlib \
