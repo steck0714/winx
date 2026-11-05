@@ -1,14 +1,17 @@
 # WinX · Switch Lite Windows ARM64
 
-此分支整合 HDH-001 的 Windows 11 ARM64 家庭版启动、microSD、GPIO、I²C3 和 FTM4 触屏源码。Hekate 入口为 **Lite Windows 11 Home**。
+This branch integrates Windows 11 ARM64 Home boot, microSD, GPIO, I²C3, and FTM4 touchscreen support for the Switch Lite (HDH-001). The Hekate entry is **Lite Windows 11 Home**.
 
-2026-11-05，一台 Switch Lite 已从 microSD 上的 NTFS 卷启动 Windows 11 家庭版 23H2（22631.2861），进入首次安装配置。用户确认触摸可点击安装程序的“确定”。首次配置曾因 BCD 系统分区识别失败而中断，本分支加入活动分区标记和失败状态重试说明，完整 OOBE 与桌面尚待实机结果。
+As of November 5, 2026, one physical Switch Lite has booted Windows 11 Home 23H2 (22631.2861) from an NTFS volume on microSD and reached the OOBE network setup page. Touch input works on the setup dialogs. This branch includes the active-partition marker needed for BCD discovery and documents recovery from the earlier setup failures. OOBE completion, the desktop, and the three-point **TOUCH PASS** result still await hardware confirmation.
 
-- [Stage 6 构建、驱动安装与首启排错](docs/hdh001-home/README.md)
-- [Windows 启动管理器入口](Library/PlatformBootManagerLib/LiteHomeBoot.c)
-- [SD miniport 与本地目标配置生成器](WindowsDrivers/drivers/Tegra210Sdhc/)
-- [触屏驱动与三点检测程序](LiteTouch/README.md)
-- [R3 写入与关机后冷读记录](docs/hdh001-winarm-r3/README.md)
+The latest profile also integrates the shared fan driver, configurable T214 CPU and memory clocks, and BootROM restart preparation. These additions have been built and deployed; their hardware results are pending.
+
+- [Stage 6 builds, driver installation, and first-boot troubleshooting](docs/hdh001-home/README.md)
+- [Windows Boot Manager entry point](Library/PlatformBootManagerLib/LiteHomeBoot.c)
+- [SD miniport and local target configuration generator](WindowsDrivers/drivers/Tegra210Sdhc/)
+- [Touchscreen driver and three-point checker](LiteTouch/README.md)
+- [Fan control and configurable T214 clocks](docs/hdh001-home/power-performance.md)
+- [R3 write and cold-read results](docs/hdh001-winarm-r3/README.md)
 
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />
 

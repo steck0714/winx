@@ -1,125 +1,109 @@
 # Windows for Switch — Drivers
 
-Windows on ARM (ARM64) で動く、Nintendo Switch（Tegra210 / Erista）用のドライバーと、コントロールセンター（SwitchCenter）です。
+This is the upstream driver snapshot bundled with WinX, with the shared HDH-001 changes applied. See the [Stage 6 build and integration notes](../docs/hdh001-home/README.md) for the Lite profile. A physical Lite has reached Windows 11 Home 23H2 OOBE and accepts touch input; desktop validation and the latest fan/clock/restart results are pending.
 
-UEFI と DSDT は [Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch) にあります。このリポジトリのドライバーは、そちらの UEFI（R367 以降）が DSDT に追加するデバイスを使います。
+KMDF drivers and SwitchCenter, a tray/control-center application, for Windows on ARM (ARM64) on the Nintendo Switch (Tegra210 / Erista).
 
-English summary: KMDF drivers (GPIO, I2C, battery + USB-C role, fan + backlight, touch screen,
-power button, CPU clock, RTC) and a tray / control-center app for Windows on ARM (ARM64) on the
-Nintendo Switch. Install from the release ZIPs; build with `release/Make-Release.ps1`.
-Tested on Windows 11 Arm64 22H2 (22621); bring your own Windows image and license.
+The upstream UEFI and DSDT are maintained in [Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch). These drivers bind to devices exposed by that firmware, starting with R367. Install upstream packages from release ZIPs, or build them with `release/Make-Release.ps1`.
 
-## ドライバー
+## Upstream drivers
 
-| ドライバー | デバイス | 必要な UEFI | 内容 |
+| Driver | Device | Required UEFI | Function |
 |---|---|---|---|
-| `tegra210gpio` | ACPI\SWOA0101 | R367 | GPIO コントローラー（GpioClx） |
-| `tegra210i2c` | ACPI\SWOA0201 | R370 | I2C コントローラー（SpbCx）。I2C1 / I2C3 / I2C5 |
-| `switchbattery` | ACPI\SWOA0301 | R371（USB-C は R378） | バッテリー（battc）、USB-C の抜き差しに合わせた VBUS・充電の切り替え |
-| `switchfan` | ACPI\SWOA0401 | R372（明るさは R376） | 温度によるファンの制御、画面の明るさ、画面オフでのバックライトの消灯 |
-| `switchtouch` | ACPI\SWOA0501 | R373 | タッチパネル（VHF の HID マルチタッチ） |
-| `switchpwrbtn` | ACPI\SWOA0601 | R374 | 電源ボタン（VHF の HID） |
-| `switchcpu` | ACPI\SWOA0701 | R375 | CPU のクロックのプロファイル（614〜1766 MHz）、温度による制限 |
-| `switchrtc` | ACPI\SWOA0801 | R377 | 時計（MAX77620 の RTC を読み、ずれを覚えて時刻を合わせる） |
-| `swoadiag` | —（読み込んだときだけ） | — | USB（XUSB）のレジスタを読むだけの診断用 |
+| `tegra210gpio` | ACPI\SWOA0101 | R367 | GPIO controller (GpioClx) |
+| `tegra210i2c` | ACPI\SWOA0201 | R370 | I²C controller (SpbCx): I2C1, I2C3, and I2C5 |
+| `switchbattery` | ACPI\SWOA0301 | R371; R378 for USB-C | Battery class support and VBUS/charging transitions on USB-C attachment and removal |
+| `switchfan` | ACPI\SWOA0401 | R372; R376 for brightness | Temperature-based fan control, display brightness, and backlight power-off |
+| `switchtouch` | ACPI\SWOA0501 | R373 | Multitouch HID through VHF; the Lite FTM4 profile uses SWOA0502 |
+| `switchpwrbtn` | ACPI\SWOA0601 | R374 | Power-button HID through VHF |
+| `switchcpu` | ACPI\SWOA0701 | R375 | Erista CPU clock profiles (614–1766 MHz) and thermal limits |
+| `switchrtc` | ACPI\SWOA0801 | R377 | MAX77620 RTC with a persistent Windows time offset |
+| `swoadiag` | Loaded on demand | — | Read-only USB (XUSB) register diagnostics |
 
-## 動作を確かめた OS
+## Tested operating systems
 
-- Windows 11 Arm64 22H2（ビルド 22621）
+- Upstream: Windows 11 ARM64 22H2 (build 22621).
+- HDH-001 branch: Windows 11 Home ARM64 23H2 (22631.2861) has reached OOBE; see the Lite-specific status above.
 
-Windows のイメージとライセンスは、各自で用意してください。このリポジトリには、Windows は含まれていません。
+Supply your own Windows image and license. Windows is not included in this repository.
 
-## 入れ方
+## Upstream installation
 
-1. [Releases](https://github.com/hayato41200/Windows-for-Switch-Drivers/releases) から、最新の `SwitchDrivers-<版>.zip` と `SwitchCenter-<版>-arm64.zip` を取ってくる。
-2. **テスト署名の準備（最初の1回だけ）:**
-   - `Switch-Stage0` の手順で、テスト署名モードを有効にする。
-   - 同梱の `SwitchWOA-Test.cer` を、Switch の「信頼されたルート証明機関」と「信頼された発行元」に入れる。
-3. **ドライバーを入れる:** ZIP を展開して、各 `Switch-*` フォルダーのスクリプトで、次の順に入れる。手順は、各フォルダーの README にある。
-   1. GPIO（Stage1）
-   2. I2C（Stage3）
-   3. バッテリー
-   4. ファン
-   5. タッチ
-   6. 電源ボタン
-   7. CPU
-   8. RTC
-4. **コントロールセンターを使う:** `SwitchCenter-<版>-arm64.zip` を展開して、`SwitchCenter.exe` を起動する。通知領域のアイコンから、次のことができる。
-   - CPU のプロファイル
-   - 画面の明るさ
-   - 状態の確認
-   - 電源の設定
-   - ドライバーの一覧
+For Lite, use the HDH-001 build notes rather than installing every Erista package below.
 
-## SwitchPatcher（PC で SD に入れる道具）
+1. Download `SwitchDrivers-<version>.zip` and `SwitchCenter-<version>-arm64.zip` from [Releases](https://github.com/hayato41200/Windows-for-Switch-Drivers/releases).
+2. Prepare test signing once: follow Switch-Stage0 to enable test-signing mode, then import the included `SwitchWOA-Test.cer` into Trusted Root Certification Authorities and Trusted Publishers on the Switch.
+3. Extract the ZIP and use each Switch-* kit's installation script. Follow its README. Install GPIO (Stage1), I²C (Stage3), battery, fan, touch, power button, CPU, and RTC in that order.
+4. Extract `SwitchCenter-<version>-arm64.zip` and run `SwitchCenter.exe`. Its tray menu provides CPU profiles, brightness, status, power settings, and the driver list.
 
-Switch の SD を PC に挿して、SD の Windows にドライバー、テストモード、コントロールセンターを入れる道具。ARM64 の Windows のイメージを、SD に入れ直すこともできる。
+## SwitchPatcher
 
-- **入手:** リリースの `SwitchPatcher-<版>-x64.zip`
-- **使い方:** `kits/Switch-Patcher/README-ja.md`
-- **設計:** `docs/Design-SwitchPatcher-ja.md`
-- **状態:** 試験中。仮想ディスクでは最後まで動いたが、本物の SD ではまだ試していない。
+SwitchPatcher runs on a PC with the Switch SD card inserted. It installs drivers, test-signing settings, and SwitchCenter into Windows on the card, and can redeploy an ARM64 Windows image.
 
-## ビルド（PC）
+- Download: `SwitchPatcher-<version>-x64.zip` from releases.
+- Usage: [SwitchPatcher kit](kits/Switch-Patcher/README-ja.md) (upstream Japanese documentation).
+- Design: [SwitchPatcher design notes](docs/Design-SwitchPatcher-ja.md) (Japanese).
+- Upstream status: This bundled snapshot documents virtual-disk testing only; physical SD-card testing was still pending.
 
-必要なもの:
-- LLVM（clang-cl、lld-link）
-- WDK のヘッダーとライブラリ（10.0.19041 と 10.0.26100）
-- .NET SDK（.NET 8 を対象にできるもの）
-- 証明書ストアにある、テスト署名の証明書（「CN=SwitchWOA Test Driver Signing」）。秘密鍵はリポジトリに入っていない。
+## Build on a PC
+
+Requirements:
+
+- LLVM (`clang-cl` and `lld-link`).
+- WDK headers and libraries (10.0.19041 and 10.0.26100).
+- A .NET SDK that can target .NET 8.
+- A test-signing certificate in the certificate store, named `CN=SwitchWOA Test Driver Signing`. The private key is not included.
 
 ```powershell
 .\release\Make-Release.ps1 -Version 2026.10.26
 ```
 
-`out\<版>\` に、リリースに付ける3つのファイルができる。
-- `SwitchDrivers-<版>.zip`
-- `SwitchCenter-<版>-arm64.zip`
+Build output is written to `out\<version>\`. This snapshot documents these release artifacts:
+
+- `SwitchDrivers-<version>.zip`
+- `SwitchCenter-<version>-arm64.zip`
 - `manifest.json`
 
-GitHub でリリースを作って（タグは `drivers-<版>`）、この3つを付ける。
+Create a GitHub release tagged `drivers-<version>` and attach the generated artifacts.
 
-GitHub CLI（`gh auth login` 済み）があれば、`-Publish` を付けるとリリースの作成とアップロードまで自動で行う。すでに作ったファイルをあとから公開するときは、`-PublishOnly` を使う。
+With GitHub CLI already authenticated (`gh auth login`), `-Publish` creates the release and uploads the files. Use `-PublishOnly` to publish files built earlier.
 
-## OTA（コントロールセンターからの更新）
+## Updates through SwitchCenter
 
-設計は `docs/Design-DriverRepo-OTA-ja.md`。コントロールセンターは、このリポジトリの最新のリリースの `manifest.json` を読んで、入っているドライバーと版を比べる。更新を入れる前に、次の3つを確かめる。
-- HTTPS で取ってきたものか
-- SHA-256 が合っているか
-- テスト署名の証明書で署名されているか
+See the [OTA design notes](docs/Design-DriverRepo-OTA-ja.md) (Japanese). SwitchCenter reads the latest release's `manifest.json`, compares it with installed driver versions, and checks HTTPS transport, SHA-256, and the test-signing certificate before installation.
 
-インストールは、管理者の確認を出してから行う。管理者として起動し直したコントロールセンターが、同じリリースを GitHub から自分で取り直して、上の3つを確かめてから `pnputil` で入れる。
+Installation requests administrator elevation. The elevated process independently downloads the same release, repeats those checks, and installs it with `pnputil`.
 
-使い方: コントロールセンターの「ドライバー」タブで「更新を確認」→ 青い行（更新できるもの）を見て「更新する」。コントロールセンター v0.5.0 以降で使える。
+In SwitchCenter v0.5.0 or later, open the Drivers tab, check for updates, review the blue rows, and install. GPIO and I²C are staged for the next boot rather than replaced while dependent drivers are running (v0.5.1 or later).
 
-GPIO と I2C は、ほかのドライバーが使っているので、その場では入れ替えない。Windows に登録して、次に起動したときに入れ替える（v0.5.1 以降）。
+SwitchCenter can also update itself from the same tab (v0.5.1 or later). It verifies the ZIP's SHA-256, replaces its files, and restarts.
 
-コントロールセンター自身も、新しい版があれば同じタブから更新できる（v0.5.1 以降）。ZIP の SHA-256 を確かめてから、自分を上書きして起動し直す。
+Since v0.5.2, new device drivers can be distributed without changing SwitchCenter. Each manifest entry supplies:
 
-新しいデバイスのドライバーも、コントロールセンターを直さずに配れる（v0.5.2 以降）。コントロールセンターは、manifest の各ドライバーの次の項目を使う。
-- `hwid`: 見に行くデバイス
-- `nameJa`、`nameEn`: 表示する名前
-- `installAt`: `boot`（次の起動で入れ替える）か `live`（その場で入れる）
-- `minUefi`: デバイスが無いときに、必要な UEFI の版として表示する
+- `hwid`: the device to query.
+- `nameJa` and `nameEn`: display names.
+- `installAt`: `boot` for next-boot activation, or `live` for immediate installation.
+- `minUefi`: the firmware revision to display when the device is absent.
 
-新しいドライバーを足すときは、`release/Make-Release.ps1` の表に1行足す。
+To add a driver, add an entry to the table in `release/Make-Release.ps1`.
 
-## フォルダー
+## Layout
 
-| 場所 | 内容 |
+| Path | Contents |
 |---|---|
-| `drivers/` | 各ドライバーのソースと INF |
-| `kits/` | Switch で使う導入スクリプトと README（バイナリはリリースの ZIP に入る） |
-| `app/SwitchCenter/` | コントロールセンター（.NET 8、WinForms、win-arm64） |
-| `app/SwitchPatcher/` | SwitchPatcher（.NET 8、WinForms、win-x64、PC 用） |
-| `app/Shared/` | 両方で使う、リリースの読み込みと確かめ |
-| `tools/` | `Build-Driver.ps1`（clang-cl + lld-link で KMDF をビルドし、テスト署名する）、テスト証明書の公開鍵 |
+| `drivers/` | Driver sources and INF files |
+| `kits/` | Installation scripts and documentation; binaries are distributed in release ZIPs |
+| `app/SwitchCenter/` | Control center: .NET 8, WinForms, win-arm64 |
+| `app/SwitchPatcher/` | PC-side patcher: .NET 8, WinForms, win-x64 |
+| `app/Shared/` | Shared release loading and validation |
+| `tools/` | `Build-Driver.ps1` for clang-cl/lld-link KMDF builds and test signing; public test certificate |
 | `release/` | `Make-Release.ps1` |
-| `docs/` | 設計のメモ |
+| `docs/` | Design and porting notes |
 
-## クレジット
-Claude:このGithubリポジトリや、Readmeの作成、など手伝ってくれてありがとう。
+## Credits
 
-## ライセンス
+Thanks to Claude for assistance with the upstream GitHub repository and README.
 
-GPL-2.0（Windows-for-Switch と同じ）。レジスタの手順の一部は、Hekate と Linux（どちらも GPL-2.0）に従っています。
+## License
+
+GPL-2.0, as in Windows-for-Switch. Some register sequences follow Hekate and Linux, both GPL-2.0 projects.
