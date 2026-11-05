@@ -9,6 +9,8 @@
 - [Windows SD 驱动](WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c) · [UEFI 分区校验](Library/PlatformBootManagerLib/WinPeGptView.c) · [UEFI 启动入口](Library/PlatformBootManagerLib/LiteSdBoot.c)
 - [从本地镜像生成专属配置和 WinPE 测试脚本](WindowsDrivers/drivers/Tegra210Sdhc/winarm/) · [此前的只读版本](https://github.com/ruje0504-2/winx/tree/e50754107c5db2a8a93ffdebc4da7fceb843c2c4)
 
+对应的上游草稿把 R3 写入支持整理成可选配置。[Windows 驱动 PR #3](https://github.com/hayato41200/Windows-for-Switch-Drivers/pull/3) · [实机报告 #5](https://github.com/steck0714/winx/issues/5)
+
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />
 
 UEFI firmware for NVIDIA Tegra210 (T210) platforms.
