@@ -41,3 +41,15 @@ Build [touch-check.c](../../LiteTouch/touch-check.c) with [build-check.sh](../..
 A subsequent log showed that Setup tried to resume an installation whose saved MainQueueOnline was absent. The recovery now archives the Panther setup record and clears Setup/WorkingDirectory so the next boot can build a new first-boot queue.
 
 These last state changes are specific to this interrupted installation. Logs in `Windows/Panther` and `Windows/Panther/UnattendGC` determine whether a retry is appropriate. Completion of specialize and OOBE still needs the next hardware result.
+
+## Power-button development
+
+Add `-D SWITCH_LITE_POWER=1` to the Lite touch build to expose I2C5 and the MAX77620 power-button device, ACPI SWOA0601. PmicDxe already enables and initializes I2C5. The existing tegra210i2c and switchpwrbtn drivers provide the bus and VHF System Power Down report. Hekate also reads the Hoag power button through MAX77620 ONOFFSTAT on I2C5. [Hekate button source](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/utils/btn.c)
+
+The power-enabled firmware and ARM64/KMDF 1.15 power-button driver compile. Real button input and the Windows power action remain untested on this Lite. The Hekate entry continues to be **Lite Windows 11 Home**.
+
+## Fan and clock configuration
+
+The requested clock profile is approximately 2 GHz CPU and 2100 MHz memory, enabled through a configuration file. Deploy it together with the Lite fan-control implementation. GPU overclocking is deferred until the graphics driver is ready. This power-button change does not apply that profile: the Home INI retains `ram_oc=1600000` and no CPU voltage or clock writes are added.
+
+Mariko uses MAX77812 M4 for the CPU rail; the existing Erista SwitchCpuClock/MAX77621 profile must not be enabled on this Lite. Hekate's `ram_oc` table preparation also needs to be paired with a verified runtime memory-clock transition before reporting the requested memory frequency as active.

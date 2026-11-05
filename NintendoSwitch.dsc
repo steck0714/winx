@@ -31,6 +31,13 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE LITE_POWER_FLAGS        =
+!ifdef SWITCH_LITE_POWER
+  DEFINE LITE_POWER_FLAGS        = -DSWITCH_LITE_POWER=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_POWER requires the HDH-001 touch profile"
+  !endif
+!endif
   DEFINE LITE_TOUCH_FLAGS        =
 !ifdef SWITCH_LITE_TOUCH
   DEFINE LITE_TOUCH_FLAGS        = -DSWITCH_LITE_TOUCH=1
@@ -108,7 +115,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #

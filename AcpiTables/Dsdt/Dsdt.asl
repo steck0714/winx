@@ -536,22 +536,6 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
-        Device (I2C5)
-        {
-            Name (_HID, "SWOA0201")
-            Name (_UID, 0x05)
-            Name (_CRS, ResourceTemplate ()
-            {
-                Memory32Fixed (ReadWrite, 0x7000D000, 0x00000100)
-                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x00000055 }
-            })
-
-            Method (_STA, 0, NotSerialized)
-            {
-                Return (0x0F)
-            }
-        }
-
         // R371: system battery for switchbattery.sys (ACPI\SWOA0301, battc).
         // Connection 0 = MAX17050 fuel gauge, 1 = BQ24193 charger, both on I2C1.
         Device (BAT0)
@@ -715,23 +699,6 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
-        // R374: power button for switchpwrbtn.sys (ACPI\SWOA0601). The button
-        // drives MAX77620 EN0; the driver polls ONOFFSTAT/ONOFFIRQ on I2C5.
-        Device (PWRB)
-        {
-            Name (_HID, "SWOA0601")
-            Name (_UID, Zero)
-            Name (_CRS, ResourceTemplate ()
-            {
-                I2cSerialBusV2 (0x003C, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
-            })
-
-            Method (_STA, 0, NotSerialized)
-            {
-                Return (0x0F)
-            }
-        }
-
         // R375: CPU clock control for switchcpu.sys (ACPI\SWOA0701). CAR window
         // (PLLX, CCLK burst policy), MAX77621 VDD_CPU on I2C5, TMP451 on I2C1
         // (shared with the fan driver) for the thermal guard.
@@ -769,6 +736,42 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                 Return (0x0F)
             }
         }
+#endif
+
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_POWER)
+        Device (I2C5)
+        {
+            Name (_HID, "SWOA0201")
+            Name (_UID, 0x05)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x7000D000, 0x00000100)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x00000055 }
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
+        // R374: power button for switchpwrbtn.sys (ACPI\SWOA0601). The button
+        // drives MAX77620 EN0; the driver polls ONOFFSTAT/ONOFFIRQ on I2C5.
+        Device (PWRB)
+        {
+            Name (_HID, "SWOA0601")
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                I2cSerialBusV2 (0x003C, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+            })
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+        }
+
 #endif
 
     } // Scope(_SB)

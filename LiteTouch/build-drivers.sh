@@ -9,7 +9,7 @@ out=${2:?output directory}
 : "${WDF_LIB:?WDK Lib/wdf/kmdf/ARM64/1.15}"
 extra=${WDK_EXTRA_LIB:-$WDK_LIB}
 cc=${CLANG_CL:-clang-cl}; ld=${LLD_LINK:-lld-link}
-for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch; do
+for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch SwitchPowerButton:switchpwrbtn; do
     dir=${pair%:*}; name=${pair#*:}; dest="$out/$name"
     mkdir -p "$dest"
     for file in "$src/drivers/$dir/src/$name.c" "$src/tools/kmdf_support.c"; do
@@ -26,7 +26,7 @@ for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switch
     case "$dir" in
         Tegra210Gpio) set -- "$extra/msgpioclxstub.lib" ;;
         Tegra210I2c)  set -- "$extra/spb/1.0/spbcxstubs.lib" ;;
-        SwitchTouch)  set -- "$extra/vhfkm.lib" "$extra/libcntpr.lib" ;;
+        SwitchTouch|SwitchPowerButton)  set -- "$extra/vhfkm.lib" "$extra/libcntpr.lib" ;;
     esac
     "$ld" /nologo /driver /subsystem:native,10.0 /machine:arm64 /entry:FxDriverEntry /nodefaultlib \
         /release /opt:ref /opt:icf /tsaware:no /section:.text,ERP /section:.rdata,RP /section:.data,RWP \
