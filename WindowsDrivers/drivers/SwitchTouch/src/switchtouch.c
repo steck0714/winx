@@ -1,13 +1,9 @@
 /*
  * Nintendo Switch touch screen driver, KMDF + Virtual HID Framework (VHF).
  *
- * ACPI device TCH0 (ACPI\SWOA0501):
- *   I2cSerialBus 0x49 on I2C3: STM FTM4 (chip ID 0x3670).
- *   GpioInt PX1 (GPIO 185), level low.
- * UEFI R373+ powers the panel (LDO6 2.9 V, reset PJ7 high), resets it and
- * turns finger sensing on. This driver clears the event stack, enables the
- * controller interrupt, reads 8-byte events and reports them to Windows as
- * a HID multi-touch screen (parallel mode, 10 contacts) through vhf.sys.
+ * HDH-001: I2C3 address 0x49 and active-low PX1 on ACPI SWOA0502.
+ * The Hekate firmware prepares LDO6, PJ7 and the I2C clock. This driver
+ * identifies and starts the FTM4 on each self-managed I/O start/restart.
  *
  * Events (Hekate bdk/input/touch.c):
  *   count = HW reg 0x0023 byte 1 >> 1; one event = cmd 0x85, 8 bytes.
@@ -69,12 +65,12 @@ typedef struct _TOUCH_REPORT {
     0x81, 0x02, 0x95, 0x06, 0x81, 0x03,                                      \
     0x09, 0x51, 0x25, 0x0F, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02,              \
     0x05, 0x01, 0x55, 0x0E, 0x65, 0x11, 0x75, 0x10, 0x95, 0x01,              \
-    0x09, 0x30, 0x26, 0xCF, 0x02, 0x46, 0x02, 0x03, 0x81, 0x02,              \
-    0x09, 0x31, 0x26, 0xFF, 0x04, 0x46, 0x5A, 0x05, 0x81, 0x02,              \
+    0x09, 0x30, 0x26, 0xCF, 0x02, 0x46, 0xAD, 0x02, 0x81, 0x02,              \
+    0x09, 0x31, 0x26, 0xFF, 0x04, 0x46, 0xC2, 0x04, 0x81, 0x02,              \
     0x45, 0x00, 0x55, 0x00, 0x65, 0x00,                                      \
     0xC0
 
-/* Touch screen, 0..719 x 0..1279, 77 x 137 mm (6.2" 16:9). */
+/* Touch screen, 0..719 x 0..1279, 68.5 x 121.8 mm (Switch Lite, 5.5" 16:9). */
 static UCHAR SwTouchReportDescriptor[] = {
     0x05, 0x0D, 0x09, 0x04, 0xA1, 0x01,
     0x85, REPORT_ID_TOUCH,
@@ -103,13 +99,18 @@ typedef struct _SWTOUCH_DEVICE {
     VHFHANDLE Vhf;
     volatile BOOLEAN VhfReady;
     volatile BOOLEAN Stopping;
+    BOOLEAN ReportPending;
+    USHORT LastLandscapeX;
+    USHORT LastLandscapeY;
+    ULONGLONG TraceTime;
+    LONG SavedEvents;
+    LONG SavedErrors;
     TOUCH_CONTACT Contacts[TOUCH_MAX_CONTACTS];
     TOUCH_REPORT Report;
     ULONG InvertX;
     ULONG InvertY;
     ULONG IntReg;
     LONG Irqs;
-    LONG IrqsAtLastPoll;
     LONG Polls;
     LONG Events;
     LONG Reports;
@@ -129,6 +130,8 @@ EVT_WDF_DEVICE_PREPARE_HARDWARE SwTouchEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE SwTouchEvtReleaseHardware;
 EVT_WDF_DEVICE_SELF_MANAGED_IO_INIT SwTouchEvtSelfManagedIoInit;
 EVT_WDF_DEVICE_SELF_MANAGED_IO_CLEANUP SwTouchEvtSelfManagedIoCleanup;
+EVT_WDF_DEVICE_SELF_MANAGED_IO_RESTART SwTouchEvtRestart;
+EVT_WDF_DEVICE_SELF_MANAGED_IO_SUSPEND SwTouchEvtSuspend;
 EVT_WDF_INTERRUPT_ISR SwTouchEvtIsr;
 EVT_WDF_TIMER SwTouchEvtTimer;
 EVT_VHF_ASYNC_OPERATION SwTouchEvtGetFeature;
@@ -269,12 +272,12 @@ static BOOLEAN SwTouchParse(PSWTOUCH_DEVICE Dev, const UCHAR *Ev)
     C->Y = Y;
     C->Active = TRUE;
     C->Released = FALSE;
-    SwTouchTrace(L"LastLandscapeX", Lx);
-    SwTouchTrace(L"LastLandscapeY", Ly);
+    Dev->LastLandscapeX = Lx;
+    Dev->LastLandscapeY = Ly;
     return TRUE;
 }
 
-static VOID SwTouchSendReport(PSWTOUCH_DEVICE Dev)
+static BOOLEAN SwTouchSendReport(PSWTOUCH_DEVICE Dev)
 {
     HID_XFER_PACKET Packet;
     ULONG Id, Count = 0;
@@ -291,11 +294,15 @@ static VOID SwTouchSendReport(PSWTOUCH_DEVICE Dev)
         Dev->Report.Contacts[Count].Id = (UCHAR)Id;
         Dev->Report.Contacts[Count].X = C->X;
         Dev->Report.Contacts[Count].Y = C->Y;
-        C->Released = FALSE;
         ++Count;
     }
-    if (Count == 0 || !Dev->VhfReady) {
-        return;
+    if (Count == 0) {
+        Dev->ReportPending = FALSE;
+        return TRUE;
+    }
+    Dev->ReportPending = TRUE;
+    if (!Dev->VhfReady) {
+        return FALSE;
     }
     Dev->Report.ContactCount = (UCHAR)Count;
     Packet.reportBuffer = (PUCHAR)&Dev->Report;
@@ -303,10 +310,16 @@ static VOID SwTouchSendReport(PSWTOUCH_DEVICE Dev)
     Packet.reportId = REPORT_ID_TOUCH;
     Status = VhfReadReportSubmit(Dev->Vhf, &Packet);
     if (NT_SUCCESS(Status)) {
+        for (Id = 0; Id < TOUCH_MAX_CONTACTS; ++Id) {
+            Dev->Contacts[Id].Released = FALSE;
+        }
+        Dev->ReportPending = FALSE;
         InterlockedIncrement(&Dev->Reports);
-    } else {
-        SwTouchTrace(L"LastReportError", (ULONG)Status);
+        return TRUE;
     }
+    InterlockedIncrement(&Dev->Errors);
+    SwTouchTrace(L"LastReportError", (ULONG)Status);
+    return FALSE;
 }
 
 /* Drain the controller's event stack and report what changed. PASSIVE_LEVEL. */
@@ -315,10 +328,12 @@ static VOID SwTouchService(PSWTOUCH_DEVICE Dev)
     UCHAR CountCmd[3] = { 0xB6, 0x00, 0x23 }, ReadCmd = CMD_READ_ONE_EVENT;
     UCHAR CountBuf[2] = { 0, 0 }, Ev[8];
     ULONG Count, Index;
-    BOOLEAN Changed = FALSE;
     NTSTATUS Status;
 
     WdfWaitLockAcquire(Dev->Lock, NULL);
+    if (Dev->Stopping || !Dev->VhfReady || (Dev->ReportPending && !SwTouchSendReport(Dev))) {
+        goto Done;
+    }
     Status = SwTouchXfer(Dev, CountCmd, sizeof(CountCmd), CountBuf, sizeof(CountBuf));
     if (!NT_SUCCESS(Status)) {
         InterlockedIncrement(&Dev->Errors);
@@ -337,12 +352,10 @@ static VOID SwTouchService(PSWTOUCH_DEVICE Dev)
             break;
         }
         InterlockedIncrement(&Dev->Events);
-        if (SwTouchParse(Dev, Ev)) {
-            Changed = TRUE;
+        // Preserve the down/up edges of a short tap even in a single FIFO drain.
+        if (SwTouchParse(Dev, Ev) && !SwTouchSendReport(Dev)) {
+            break;
         }
-    }
-    if (Changed) {
-        SwTouchSendReport(Dev);
     }
 Done:
     WdfWaitLockRelease(Dev->Lock);
@@ -361,10 +374,10 @@ VOID SwTouchEvtTimer(WDFTIMER Timer)
 {
     PSWTOUCH_DEVICE Dev = SwTouchGetDevice(SwTouchGetTimer(Timer)->Device);
     LONG Irqs = Dev->Irqs, Polls;
-    BOOLEAN IrqWorks = (Irqs != Dev->IrqsAtLastPoll), Touching = FALSE;
+    BOOLEAN Touching = FALSE;
+    ULONGLONG Now;
     ULONG Id;
 
-    Dev->IrqsAtLastPoll = Irqs;
     SwTouchService(Dev);
     /* The FTM4 sends nothing while a finger rests still, but Windows needs a
      * steady report stream to see press-and-hold (right click): repeat the
@@ -373,12 +386,18 @@ VOID SwTouchEvtTimer(WDFTIMER Timer)
     for (Id = 0; Id < TOUCH_MAX_CONTACTS; ++Id) {
         Touching = Touching || Dev->Contacts[Id].Active;
     }
-    if (Touching) {
+    if (Touching && !Dev->Stopping && !Dev->ReportPending) {
         SwTouchSendReport(Dev);
     }
-    WdfWaitLockRelease(Dev->Lock);
     Polls = InterlockedIncrement(&Dev->Polls);
-    if ((Polls % 64) == 0 || IrqWorks) {
+    Now = KeQueryInterruptTime();
+    if (Polls == 1 || (Now - Dev->TraceTime >= 10000000 &&
+        (Dev->Events != Dev->SavedEvents || Dev->Errors != Dev->SavedErrors))) {
+        Dev->TraceTime = Now;
+        Dev->SavedEvents = Dev->Events;
+        Dev->SavedErrors = Dev->Errors;
+        SwTouchTrace(L"LastLandscapeX", Dev->LastLandscapeX);
+        SwTouchTrace(L"LastLandscapeY", Dev->LastLandscapeY);
         SwTouchTrace(L"Irqs", (ULONG)Irqs);
         SwTouchTrace(L"Polls", (ULONG)Polls);
         SwTouchTrace(L"Events", (ULONG)Dev->Events);
@@ -389,6 +408,7 @@ VOID SwTouchEvtTimer(WDFTIMER Timer)
     if (!Dev->Stopping) {
         WdfTimerStart(Timer, WDF_REL_TIMEOUT_IN_MS((Irqs != 0 && !Touching) ? POLL_SLOW_MS : POLL_FAST_MS));
     }
+    WdfWaitLockRelease(Dev->Lock);
 }
 
 VOID SwTouchEvtGetFeature(PVOID Context, VHFOPERATIONHANDLE Operation, PVOID OperationContext, PHID_XFER_PACKET Packet)
@@ -411,7 +431,6 @@ NTSTATUS SwTouchEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESL
     PSWTOUCH_DEVICE Dev = SwTouchGetDevice(Device);
     ULONG Count = WdfCmResourceListGetCount(Translated), Index;
     BOOLEAN HaveI2c = FALSE;
-    UCHAR ChipCmd[3] = { 0xB6, 0x00, 0x04 }, Info[7] = { 0 }, Clear = CMD_CLEAR_STACK, IntCmd[4];
     NTSTATUS Status;
     UNREFERENCED_PARAMETER(Raw);
 
@@ -435,30 +454,7 @@ NTSTATUS SwTouchEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESL
     /* Opened here so the (level) interrupt can always drain the controller. */
     Status = SwTouchOpenTarget(Device, Dev->I2cId, &Dev->I2c);
     SwTouchTrace(L"OpenI2cStatus", (ULONG)Status);
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Status = SwTouchXfer(Dev, ChipCmd, sizeof(ChipCmd), Info, sizeof(Info));
-    SwTouchTrace(L"ChipInfoStatus", (ULONG)Status);
-    if (!NT_SUCCESS(Status)) {
-        return Status;          /* panel not powered: boot with UEFI R373+ */
-    }
-    SwTouchTrace(L"ChipId", ((ULONG)Info[1] << 8) | Info[2]);
-    SwTouchTrace(L"FwVersion", ((ULONG)Info[3] << 8) | Info[4]);
-    if (Info[1] != 0x36 || Info[2] != 0x70) {
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
-    }
-    SwTouchTrace(L"ClearStackStatus", (ULONG)SwTouchXfer(Dev, &Clear, 1, NULL, 0));
-    if (Dev->IntReg <= 0xFF) {
-        IntCmd[0] = 0xB6;
-        IntCmd[1] = 0x00;
-        IntCmd[2] = (UCHAR)Dev->IntReg;
-        IntCmd[3] = INT_ENABLE_VALUE;
-        SwTouchTrace(L"IntEnableStatus", (ULONG)SwTouchXfer(Dev, IntCmd, sizeof(IntCmd), NULL, 0));
-    }
-    SwTouchTrace(L"CfgInvertX", Dev->InvertX);
-    SwTouchTrace(L"CfgInvertY", Dev->InvertY);
-    return STATUS_SUCCESS;
+    return Status;
 }
 
 NTSTATUS SwTouchEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
@@ -470,6 +466,109 @@ NTSTATUS SwTouchEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
         WdfObjectDelete(Dev->I2c);
         Dev->I2c = NULL;
     }
+    return STATUS_SUCCESS;
+}
+
+static VOID SwTouchDelay(ULONG Ms)
+{
+    LARGE_INTEGER Delay;
+    Delay.QuadPart = -(LONGLONG)Ms * 10000;
+    (VOID)KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+}
+
+static NTSTATUS SwTouchStartPanel(PSWTOUCH_DEVICE Dev)
+{
+    UCHAR IdCmd[] = {0xb6, 0, 4}, Info[7] = {0};
+    UCHAR Reset[] = {0xb6, 0, 0x28, 0x80}, CountCmd[] = {0xb6, 0, 0x23};
+    UCHAR Read = CMD_READ_ONE_EVENT, Event[8], Count[2];
+    UCHAR Mode[] = {0xc3, 1}, Sense = 0x93, Clear = CMD_CLEAR_STACK;
+    UCHAR IntCmd[] = {0xb6, 0, 0, INT_ENABLE_VALUE};
+    ULONG Chip, Tries, Index;
+    BOOLEAN Ready = FALSE;
+    NTSTATUS Status;
+
+    SwTouchTrace(L"ProbeStage", 1);
+    Status = SwTouchXfer(Dev, IdCmd, sizeof(IdCmd), Info, sizeof(Info));
+    SwTouchTrace(L"ChipInfoStatus", (ULONG)Status);
+    if (!NT_SUCCESS(Status)) return Status;
+    Chip = ((ULONG)Info[1] << 8) | Info[2];
+    SwTouchTrace(L"ChipId", Chip);
+    SwTouchTrace(L"FwVersion", ((ULONG)Info[3] << 8) | Info[4]);
+    if (Chip != 0x3670) return STATUS_DEVICE_CONFIGURATION_ERROR;
+
+    SwTouchTrace(L"ProbeStage", 2);
+    Status = SwTouchXfer(Dev, Reset, sizeof(Reset), NULL, 0);
+    if (!NT_SUCCESS(Status)) return Status;
+    SwTouchDelay(10);
+    for (Tries = 0; Tries < 25 && !Ready; ++Tries) {
+        Status = SwTouchXfer(Dev, CountCmd, sizeof(CountCmd), Count, sizeof(Count));
+        if (!NT_SUCCESS(Status)) return Status;
+        for (Index = 0; Index < (ULONG)(Count[1] >> 1) && Index < 32; ++Index) {
+            Status = SwTouchXfer(Dev, &Read, 1, Event, sizeof(Event));
+            if (!NT_SUCCESS(Status)) return Status;
+            if (Event[0] == 0x10 && Event[1] == 0) {
+                Ready = TRUE;
+                break;
+            }
+        }
+        if (!Ready) SwTouchDelay(2);
+    }
+    if (!Ready) return STATUS_IO_TIMEOUT;
+
+    SwTouchTrace(L"ProbeStage", 3);
+    Status = SwTouchXfer(Dev, Mode, sizeof(Mode), NULL, 0);
+    if (NT_SUCCESS(Status)) Status = SwTouchXfer(Dev, &Sense, 1, NULL, 0);
+    if (NT_SUCCESS(Status)) Status = SwTouchXfer(Dev, &Clear, 1, NULL, 0);
+    if (!NT_SUCCESS(Status)) return Status;
+    if (Dev->Interrupt != NULL && Dev->IntReg <= 0xff) {
+        IntCmd[2] = (UCHAR)Dev->IntReg;
+        // A failed interrupt-enable write leaves periodic FIFO polling available.
+        Status = SwTouchXfer(Dev, IntCmd, sizeof(IntCmd), NULL, 0);
+        SwTouchTrace(L"IntEnableStatus", (ULONG)Status);
+    }
+    SwTouchTrace(L"ProbeStage", 4);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS SwTouchEvtRestart(WDFDEVICE Device)
+{
+    PSWTOUCH_DEVICE Dev = SwTouchGetDevice(Device);
+    NTSTATUS Status;
+    WdfWaitLockAcquire(Dev->Lock, NULL);
+    Status = SwTouchStartPanel(Dev);
+    SwTouchTrace(L"ProbeStatus", (ULONG)Status);
+    if (NT_SUCCESS(Status)) {
+        Dev->Stopping = FALSE;
+        WdfTimerStart(Dev->Timer, WDF_REL_TIMEOUT_IN_MS(12));
+    }
+    WdfWaitLockRelease(Dev->Lock);
+    return Status;
+}
+
+NTSTATUS SwTouchEvtSuspend(WDFDEVICE Device)
+{
+    PSWTOUCH_DEVICE Dev = SwTouchGetDevice(Device);
+    UCHAR Mask[] = {0xb6, 0, 0, 0x00};
+    ULONG I;
+    WdfWaitLockAcquire(Dev->Lock, NULL);
+    if (!Dev->Stopping) {
+        Dev->Stopping = TRUE;
+        if (Dev->I2c != NULL && Dev->Interrupt != NULL && Dev->IntReg <= 0xff) {
+            Mask[2] = (UCHAR)Dev->IntReg;
+            (VOID)SwTouchXfer(Dev, Mask, sizeof(Mask), NULL, 0);
+        }
+        for (I = 0; I < TOUCH_MAX_CONTACTS; ++I) {
+            if (Dev->Contacts[I].Active) {
+                Dev->Contacts[I].Active = FALSE;
+                Dev->Contacts[I].Released = TRUE;
+            }
+        }
+        if (Dev->VhfReady) (VOID)SwTouchSendReport(Dev);
+        RtlZeroMemory(Dev->Contacts, sizeof(Dev->Contacts));
+        Dev->ReportPending = FALSE;
+    }
+    WdfWaitLockRelease(Dev->Lock);
+    if (Dev->Timer != NULL) WdfTimerStop(Dev->Timer, TRUE);
     return STATUS_SUCCESS;
 }
 
@@ -515,22 +614,20 @@ NTSTATUS SwTouchEvtSelfManagedIoInit(WDFDEVICE Device)
         SwTouchTrace(L"TimerCreateStatus", (ULONG)Status);
         if (!NT_SUCCESS(Status)) {
             Dev->Timer = NULL;
+            SwTouchEvtSelfManagedIoCleanup(Device);
             return Status;
         }
         SwTouchGetTimer(Dev->Timer)->Device = Device;
     }
-    Dev->Stopping = FALSE;
-    WdfTimerStart(Dev->Timer, WDF_REL_TIMEOUT_IN_MS(100));
-    return STATUS_SUCCESS;
+    Status = SwTouchEvtRestart(Device);
+    if (!NT_SUCCESS(Status)) SwTouchEvtSelfManagedIoCleanup(Device);
+    return Status;
 }
 
 VOID SwTouchEvtSelfManagedIoCleanup(WDFDEVICE Device)
 {
     PSWTOUCH_DEVICE Dev = SwTouchGetDevice(Device);
-    Dev->Stopping = TRUE;
-    if (Dev->Timer != NULL) {
-        WdfTimerStop(Dev->Timer, TRUE);
-    }
+    (VOID)SwTouchEvtSuspend(Device);
     Dev->VhfReady = FALSE;
     if (Dev->Vhf != NULL) {
         VhfDelete(Dev->Vhf, TRUE);
@@ -552,6 +649,8 @@ NTSTATUS SwTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Pnp.EvtDevicePrepareHardware = SwTouchEvtPrepareHardware;
     Pnp.EvtDeviceReleaseHardware = SwTouchEvtReleaseHardware;
     Pnp.EvtDeviceSelfManagedIoInit = SwTouchEvtSelfManagedIoInit;
+    Pnp.EvtDeviceSelfManagedIoSuspend = SwTouchEvtSuspend;
+    Pnp.EvtDeviceSelfManagedIoRestart = SwTouchEvtRestart;
     Pnp.EvtDeviceSelfManagedIoCleanup = SwTouchEvtSelfManagedIoCleanup;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &Pnp);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWTOUCH_DEVICE);
@@ -560,7 +659,10 @@ NTSTATUS SwTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
         return Status;
     }
     Dev = SwTouchGetDevice(Device);
-    Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->Lock);
+    Dev->Stopping = TRUE;
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    Attributes.ParentObject = Device;
+    Status = WdfWaitLockCreate(&Attributes, &Dev->Lock);
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
@@ -584,7 +686,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&SwTouchParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, SwTouchParamsPath);
     }
-    SwTouchTrace(L"DriverVersion", 4);
+    SwTouchTrace(L"DriverVersion", 5);
     WDF_DRIVER_CONFIG_INIT(&Config, SwTouchEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);
 }
