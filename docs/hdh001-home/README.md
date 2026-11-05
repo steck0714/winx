@@ -61,3 +61,25 @@ Shared GPIO, I2C and fan sources remain in their upstream directories. The model
 Build the status application with `Tools/LitePerformanceCheck/build.sh` and copy it to the public desktop as `LitePerformanceCheck.exe`. It reports runtime CPU/EMC frequency, temperatures, PWM duty and driver status. A green status requires fresh sensor updates and both requested frequencies; it is not a stability or fan-RPM test.
 
 Validation: AARCH64 firmware and ARM64/KMDF builds, signed driver/catalog verification, the firmware fan-register comparison against Hekate, and host checks of the actual CPU helper's frequency calculation, voltage ordering, thermal hysteresis and failure handling. Physical frequency, fan response and restart validation are still pending. See [restart preparation](power-performance.md) for the Linux BootROM command table.
+
+## Battery, RTC, and volume buttons
+
+Add `-D SWITCH_LITE_SYSTEM=1` to the combined fan/power build above. This exposes the existing upstream device definitions on HDH-001, with dependencies on the GPIO and I²C controllers:
+
+| Device | Resources | Windows driver |
+|---|---|---|
+| BAT0, SWOA0301 | I2C1: MAX17050 at 0x36 and BQ24193 at 0x6B | Shared `switchbattery` 1.0.0.6 |
+| RTC0, SWOA0801 | I2C5: MAX77620 RTC at 0x68 | Shared `switchrtc` 1.0.0.2 |
+| BTNS, ACPI0011 | PX6 / GPIO 190 and PX7 / GPIO 191, both-edge interrupts | Windows inbox `hidinterrupt.inf` through `tegra210gpio` |
+
+BAT0 supplies the upstream driver's two-connection path: battery percentage, voltage, temperature, and charger status. It omits the BM92T connection, so this profile does not start the driver's USB-C role-switching timer or change charger settings. This is battery telemetry; USB-C host/charging integration is a separate porting step.
+
+RTC uses the upstream Windows-only offset. After a manual time change or a successful time synchronization, it records `OffsetSeconds` and `OffsetFormat=2` under `Services\switchrtc\Parameters`. Subsequent starts restore RTC time plus that offset. It latches the RTC read registers but does not rewrite the calendar shared with Horizon. With no learned offset, it leaves Windows time unchanged.
+
+The volume keys reuse the upstream ACPI button mapping. Hekate configures PX6/PX7 as inputs; the Lite GPIO driver already exposes the corresponding bank interrupt. No separate volume-button binary is needed. Working volume-button input does not imply audio playback support.
+
+`LiteTouch/build-drivers.sh` now also builds the battery and RTC packages; the battery link requires the ARM64 WDK `battc.lib` in WDK_EXTRA_LIB. Keep the shared sources under `WindowsDrivers/drivers/SwitchBattery` and `SwitchRtc`. Place signed INF/SYS/catalog files in the matching subdirectories beside [Install-LiteSystem.cmd](Install-LiteSystem.cmd). Use `Install-LiteSystem.cmd offline W:\` from ARM64 maintenance WinPE, or `Install-LiteSystem.cmd online` from an elevated prompt in the existing Home installation. GPIO and I²C must already be installed. Replace W: with WINARM's actual drive letter. The script stages fan, power-button, battery, and RTC drivers without changing Windows setup state.
+
+The Hekate entry remains **Lite Windows 11 Home**. Firmware and ARM64/KMDF builds pass. Signed SYS/catalog verification and PnPUtil staging of both packages passed in ARM64 WinPE 22621.1. Battery readings, RTC persistence, and physical volume-key input still await testing on this Lite.
+
+Board references: [Switchroot Lite power tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [Lite button pinmux](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-pinmux.dtsi), and [Hekate button inputs](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/soc/hw_init.c).

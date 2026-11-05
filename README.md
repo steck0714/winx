@@ -6,11 +6,14 @@ As of November 5, 2026, one physical Switch Lite has booted Windows 11 Home 23H2
 
 The latest profile also integrates the shared fan driver, configurable T214 CPU and memory clocks, and BootROM restart preparation. These additions have been built and deployed; their hardware results are pending.
 
+The optional system profile adds shared battery telemetry, RTC, and inbox volume-button support. Its firmware and signed driver packages are built and staged successfully in ARM64 WinPE; deployment and hardware validation are pending.
+
 - [Stage 6 builds, driver installation, and first-boot troubleshooting](docs/hdh001-home/README.md)
 - [Windows Boot Manager entry point](Library/PlatformBootManagerLib/LiteHomeBoot.c)
 - [SD miniport and local target configuration generator](WindowsDrivers/drivers/Tegra210Sdhc/)
 - [Touchscreen driver and three-point checker](LiteTouch/README.md)
-- [Fan control and configurable T214 clocks](docs/hdh001-home/power-performance.md)
+- [Fan control and configurable T214 clocks](docs/hdh001-home/README.md#fan-and-clock-configuration)
+- [Battery, RTC, and volume-button integration](docs/hdh001-home/README.md#battery-rtc-and-volume-buttons)
 - [R3 write and cold-read results](docs/hdh001-winarm-r3/README.md)
 
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />

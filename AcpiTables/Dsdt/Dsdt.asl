@@ -472,7 +472,7 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         }
 
 #endif
-#ifdef SWITCH_ACPI_SWOA_ENABLE
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_SYSTEM)
         // R368: hardware buttons for Windows (inbox HID button driver).
         // R369: R368 used PNP0C40, which no inbox INF on Windows 10 matches
         // (problem 28); hidinterrupt.inf binds ACPI0011 with this _DSD.
@@ -483,6 +483,10 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         Device (BTNS)
         {
             Name (_HID, "ACPI0011")    // R369: ACPI 6.0 Generic Buttons Device (hidinterrupt.inf)
+#ifdef SWITCH_LITE_SYSTEM
+            // HDH-001 shares PX6/PX7; Hekate configures both as inputs.
+            Name (_DEP, Package () { \_SB.GPI0 })
+#endif
             Name (_UID, Zero)
             Name (_CRS, ResourceTemplate ()
             {
@@ -519,14 +523,22 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         Device (BAT0)
         {
             Name (_HID, "SWOA0301")
+#ifdef SWITCH_LITE_SYSTEM
+            Name (_DEP, Package () { \_SB.I2C1 })
+#endif
             Name (_UID, Zero)
             Name (_CRS, ResourceTemplate ()
             {
                 I2cSerialBusV2 (0x0036, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
                 I2cSerialBusV2 (0x006B, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
+#ifndef SWITCH_LITE_SYSTEM
                 // R378: connection 2 = BM92T USB-C PD controller, for VBUS / charge
                 // role switching on hot-plug (switchbattery.sys v4).
                 I2cSerialBusV2 (0x0018, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
+#else
+                // Lite uses the upstream two-connection telemetry path. USB-C
+                // role control needs its own XUSB/charger integration.
+#endif
             })
 
             Method (_STA, 0, NotSerialized)
@@ -680,12 +692,17 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_SYSTEM)
         // R377: real-time clock for switchrtc.sys (ACPI\SWOA0801). MAX77620 RTC
         // block at I2C5 0x68. The driver only reads it and keeps its own offset,
         // so the time Horizon keeps in the RTC is left alone.
         Device (RTC0)
         {
             Name (_HID, "SWOA0801")
+#ifdef SWITCH_LITE_SYSTEM
+            Name (_DEP, Package () { \_SB.I2C5 })
+#endif
             Name (_UID, Zero)
             Name (_CRS, ResourceTemplate ()
             {

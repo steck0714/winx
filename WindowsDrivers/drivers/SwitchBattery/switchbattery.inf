@@ -8,7 +8,7 @@ Class       = Battery
 ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
 Provider    = %Mfg%
 CatalogFile = switchbattery.cat
-DriverVer   = 10/26/2026,1.0.0.5
+DriverVer   = 10/31/2026,1.0.0.6
 PnpLockdown = 1
 
 [DestinationDirs]

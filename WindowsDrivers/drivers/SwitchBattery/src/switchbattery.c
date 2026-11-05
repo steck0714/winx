@@ -22,6 +22,15 @@
  *     (the same steps as UEFI R363ConfigureSink)
  * VBUS is never enabled while the partner supplies power (VSAFE or BQ
  * VBUS_STAT set). XUSB itself is left running by UEFI R378 in every case.
+ *
+ * v6: a USB stick plugged in directly stopped being seen after many
+ * plug-ins, until a reboot. The BQ boost stops on its own on an overload
+ * (inrush at plug-in) and stays off: REG09 BOOST_FAULT, REG08 VBUS_STAT no
+ * longer 3 (OTG), while REG01 still says OTG, so the state machine stayed in
+ * host with no VBUS. In host the driver now checks REG08/REG09 every poll;
+ * after 2 bad polls it turns the boost off and on again (REG01 charge, then
+ * OTG), at most 3 times in a row and then once every 5 s. When a partner is
+ * inserted but neither role is taken for 5 s, STATUS1/2 are traced.
  */
 #include <ntddk.h>
 #include <ntstrsafe.h>
@@ -67,6 +76,13 @@
 #define BQ_WATCHDOG_MASK 0x30u
 #define USBC_POLL_MS     500
 #define USBC_STREAK      3
+#define BQ_FAULT         0x09
+#define BQ_BOOST_FAULT   0x40u
+#define BQ_VBUS_OTG      3u
+#define USBC_BOOST_BAD   2              /* bad polls before the boost is restarted */
+#define USBC_BOOST_QUICK 3              /* quick restarts, then one every USBC_BOOST_WAIT polls */
+#define USBC_BOOST_WAIT  10
+#define USBC_STUCK_POLLS 10
 
 typedef enum _USBC_STATE { UsbcIdle = 0, UsbcHost = 1, UsbcSink = 2 } USBC_STATE;
 
@@ -86,6 +102,8 @@ typedef struct _SWBAT_DEVICE {
     USBC_STATE Usbc;
     ULONG HostStreak, SinkStreak, GoneStreak;
     ULONG UsbcChanges;
+    ULONG BoostBad, BoostRestartsInRow, BoostWait, BoostRestarts;
+    ULONG StuckPolls;
 } SWBAT_DEVICE, *PSWBAT_DEVICE;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWBAT_DEVICE, SwBatGetDevice)
 
@@ -325,6 +343,45 @@ static NTSTATUS SwBatConfigureSink(PSWBAT_DEVICE Dev)
     return Status;
 }
 
+/*
+ * v6: host with a partner inserted: is the BQ boost really giving VBUS?
+ * REG09 latches faults, so it is read every poll (the read clears it).
+ * Caller holds Dev->Lock.
+ */
+static VOID SwBatCheckBoost(PSWBAT_DEVICE Dev, UCHAR Sys)
+{
+    UCHAR Fault = 0;
+    BOOLEAN Bad;
+    NTSTATUS Status;
+
+    (VOID)SwBatReadRegs(Dev->Charger, BQ_FAULT, &Fault, 1);
+    Bad = ((Sys >> 6) & 3) != BQ_VBUS_OTG || (Fault & BQ_BOOST_FAULT) != 0;
+    if (!Bad) {
+        Dev->BoostBad = 0;
+        Dev->BoostRestartsInRow = 0;
+        Dev->BoostWait = 0;
+        return;
+    }
+    if (Dev->BoostWait != 0) {
+        Dev->BoostWait--;
+        return;
+    }
+    if (++Dev->BoostBad < USBC_BOOST_BAD) {
+        return;
+    }
+    Dev->BoostBad = 0;
+    SwBatTrace(L"UsbcBoostSysStat", Sys);
+    SwBatTrace(L"UsbcBoostFault", Fault);
+    (VOID)SwBatSetBqMode(Dev, BQ_MODE_CHARGE);
+    Status = SwBatSetBqMode(Dev, BQ_MODE_OTG);
+    SwBatDisableBqWatchdog(Dev);
+    SwBatTrace(L"UsbcBoostRestartStatus", (ULONG)Status);
+    SwBatTrace(L"UsbcBoostRestarts", ++Dev->BoostRestarts);
+    if (++Dev->BoostRestartsInRow >= USBC_BOOST_QUICK) {
+        Dev->BoostWait = USBC_BOOST_WAIT;       /* a real short: do not hammer the boost */
+    }
+}
+
 /* One 500 ms step of the role state machine. Caller holds Dev->Lock. */
 static VOID SwBatUsbcPoll(PSWBAT_DEVICE Dev)
 {
@@ -347,6 +404,13 @@ static VOID SwBatUsbcPoll(PSWBAT_DEVICE Dev)
 
     switch (Dev->Usbc) {
     case UsbcIdle:
+        /* v6: inserted, but no role for a while: keep the PD state for the trace. */
+        Dev->StuckPolls = Inserted ? Dev->StuckPolls + 1 : 0;
+        if (Dev->StuckPolls == USBC_STUCK_POLLS) {
+            SwBatTrace(L"UsbcStuckStatus1", S1);
+            SwBatTrace(L"UsbcStuckStatus2", S2);
+            SwBatTrace(L"UsbcStuckSysStat", Sys);
+        }
         Dev->HostStreak = HostSeen ? Dev->HostStreak + 1 : 0;
         Dev->SinkStreak = SinkSeen ? Dev->SinkStreak + 1 : 0;
         if (Dev->SinkStreak >= USBC_STREAK) {
@@ -363,6 +427,7 @@ static VOID SwBatUsbcPoll(PSWBAT_DEVICE Dev)
                 SwBatTrace(L"UsbcHostStatus", (ULONG)Status);
                 if (NT_SUCCESS(Status)) {
                     Dev->Usbc = UsbcHost;
+                    Dev->BoostBad = Dev->BoostRestartsInRow = Dev->BoostWait = 0;
                 }
             }
         }
@@ -375,7 +440,9 @@ static VOID SwBatUsbcPoll(PSWBAT_DEVICE Dev)
                 SwBatTrace(L"UsbcVbusOffStatus", (ULONG)SwBatSetBqMode(Dev, BQ_MODE_CHARGE));
             }
             Dev->Usbc = UsbcIdle;
-            Dev->HostStreak = Dev->SinkStreak = Dev->GoneStreak = 0;
+            Dev->HostStreak = Dev->SinkStreak = Dev->GoneStreak = Dev->StuckPolls = 0;
+        } else if (Dev->Usbc == UsbcHost && Inserted) {
+            SwBatCheckBoost(Dev, Sys);
         }
         break;
     }
@@ -815,7 +882,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&SwBatParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, SwBatParamsPath);
     }
-    SwBatTrace(L"DriverVersion", 5);
+    SwBatTrace(L"DriverVersion", 6);
 
     WDF_DRIVER_CONFIG_INIT(&Config, SwBatEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);
