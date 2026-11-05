@@ -1,6 +1,10 @@
 
 # WinX
 
+### Switch Lite touch R1
+
+[触屏驱动、独立测试入口与家庭版安装说明](LiteTouch/README.md)
+
 ## Switch Lite HDH-001 · WinPE 实机版源码
 
 这个分支是 Switch Lite 实机启动 ARM64 WinPE 22621.1 并读回 microSD 标记文件时使用的源码。六个测试补丁已经应用，可以直接打开代码。

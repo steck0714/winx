@@ -1,0 +1,29 @@
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = LiteTouchPowerDxe
+  FILE_GUID = B552D630-E2C0-4BF1-A3EA-F2977123F45B
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT = LiteTouchPowerInitialize
+
+[Sources]
+  LiteTouchPower.c
+  Fts4.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  IoLib
+  ClockLib
+  GpioLib
+  I2cLib
+
+[Protocols]
+  gPmicProtocolGuid
+
+[Depex]
+  gPmicProtocolGuid

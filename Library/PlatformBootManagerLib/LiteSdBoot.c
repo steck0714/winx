@@ -6,8 +6,21 @@
 #include <Library/UefiBootManagerLib.h>
 #include <Protocol/SimpleFileSystem.h>
 
+#ifdef SWITCH_LITE_TOUCH
+#define LOADER_PATH L"\\EFI\\LiteTP\\bootmgfw.efi"
+#define MARKER_PATH L"\\switchroot\\woa-lite-touch\\MEDIA.ID"
+#define MARKER_TEXT "SWITCH-LITE-TOUCH-R1\n"
+#define BCD_PATH L"\\EFI\\LiteTP\\BCD"
+#define SDI_PATH L"\\boot\\ltp0.sdi"
+#define WIM_PATH L"\\sources\\lttp.wim"
+#else
 #define LOADER_PATH L"\\EFI\\LiteNV\\bootmgfw.efi"
 #define MARKER_PATH L"\\switchroot\\woa-lite-winpe\\MEDIA.ID"
+#define MARKER_TEXT "SWITCH-LITE-WINPE-22621-R1\n"
+#define BCD_PATH L"\\EFI\\LiteNV\\BCD"
+#define SDI_PATH L"\\boot\\boot.sdi"
+#define WIM_PATH L"\\sources\\nvsd.wim"
+#endif
 
 STATIC VOID EFIAPI
 MarkExitBootServices (EFI_EVENT Event, VOID *Context)
@@ -24,7 +37,7 @@ MarkExitBootServices (EFI_EVENT Event, VOID *Context)
 STATIC EFI_STATUS
 CheckMarker (EFI_FILE_PROTOCOL *Root)
 {
-  STATIC CONST CHAR8 Expected[] = "SWITCH-LITE-WINPE-22621-R1\n";
+  STATIC CONST CHAR8 Expected[] = MARKER_TEXT;
   CHAR8 Data[sizeof (Expected)];
   UINTN Size = sizeof (Data);
   EFI_FILE_PROTOCOL *File;
@@ -78,9 +91,9 @@ BootPe (EFI_HANDLE Volume, EFI_FILE_PROTOCOL *Root)
   EFI_DEVICE_PATH_PROTOCOL *Path;
   EFI_BOOT_MANAGER_LOAD_OPTION Option;
 
-  Status = CheckFile (Root, L"\\EFI\\LiteNV\\BCD", "regf", 4, FALSE);
-  if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\boot\\boot.sdi", "$SDI0001", 8, FALSE);
-  if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\sources\\nvsd.wim", "MSWIM\0\0\0", 8, TRUE);
+  Status = CheckFile (Root, BCD_PATH, "regf", 4, FALSE);
+  if (!EFI_ERROR (Status)) Status = CheckFile (Root, SDI_PATH, "$SDI0001", 8, FALSE);
+  if (!EFI_ERROR (Status)) Status = CheckFile (Root, WIM_PATH, "MSWIM\0\0\0", 8, TRUE);
   if (!EFI_ERROR (Status)) Status = CheckFile (Root, LOADER_PATH, "MZ", 2, FALSE);
   Root->Close (Root);
   if (EFI_ERROR (Status)) return Status;

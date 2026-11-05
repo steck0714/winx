@@ -428,7 +428,7 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 #endif
-#ifdef SWITCH_ACPI_SWOA_ENABLE
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_TOUCH)
         // ---- Windows-for-Switch (hayato41200) SWOA devices -------------------------------
         // ACPI\SWOA0101..0801: GPIO, I2C, battery/USB-C, fan/backlight, touch, power
         // button, CPU clock, RTC. They are only useful together with the matching kernel
@@ -446,11 +446,23 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_CRS, ResourceTemplate ()
             {
                 Memory32Fixed (ReadWrite, 0x6000D000, 0x00001000)
+#ifdef SWITCH_LITE_TOUCH
+                // One assigned GIC interrupt per bank in _CRS.
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x40 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x41 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x42 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x43 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x57 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x77 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x79 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 0x9D }
+#else
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                 {
                     0x00000040, 0x00000041, 0x00000042, 0x00000043,
                     0x00000057, 0x00000077, 0x00000079, 0x0000009D
                 }
+#endif
             })
 
             Method (_STA, 0, NotSerialized)
@@ -459,6 +471,8 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#ifdef SWITCH_ACPI_SWOA_ENABLE
         // R368: hardware buttons for Windows (inbox HID button driver).
         // R369: R368 used PNP0C40, which no inbox INF on Windows 10 matches
         // (problem 28); hidinterrupt.inf binds ACPI0011 with this _DSD.
@@ -577,6 +591,8 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_TOUCH)
         // R373: I2C3 (GEN3_I2C) for the touch panel. UEFI R373 powers the
         // panel (LDO6 2.9 V, reset PJ7 high) and enables the I2C3 clock.
         Device (I2C3)
@@ -595,6 +611,8 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#ifdef SWITCH_ACPI_SWOA_ENABLE
         // R379: I2C2 (GEN2_I2C, 0x7000C400) for the BH1730FVC light sensor. UEFI R379 clocks it.
         Device (I2C2)
         {
@@ -650,11 +668,18 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_TOUCH)
         // R373: STM FTM4 touch controller (ACPI\SWOA0501), 0x49 on I2C3,
         // interrupt PX1 (GPIO 185) level low.
         Device (TCH0)
         {
+#ifdef SWITCH_LITE_TOUCH
+            Name (_HID, "SWOA0502")
+            Name (_DEP, Package () { \_SB.GPI0, \_SB.I2C3 })
+#else
             Name (_HID, "SWOA0501")
+#endif
             Name (_UID, Zero)
             Name (_CRS, ResourceTemplate ()
             {
@@ -668,6 +693,8 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#ifdef SWITCH_ACPI_SWOA_ENABLE
         // R402: audio for switchaudio.sys (ACPI\SWOA0C01). AHUB (ADMAIF, XBAR,
         // I2S1 at 0x702D1000), ADMA, and the ALC5639 codec on I2C1. UEFI turns
         // on the APE clocks, sets up the codec and starts I2S1.

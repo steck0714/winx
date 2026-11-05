@@ -133,6 +133,9 @@ READ_LOCK_STATUS   = TRUE
   # Drivers
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_TOUCH
+  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
+!endif
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
 !ifndef SWITCH_WOA
 !ifdef SWITCH_FAN_DUTY

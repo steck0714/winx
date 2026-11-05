@@ -31,6 +31,19 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE LITE_TOUCH_FLAGS        =
+!ifdef SWITCH_LITE_TOUCH
+  DEFINE LITE_TOUCH_FLAGS        = -DSWITCH_LITE_TOUCH=1
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_LITE_TOUCH requires the Hekate handoff"
+  !endif
+  !ifdef SWITCH_WOA
+    !error "Select the Lite profile without Erista WOA bring-up"
+  !endif
+  !ifdef SWITCH_ACPI_SWOA
+    !error "The Lite touch firmware provides its own minimal ACPI devices"
+  !endif
+!endif
   DEFINE EXCFB_FLAGS             =
 !ifdef SWITCH_EXCFB
  !ifdef SWITCH_FB_ROTATE
@@ -44,7 +57,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -95,7 +108,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -495,6 +508,9 @@
   NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
   NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_TOUCH
+  NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
+!endif
 !ifdef SWITCH_SD_FAST
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf {
     <BuildOptions>
