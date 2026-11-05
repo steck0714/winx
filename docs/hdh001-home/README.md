@@ -38,4 +38,6 @@ Build [touch-check.c](../../LiteTouch/touch-check.c) with [build-check.sh](../..
 - The failed run left `GeneralizationState=6`, which caused windeploy to stop with `0x8030000C`.
 - Restoring GeneralizationState to 4 exposed the next stale setup state. `ChildCompletion/setup.exe=1` caused an unexpected-restart dialog and exit code `0x1f`. The original Home image has no such value and uses SetupType 1. Restore the original first-run state when retrying this interrupted installation, after preserving the current SYSTEM hive.
 
+A subsequent log showed that Setup tried to resume an installation whose saved MainQueueOnline was absent. The recovery now archives the Panther setup record and clears Setup/WorkingDirectory so the next boot can build a new first-boot queue.
+
 These last state changes are specific to this interrupted installation. Logs in `Windows/Panther` and `Windows/Panther/UnattendGC` determine whether a retry is appropriate. Completion of specialize and OOBE still needs the next hardware result.
