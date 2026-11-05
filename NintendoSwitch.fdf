@@ -126,15 +126,19 @@ READ_LOCK_STATUS   = TRUE
   INF RuleOverride = ACPITABLE NintendoSwitchPkg/AcpiTables/AcpiTables.inf
 
   # Drivers
+!if $(SWITCH_LITE_SD) != 1
   INF NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
+!endif
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
   INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
+!if $(SWITCH_LITE_SD) != 1
 !ifndef SWITCH_WOA
   INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !ifdef SWITCH_FAN_DUTY
   INF NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
+!endif
 !endif
 !endif
 !ifndef SWITCH_WOA

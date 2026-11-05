@@ -39,7 +39,11 @@ STATIC BIO_INSTANCE mBioTemplate = {
         TRUE,                                     // RemovableMedia
         TRUE,                                     // MediaPresent
         FALSE,                                    // LogicalPartition
+#ifdef SWITCH_LITE_SD
+        TRUE,                                     // ReadOnly
+#else
         FALSE,                                    // ReadOnly (writes gated to FAT partitions, see SdWriteAllowed)
+#endif
         FALSE,                                    // WriteCaching
         0,                                        // BlockSize
         4,                                        // IoAlign
@@ -391,7 +395,7 @@ MMCHSWriteBlocks(
 
     // Safety gate: only FAT volumes are writable. The NTFS Windows partition and the partition
     // tables stay read-only, because this write path has not been verified on hardware yet.
-    if (!SdWriteAllowed (Instance, Lba, Blocks)) {
+    if (Media->ReadOnly || !SdWriteAllowed (Instance, Lba, Blocks)) {
         return EFI_WRITE_PROTECTED;
     }
 

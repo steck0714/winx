@@ -31,6 +31,30 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE SWITCH_LITE_SD          = 0
+  DEFINE LITE_SD_FLAGS           =
+!if $(SWITCH_LITE_SD) == 1
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_LITE_SD requires the Hekate BL31 handoff"
+  !endif
+  !ifdef SWITCH_WOA
+    !error "SWITCH_WOA includes Erista board and USB initialization"
+  !endif
+  !ifdef SWITCH_USB
+    !error "Use the Lite SD profile without Erista USB bring-up"
+  !endif
+  !ifdef SWITCH_ACPI_EMMC
+    !error "The Lite SD profile exposes the external card only"
+  !endif
+  !ifdef SWITCH_ACPI_SD_AUTO
+    !error "The Lite SD profile uses the fixed nvtsdhc ACPI identity"
+  !endif
+  !ifdef SWITCH_SD_FAST
+    !error "The Lite SD profile requires default-speed SD"
+  !endif
+  DEFINE LITE_SD_FLAGS           = -DSWITCH_LITE_SD=1
+  DEFINE SWITCH_ACPI_SD_NVTSDHC  = 1
+!endif
   DEFINE EXCFB_FLAGS             =
 !ifdef SWITCH_EXCFB
  !ifdef SWITCH_FB_ROTATE
@@ -44,7 +68,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_SD_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif

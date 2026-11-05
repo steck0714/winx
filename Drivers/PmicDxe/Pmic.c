@@ -92,7 +92,9 @@ PmicDxeInitialize
 {
     EFI_STATUS Status;
     EFI_HANDLE ProtoHandle = NULL;
+#ifndef SWITCH_LITE_SD
     UINT8 bVal;
+#endif
 
     Status = gBS->LocateProtocol(
         &gTegra210ClockManagementProtocolGuid,
@@ -101,6 +103,12 @@ PmicDxeInitialize
     );
     if (EFI_ERROR(Status)) goto exit;
 
+#ifdef SWITCH_LITE_SD
+    // SdPowerOn sequences LDO2. Other rails belong to the Hekate handoff.
+    Status = mClockProtocol->EnableI2c(I2C_5);
+    if (EFI_ERROR(Status)) goto exit;
+    i2c_init(I2C_5);
+#else
     // Clock init
     Status = mClockProtocol->EnableI2c(I2C_1);
     if (EFI_ERROR(Status)) goto exit;
@@ -127,6 +135,7 @@ PmicDxeInitialize
 
     // Start up the PCIe power
     max77620_send_byte(MAX77620_REG_LDO1_CFG, 0xCA);
+#endif
 
     // Install protocol
     Status = gBS->InstallMultipleProtocolInterfaces(

@@ -17,7 +17,7 @@ A fork-style patch set on top of [imbushuo/NintendoSwitchPkg](https://github.com
 | NTFS etc. read-only in UEFI (`SWITCH_FSDRV`) | NTFS works on hardware |
 | USB mass storage, PD/charging side effects | untested |
 
-Not verified: Mariko / Lite / OLED consoles. Only the author's console was used.
+The table above is for the author's Erista. On one Switch Lite (HDH-001), a contributor booted ARM64 WinPE 22621.1 and read a file from microSD with a modified development build. Other Mariko and OLED boards still need testing. [HDH-001 report, photo and exact source patches](https://github.com/steck0714/winx/issues/5)
 
 ## What you need to supply
 * hekate (GPL-2.0), `bl31.bin` (Arm Trusted Firmware for Tegra210, e.g. from a switchroot/LineageOS package).
@@ -51,6 +51,19 @@ python3 ../NintendoSwitchPkg/Tools/make-bl33.py --fd $R/FV/TEGRA210_EFI.fd \
 ```
 Switches: `SWITCH_HEKATE` (hekate boot chain), `SWITCH_USB` (EHCI/UsbBus/UsbKb/UsbMassStorage),
 `SWITCH_FB_ROTATE=1|2` (landscape; 2 was the right way up on the author's unit), `SWITCH_FAN_DUTY=1..235` (optional fan).
+
+## Switch Lite external SD (HDH-001)
+
+For a Hekate BL31 handoff on this board, build the experimental read-only SD profile:
+
+```sh
+build -a AARCH64 -p NintendoSwitchPkg/NintendoSwitch.dsc -t GCC5 -b RELEASE \
+      -D SWITCH_HEKATE=1 -D SWITCH_LITE_SD=1 -D SWITCH_FB_ROTATE=2 -D SWITCH_EXCFB=1
+```
+
+Package BL33 with the map as above. Use it alongside a T210B01-compatible BL31 in its own Hekate L4T entry.
+The profile inherits Hekate's board setup, initializes the SDMMC1 and I2C5 clocks, and uses 3.3 V, four data lines and default-speed timing. UEFI reports the external media as read-only. The existing SDM1 ACPI binding selects the [nvtsdhc driver](https://github.com/hayato41200/Windows-for-Switch-Drivers/pull/2).
+The lab boot on a hybrid MBR/GPT card also used a loader-specific read view and a dedicated WinPE BCD. The [hardware report](https://github.com/steck0714/winx/issues/5) includes that integration and its media layout.
 
 ## Integrated full build
 `Tools/build-full.sh` builds everything at once (all switches above, including `SWITCH_XUSB` and `SWITCH_WIFIBT`); `release/bl33.bin` is that build

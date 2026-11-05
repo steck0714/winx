@@ -1246,6 +1246,11 @@ int tegra_plle_enable(void)
 }
 
 struct periph_clk_init periph_clk_init_table[] = {
+#ifdef SWITCH_LITE_SD
+	/* Hekate owns the display clocks. SDMMC1 and its PMIC bus are sufficient. */
+	{ PERIPH_ID_SDMMC1, CLOCK_ID_PERIPH },
+	{ PERIPH_ID_I2C5, CLOCK_ID_PERIPH },
+#else
 	{ PERIPH_ID_SBC1, CLOCK_ID_PERIPH },
 	{ PERIPH_ID_SBC2, CLOCK_ID_PERIPH },
 	{ PERIPH_ID_SBC3, CLOCK_ID_PERIPH },
@@ -1265,5 +1270,6 @@ struct periph_clk_init periph_clk_init_table[] = {
 	{ PERIPH_ID_I2C4, CLOCK_ID_PERIPH },
 	{ PERIPH_ID_I2C5, CLOCK_ID_PERIPH },
 	{ PERIPH_ID_I2C6, CLOCK_ID_PERIPH },
+#endif
 	{ -1, },
 };

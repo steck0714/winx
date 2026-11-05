@@ -238,6 +238,21 @@ SdPowerOn (
     // Deep loopback for the CLK pad so reads work.
     MmioWrite32 (APB_MISC_SDMMC1_CLK_LPBK, 1);
 
+#ifdef SWITCH_LITE_SD
+    // Mariko needs Schmitt inputs on CLK, CMD and DAT[3:0]; CLK has no pull.
+    {
+        UINT32 Input = PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | BIT12;
+        UINTN Pin;
+
+        MmioWrite32 (PINMUX_SDMMC1_CLK, Input);
+        for (Pin = PINMUX_SDMMC1_CMD; Pin <= PINMUX_SDMMC1_DAT0; Pin += sizeof (UINT32)) {
+            MmioWrite32 (Pin, Input | PINMUX_PULL_UP_V);
+        }
+    }
+    gpio_config (GPIO_PORT_M, 0x3F, GPIO_MODE_SPIO);
+    gpio_write (GPIO_PORT_M, 0x3F, GPIO_LOW);
+    gpio_output_enable (GPIO_PORT_M, 0x3F, GPIO_OUTPUT_DISABLE);
+#else
     // SDMMC1 pad pinmux (T210: CLK pulled down, others pulled up).
     MmioWrite32 (PINMUX_SDMMC1_CLK,  PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_DOWN_V);
     MmioWrite32 (PINMUX_SDMMC1_CMD,  PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
@@ -248,6 +263,7 @@ SdPowerOn (
     // Pads M0..M5 back to their special function (hekate leaves them as discharge GPIOs).
     gpio_output_enable (GPIO_PORT_M, 0x3F, GPIO_OUTPUT_DISABLE);
     gpio_config (GPIO_PORT_M, 0x3F, GPIO_MODE_SPIO);
+#endif
 
     // Make sure the SDMMC1 IO power domain is powered.
     MmioOr32  (PMC_NO_IOPOWER, PMC_SDMMC1_BIT);
@@ -291,12 +307,19 @@ SdVendorInit (
     MmioOr32  (SD_BASE + SD_IOSPARE, (1U << 19));                      // 1 cycle delayed cmd_oen
     MmioAnd32 (SD_BASE + SD_VENIOTRIMCTL, ~(1U << 2));                  // band gap VREG supplies the DLL
     V = MmioRead32 (SD_BASE + SD_VENCLKCTL);
+#ifdef SWITCH_LITE_SD
+    // T210B01 SDMMC1 at 3.3 V: trim 14, tap 11, zero VREF and PU/PD offsets.
+    MmioWrite32 (SD_BASE + SD_VENCLKCTL, (V & 0xE000FFFB) | (14U << 24) | (11U << 16));
+    MmioAnd32 (SD_BASE + SD_SDMEMCMPPADCTL, ~0xFU);
+    MmioAnd32 (SD_BASE + SD_AUTOCALCFG, 0xFFFF8080);
+#else
     MmioWrite32 (SD_BASE + SD_VENCLKCTL, (V & 0xE0FFFFFB) | (2U << 24)); // trim value (T210, SDMMC1)
     V = MmioRead32 (SD_BASE + SD_SDMEMCMPPADCTL);
     MmioWrite32 (SD_BASE + SD_SDMEMCMPPADCTL, (V & ~0xFU) | 7);          // vref_sel = 7
     // Auto-cal offsets for 3.3 V on T210: pd = -3, pu = 0.
     V = MmioRead32 (SD_BASE + SD_AUTOCALCFG);
     MmioWrite32 (SD_BASE + SD_AUTOCALCFG, (V & 0xFFFF8080) | (0x7DU << 8));
+#endif
 
     // Pad auto calibration.
     ClkWasOn = (MmioRead16 (SD_BASE + 0x2C) & (1U << 2)) != 0;
@@ -315,7 +338,11 @@ SdVendorInit (
         // Calibration failed: load the suggested standard 3.3 V 50 ohm values.
         MmioAnd32 (SD_BASE + SD_AUTOCALCFG, ~(1U << 29));
         V = MmioRead32 (APB_MISC_SDMMC1_PADCTRL) & 0xF8080FFF;
+#ifdef SWITCH_LITE_SD
+        MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, V | (0x808U << 12));
+#else
         MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, V | (0xC0CU << 12));
+#endif
         SdLog (L"[SDDIAG] autocal TIMEOUT (fallback pad cfg)\r\n");
     }
     SdLog (L"[SDDIAG] autocal sts=%08x cfg=%08x padctl=%08x\r\n",
@@ -975,22 +1002,16 @@ SdControllerProbe
 	ZeroMem(&mPriv, sizeof(TEGRA_MMC_PRIV));
 	ZeroMem(&mConfig, sizeof(MMC_CONFIG));
 
-    // Set configuration
-    mConfig.voltages = MMC_VDD_32_33 | MMC_VDD_33_34 | MMC_VDD_165_195;
-    mConfig.host_caps = 0;
-	
-    // bus-width = <4>;
-    mConfig.host_caps |= MMC_MODE_4BIT;
+    mConfig.voltages = MMC_VDD_32_33 | MMC_VDD_33_34;
+    mConfig.host_caps = MMC_MODE_4BIT;
+    mConfig.f_min = 375000;
+#ifdef SWITCH_LITE_SD
+    mConfig.f_max = 25000000;
+#else
+    mConfig.voltages |= MMC_VDD_165_195;
     mConfig.host_caps |= MMC_MODE_HS_52MHz | MMC_MODE_HS;
-
-    /*
-	 * min freq is for card identification, and is the highest
-	 *  low-speed SDIO card frequency (actually 400KHz)
-	 * max freq is highest HS eMMC clock as per the SD/MMC spec
-	 *  (actually 52MHz)
-	 */
-	mConfig.f_min = 375000;
-	mConfig.f_max = 48000000;
+    mConfig.f_max = 48000000;
+#endif
 
 	mConfig.b_max = CONFIG_SYS_MMC_MAX_BLK_COUNT;
 
@@ -1043,6 +1064,13 @@ SdMmcDxeInitialize
     EFI_EVENT DiagEvent;
     UINTN Attempt;
     int ret;
+
+#ifdef SWITCH_LITE_SD
+    // APB_MISC_GP_HIDREV: chip 0x21, major revision 2 (T210B01).
+    if ((MmioRead32 (SD_APB_MISC_BASE + 0x804) & 0xFFF0) != 0x2120) {
+        return EFI_UNSUPPORTED;
+    }
+#endif
 
     // Print the collected [SDDIAG] lines just before the boot manager runs.
     gBS->CreateEventEx (

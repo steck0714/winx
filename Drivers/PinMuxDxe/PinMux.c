@@ -34,6 +34,7 @@ PinMuxDxeInitialize
     EFI_STATUS Status;
     EFI_HANDLE ProtoHandle = NULL;
 
+#ifndef SWITCH_LITE_SD
     pinmux_clear_tristate_input_clamping();
 
     gpio_config_table(nintendo_switch_gpio_inits,
@@ -44,11 +45,12 @@ PinMuxDxeInitialize
 
 	pinmux_config_drvgrp_table(nintendo_switch_drvgrps,
         ARRAY_SIZE(nintendo_switch_drvgrps));
+#endif
 
     Status = gBS->InstallMultipleProtocolInterfaces(
         &ProtoHandle,
         &gTegraPinMuxProtocolGuid,
-        mPinMuxProtocol,
+        &mPinMuxProtocol,
         NULL
     );
 
