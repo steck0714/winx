@@ -1378,6 +1378,12 @@ typedef struct _SDHC_EXTENSION {
     //
 
     BOOLEAN CrashdumpMode;
+    volatile LONG TargetFacts;
+    ULONG NextReadLba;
+    ULONG IssuedWriteLba;
+    USHORT IssuedWriteCount;
+    UCHAR IssuedWriteIndex;
+    BOOLEAN AppPrefixAccepted;
       
 } SDHC_EXTENSION, *PSDHC_EXTENSION;
 

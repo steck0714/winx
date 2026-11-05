@@ -6,7 +6,7 @@
 #include <Library/UefiBootManagerLib.h>
 #include <Protocol/SimpleFileSystem.h>
 
-#define LOADER_PATH L"\\EFI\\LiteNV\\bootmgfw.efi"
+#define LOADER_PATH L"\\EFI\\LiteWR\\bootmgfw.efi"
 #define MARKER_PATH L"\\switchroot\\woa-lite-winpe\\MEDIA.ID"
 
 STATIC VOID EFIAPI
@@ -78,9 +78,9 @@ BootPe (EFI_HANDLE Volume, EFI_FILE_PROTOCOL *Root)
   EFI_DEVICE_PATH_PROTOCOL *Path;
   EFI_BOOT_MANAGER_LOAD_OPTION Option;
 
-  Status = CheckFile (Root, L"\\EFI\\LiteNV\\BCD", "regf", 4, FALSE);
+  Status = CheckFile (Root, L"\\EFI\\LiteWR\\BCD", "regf", 4, FALSE);
   if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\boot\\boot.sdi", "$SDI0001", 8, FALSE);
-  if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\sources\\nvsd.wim", "MSWIM\0\0\0", 8, TRUE);
+  if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\sources\\nwrt.wim", "MSWIM\0\0\0", 8, TRUE);
   if (!EFI_ERROR (Status)) Status = CheckFile (Root, LOADER_PATH, "MZ", 2, FALSE);
   Root->Close (Root);
   if (EFI_ERROR (Status)) return Status;
@@ -88,7 +88,7 @@ BootPe (EFI_HANDLE Volume, EFI_FILE_PROTOCOL *Root)
   Path = FileDevicePath (Volume, LOADER_PATH);
   if (Path == NULL) return EFI_OUT_OF_RESOURCES;
   Status = EfiBootManagerInitializeLoadOption (&Option, LoadOptionNumberUnassigned,
-             LoadOptionTypeBoot, LOAD_OPTION_ACTIVE, L"Lite Tegra SD test", Path, NULL, 0);
+             LoadOptionTypeBoot, LOAD_OPTION_ACTIVE, L"Lite WINARM write test", Path, NULL, 0);
   FreePool (Path);
   if (EFI_ERROR (Status)) return Status;
 
@@ -122,7 +122,7 @@ PlatformBootManagerAfterConsole (VOID)
 
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"LITE / WINDOWS PE / TEGRA SD\r\n");
+  Print (L"LITE / WINDOWS PE / WINARM WRITE\r\n");
   EfiBootManagerConnectAll ();
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid,
                                     NULL, &Count, &Volumes);

@@ -28,6 +28,86 @@ Revision History:
 #include <ntddk.h>
 #include <sdport.h>
 #include "nvtsdhc.h"
+#include "winarm-target.h"
+
+enum { LiteSdxc = 1, LiteGpt = 2, LitePartition = 4, LiteNtfs = 8, LiteMbr = 16, LiteWriteFacts = LiteSdxc | LiteMbr | LiteNtfs };
+
+static VOID LiteForgetCard(PSDHC_EXTENSION slot)
+{
+    InterlockedExchange(&slot->TargetFacts, 0);
+    slot->NextReadLba = MAXULONG;
+    slot->AppPrefixAccepted = FALSE;
+    slot->IssuedWriteCount = 0;
+}
+
+static VOID LiteObserveRead(PSDHC_EXTENSION slot, PSDPORT_COMMAND cmd)
+{
+    ULONG lba = slot->NextReadLba;
+    if (lba == MAXULONG || cmd->BlockSize != 512) return;
+    slot->NextReadLba = lba + 1;
+    LONG bit;
+    BOOLEAN matches;
+    if (lba == 0) {
+        bit = LiteMbr;
+        matches = (BOOLEAN)LiteSelectWindowsPartition(cmd->DataBuffer);
+    } else if (lba == 1) {
+        bit = LiteGpt;
+        matches = (BOOLEAN)LiteIsHeader(cmd->DataBuffer);
+    } else if (lba == 4) {
+        bit = LitePartition;
+        matches = (BOOLEAN)LiteIsPartition(cmd->DataBuffer);
+    } else if (lba == WINARM_FIRST) {
+        bit = LiteNtfs;
+        matches = (BOOLEAN)LiteIsBootSector(cmd->DataBuffer);
+    } else {
+        return;
+    }
+    if (matches) InterlockedOr(&slot->TargetFacts, bit);
+    else InterlockedAnd(&slot->TargetFacts, ~bit);
+}
+
+static BOOLEAN LiteAllowRequest(PSDHC_EXTENSION slot, PSDPORT_REQUEST request)
+{
+    PSDPORT_COMMAND cmd = &request->Command;
+    // SDPORT sends CMD55 -> ACMD42(0) during four-bit bus setup. ACMD42
+    // changes the DAT3 pull-up. The separate standard CMD42 carries lock data.
+    if (cmd->Index == 42) {
+        return slot->AppPrefixAccepted && request->Type == SdRequestTypeCommandNoTransfer &&
+               cmd->Class == SdCommandClassApp && cmd->ResponseType == SdResponseTypeR1 &&
+               cmd->TransferType == SdTransferTypeNone && cmd->BlockCount == 0 &&
+               cmd->TransferDirection != SdTransferDirectionWrite && cmd->Argument <= 1;
+    }
+    if (cmd->Index == 24 || cmd->Index == 25) {
+        ULONG lba = cmd->Argument;
+        ULONG count = cmd->BlockCount;
+        if ((slot->TargetFacts & LiteWriteFacts) != LiteWriteFacts || slot->CrashdumpMode || slot->AppPrefixAccepted ||
+            cmd->Class == SdCommandClassApp || cmd->TransferDirection != SdTransferDirectionWrite ||
+            cmd->TransferMethod != SdTransferMethodPio || cmd->BlockSize != 512 ||
+            count == 0 || (cmd->Index == 24 && count != 1) ||
+            (cmd->Index == 24 && cmd->TransferType != SdTransferTypeSingleBlock) ||
+            (cmd->Index == 25 && cmd->TransferType != SdTransferTypeMultiBlock &&
+                                 cmd->TransferType != SdTransferTypeMultiBlockNoStop) ||
+            lba < WINARM_FIRST || lba >= WINARM_FIRST + WINARM_COUNT ||
+            count > WINARM_FIRST + WINARM_COUNT - lba) return FALSE;
+        if (request->Type == SdRequestTypeCommandWithTransfer) return TRUE;
+        return request->Type == SdRequestTypeStartTransfer && cmd->DataBuffer != NULL &&
+               cmd->Index == slot->IssuedWriteIndex && lba == slot->IssuedWriteLba &&
+               count <= slot->IssuedWriteCount;
+    }
+    if ((request->Type == SdRequestTypeCommandWithTransfer || request->Type == SdRequestTypeStartTransfer) &&
+        cmd->TransferDirection != SdTransferDirectionRead) return FALSE;
+    switch (cmd->Index) {
+    case 0: case 1: case 2: case 3: case 5: case 6: case 7: case 8: case 9: case 10:
+    case 11: case 12: case 13: case 15: case 16: case 17: case 18: case 19: case 22:
+    case 41: case 51: case 55:
+        return TRUE;
+    case 52: case 53:
+        return (cmd->Argument & 0x80000000u) == 0;
+    default:
+        return FALSE;
+    }
+}
+
 
 // The Microsoft sample this is based on keeps a few locals it only assigns.
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
@@ -94,6 +174,12 @@ typedef struct _NV_DIAG {
     ULONG ErrorInterrupts;
     ULONG CommandErrors;
     ULONG BlocksWritten;
+    ULONG App42Done;
+    ULONG DeniedCount;
+    ULONG LastDeniedCommand;
+    ULONG LastDeniedArgument;
+    ULONG DeniedShape;
+    LONG SnapshotFacts;
 
     // Register snapshots taken where the driver already touches the host. The
     // diag thread must not read the host itself: when the port powers it down,
@@ -245,8 +331,8 @@ NvDiagSaveWorker(
 {
     UNREFERENCED_PARAMETER(Context);
 
-    InterlockedExchange(&NvDiagSaveQueued, 0);
     NvDiagSaveClock(NvDiagSaveExtension);
+    InterlockedExchange(&NvDiagSaveQueued, 0);
 }
 
 static VOID
@@ -293,6 +379,12 @@ NvDiagSaveClock(
 
     Saves += 1;
     NvDiagSetValue(Key, L"Saves", Saves);
+    NvDiagSetValue(Key, L"App42Done", NvDiag.App42Done);
+    NvDiagSetValue(Key, L"DeniedCount", NvDiag.DeniedCount);
+    NvDiagSetValue(Key, L"LastDenied", NvDiag.LastDeniedCommand);
+    NvDiagSetValue(Key, L"DeniedArg", NvDiag.LastDeniedArgument);
+    NvDiagSetValue(Key, L"DeniedShape", NvDiag.DeniedShape);
+    NvDiagSetValue(Key, L"TargetFacts", (ULONG)SdhcExtension->TargetFacts);
     NvDiagSetValue(Key, L"LastCommand", NvDiag.LastCommand);
     NvDiagSetValue(Key, L"LastErrorCommand", NvDiag.LastErrorCommand);
     NvDiagSetValue(Key, L"BlocksRead", NvDiag.BlocksRead);
@@ -655,6 +747,7 @@ Return value:
     // Initialize the SDHC_EXTENSION register space.
     //
 
+    LiteForgetCard(SdhcExtension);
     SdhcExtension->PhysicalBaseAddress = PhysicalBase;
     SdhcExtension->BaseAddress = VirtualBase;
     SdhcExtension->BaseAddressSpaceSize = Length;
@@ -1067,10 +1160,10 @@ Return value:
 --*/
 
 {
-    // Windows can mount and read this development card. Declare it
-    // write protected and reject mutating commands at the host as well.
+    // SDPORT must see a writable slot to submit normal NTFS writes. The host
+    // checks disk identity and the complete LBA interval on every data-out.
     UNREFERENCED_PARAMETER(PrivateExtension);
-    return TRUE;
+    return FALSE;
 }
 
 BOOLEAN
@@ -1127,6 +1220,7 @@ Return value:
     //
 
     if (*Events & SDHC_IS_CARD_DETECT) {
+        LiteForgetCard(SdhcExtension);
         *CardChange = TRUE;
     }
 
@@ -1191,20 +1285,20 @@ Return value:
     PSDHC_EXTENSION SdhcExtension;
     NTSTATUS Status;
 
-    // Reject before queueing or touching any registers. CMD28, CMD29 and
-    // CMD38 can change the medium even without a data-out phase.
-    if ((Request->Type == SdRequestTypeCommandWithTransfer ||
-         Request->Type == SdRequestTypeStartTransfer) &&
-        Request->Command.TransferDirection != SdTransferDirectionRead) {
-        return STATUS_MEDIA_WRITE_PROTECTED;
-    }
-    switch (Request->Command.Index) {
-    case 24: case 25: case 26: case 27:
-    case 28: case 29: case 38:
-        return STATUS_MEDIA_WRITE_PROTECTED;
-    }
-
     SdhcExtension = (PSDHC_EXTENSION) PrivateExtension;
+    if (!LiteAllowRequest(SdhcExtension, Request)) {
+        NvDiag.DeniedCount += 1;
+        NvDiag.LastDeniedCommand = Request->Command.Index;
+        NvDiag.LastDeniedArgument = Request->Command.Argument;
+        NvDiag.DeniedShape = ((ULONG)Request->Type << 16) |
+                             ((ULONG)Request->Command.Class << 8) |
+                             (ULONG)Request->Command.TransferDirection;
+#if NV_DIAG_CLOCK
+        if (NvDiag.DeniedCount <= 4) NvDiagSaveClock(SdhcExtension);
+#endif
+        return STATUS_MEDIA_WRITE_PROTECTED;
+    }
+    if (Request->Command.Index == 0) LiteForgetCard(SdhcExtension);
 
     //
     // Insert the request onto the outstanding requests list.
@@ -1300,6 +1394,12 @@ Return value:
 
     SdhcExtension = (PSDHC_EXTENSION) PrivateExtension;
     Status = SdhcGetResponse(SdhcExtension, Command, ResponseBuffer);
+    if (NT_SUCCESS(Status) && Command->Index == 41 && Command->ResponseType == SdResponseTypeR3) {
+        if ((LiteU32((const unsigned char *)ResponseBuffer) & 0xc0000000u) == 0xc0000000u)
+            InterlockedOr(&SdhcExtension->TargetFacts, LiteSdxc);
+        else
+            InterlockedAnd(&SdhcExtension->TargetFacts, ~LiteSdxc);
+    }
     NT_ASSERT(NT_SUCCESS(Status));
 }
 
@@ -1339,8 +1439,6 @@ Return value:
     // Clear the request's required events if they have completed.
     //
 
-    Request->RequiredEvents &= ~Events;
-
     //
     // Find the index of the request in the outstanding request list.
     //
@@ -1362,6 +1460,20 @@ Return value:
     // handling request completion in a DPC for ISR.
     //
 
+    // A late DPC must not complete a recycled request or index past the slot array.
+    if (Index == SDHC_MAX_OUTSTANDING_REQUESTS) return;
+    Request->RequiredEvents &= ~Events;
+    if (Errors) {
+        SdhcExtension->AppPrefixAccepted = FALSE;
+    } else if (Request->Type == SdRequestTypeCommandNoTransfer &&
+               (Events & SDHC_IS_CMD_COMPLETE) != 0) {
+        if (Request->Command.Index == 55) {
+            const ULONG response = SdhcReadRegisterUlong(SdhcExtension, SDHC_RESPONSE);
+            SdhcExtension->AppPrefixAccepted = (BOOLEAN)((response & 0x20u) != 0);
+        } else if (Request->Command.Index == 42 && Request->Command.Class == SdCommandClassApp) {
+            NvDiag.App42Done++;
+        }
+    }
     if (Errors) {
         NvDiag.LastErrorCommand = Request->Command.Index;
         NvDiag.LastErrorKind = NvDiagErrorKind(Errors);
@@ -1394,6 +1506,15 @@ Return value:
         }
 #endif
     }
+
+#if NV_DIAG_CLOCK
+    if ((Errors && Request->Command.Index != 5) ||
+        (Request->Command.Index == 42 && NvDiag.App42Done == 1) ||
+        NvDiag.SnapshotFacts != SdhcExtension->TargetFacts) {
+        NvDiag.SnapshotFacts = SdhcExtension->TargetFacts;
+        NvDiagSaveClock(SdhcExtension);
+    }
+#endif
 
     if (Errors) {
         Request->RequiredEvents = 0;
@@ -1638,8 +1759,10 @@ Return value:
     UCHAR Retries;
     UCHAR Mask;
 
+    SdhcExtension->AppPrefixAccepted = FALSE;
     switch (ResetType) {
     case SdResetTypeAll:
+        LiteForgetCard(SdhcExtension);
         Mask = SDHC_RESET_ALL;
         break;
 
@@ -1863,6 +1986,7 @@ Return value:
         return STATUS_NOT_SUPPORTED;
 
     case SdBusVoltageOff:
+        LiteForgetCard(SdhcExtension);
         // The SDHCI power-enable bit must stay clear for an off request.
         // The common power-on sequence below requires a valid voltage.
         SdhcWriteRegisterUchar(SdhcExtension, SDHC_POWER_CONTROL, 0);
@@ -2949,6 +3073,19 @@ Return value:
     // Issue the actual command.
     //
 
+    // An accepted application prefix applies to one issued command only.
+    SdhcExtension->AppPrefixAccepted = FALSE;
+    if (Command->Index == 17 || Command->Index == 18) {
+        SdhcExtension->NextReadLba = Command->Argument;
+    } else {
+        SdhcExtension->NextReadLba = MAXULONG;
+    }
+    SdhcExtension->IssuedWriteCount = 0;
+    if (Command->Index == 24 || Command->Index == 25) {
+        SdhcExtension->IssuedWriteIndex = Command->Index;
+        SdhcExtension->IssuedWriteLba = Command->Argument;
+        SdhcExtension->IssuedWriteCount = Command->BlockCount;
+    }
     CommandReg |= CommandType;
     SdhcWriteRegisterUshort(SdhcExtension, SDHC_COMMAND, CommandReg);
 
@@ -3069,7 +3206,7 @@ Return value:
 
     //}
 
-    if (BlockCount > 1) {
+    if (BlockCount > 1 || Request->Command.Index == 25) {
         TransferMode |= SDHC_TM_MULTIBLOCK;
         TransferMode |= SDHC_TM_BLKCNT_ENABLE;
         TransferMode |= SDHC_TM_AUTO_CMD12_ENABLE;
@@ -3536,6 +3673,7 @@ Return value:
             SdhcReadDataPort(SdhcExtension,
                              Request->Command.DataBuffer,
                              Request->Command.BlockSize);
+            LiteObserveRead(SdhcExtension, &Request->Command);
 
             NvDiag.BlocksRead += 1;
 
@@ -3569,6 +3707,7 @@ Return value:
         SdhcReadDataPort(SdhcExtension,
                          Request->Command.DataBuffer,
                          Request->Command.BlockSize);
+        LiteObserveRead(SdhcExtension, &Request->Command);
 
         NvDiag.BlocksRead += 1;
 

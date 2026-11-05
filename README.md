@@ -1,15 +1,13 @@
 
 # WinX
 
-## Switch Lite HDH-001 · WinPE 实机版源码
+## Switch Lite HDH-001 · WINARM R3 实机源码
 
-这个分支是 Switch Lite 实机启动 ARM64 WinPE 22621.1 并读回 microSD 标记文件时使用的源码。六个测试补丁已经应用，可以直接打开代码。
+这台 Switch Lite 用 ARM64 WinPE 22621.1 在指定的 80 GiB NTFS 分区写入测试文件。关机后再次启动，读回收据 **1381004739**，显示 **COLD READ OK - WINARM PERSISTENCE PASS**。
 
-- [UEFI 启动入口](Library/PlatformBootManagerLib/LiteSdBoot.c) · [混合分区表读取处理](Library/PlatformBootManagerLib/WinPeGptView.c)
-- [UEFI 的 SDMMC1 驱动](Drivers/SdMmcDxe/SdMmc.c) · [Windows 的 nvtsdhc 驱动](WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c)
-- [构建步骤、WinPE 启动脚本和实机照片](docs/hdh001-lab/README.md)
-
-The upstream review branches contain the refactored firmware and miniport changes. [Firmware PR](https://github.com/steck0714/winx/pull/6) · [Driver PR](https://github.com/hayato41200/Windows-for-Switch-Drivers/pull/2)
+- [R3 构建说明、测试步骤和实机照片](docs/hdh001-winarm-r3/README.md)
+- [Windows SD 驱动](WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c) · [UEFI 分区校验](Library/PlatformBootManagerLib/WinPeGptView.c) · [UEFI 启动入口](Library/PlatformBootManagerLib/LiteSdBoot.c)
+- [从本地镜像生成专属配置和 WinPE 测试脚本](WindowsDrivers/drivers/Tegra210Sdhc/winarm/) · [此前的只读版本](https://github.com/ruje0504-2/winx/tree/e50754107c5db2a8a93ffdebc4da7fceb843c2c4)
 
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />
 
