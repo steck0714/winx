@@ -1,6 +1,16 @@
 
 # WinX
 
+## Switch Lite HDH-001 · WinPE 实机版源码
+
+这个分支是 Switch Lite 实机启动 ARM64 WinPE 22621.1 并读回 microSD 标记文件时使用的源码。六个测试补丁已经应用，可以直接打开代码。
+
+- [UEFI 启动入口](Library/PlatformBootManagerLib/LiteSdBoot.c) · [混合分区表读取处理](Library/PlatformBootManagerLib/WinPeGptView.c)
+- [UEFI 的 SDMMC1 驱动](Drivers/SdMmcDxe/SdMmc.c) · [Windows 的 nvtsdhc 驱动](WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c)
+- [构建步骤、WinPE 启动脚本和实机照片](docs/hdh001-lab/README.md)
+
+The upstream review branches contain the refactored firmware and miniport changes. [Firmware PR](https://github.com/steck0714/winx/pull/6) · [Driver PR](https://github.com/hayato41200/Windows-for-Switch-Drivers/pull/2)
+
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />
 
 UEFI firmware for NVIDIA Tegra210 (T210) platforms.

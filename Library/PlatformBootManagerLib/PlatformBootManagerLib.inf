@@ -33,6 +33,8 @@
 
 [Sources]
   PlatformBm.c
+  LiteSdBoot.c
+  WinPeGptView.c
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec
@@ -43,6 +45,7 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  CacheMaintenanceLib
   BootLogoLib
   CapsuleLib
   DebugLib
@@ -75,10 +78,13 @@
   gEfiFileSystemInfoGuid
   gEfiFileSystemVolumeLabelInfoIdGuid
   gEfiEndOfDxeEventGroupGuid
+  gEfiEventExitBootServicesGuid
   gEfiTtyTermGuid
   gUefiShellFileGuid
 
 [Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiPartitionInfoProtocolGuid
   gEfiDevicePathProtocolGuid
   gEfiGraphicsOutputProtocolGuid
   gEfiLoadedImageProtocolGuid

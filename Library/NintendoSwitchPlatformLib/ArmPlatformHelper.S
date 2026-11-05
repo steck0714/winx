@@ -19,6 +19,15 @@ ASM_FUNC(ArmPlatformPeiBootAction)
   // To ensure EL0 stack can be utilized by 
   // exception handler, set SPSel to 1
   msr  SPSel, #1
+  mov   x9, #0xf5a00000
+  mov   w10, #0xb7bd
+  movk  w10, #0xff19, lsl #16
+  mov   x11, #(720 * 16)
+1:
+  str   w10, [x9], #4
+  subs  x11, x11, #1
+  b.ne  1b
+  dsb   sy
   ret
 
 //UINTN

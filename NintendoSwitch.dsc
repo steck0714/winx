@@ -44,7 +44,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -427,6 +427,7 @@
   # gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterAccessWidth|8
 
 [Components.common]
+  NintendoSwitchPkg/LiteSdTest/LiteSdTest.inf
   # PEI/SEC
   ArmPlatformPkg/PrePi/PeiUniCore.inf
 

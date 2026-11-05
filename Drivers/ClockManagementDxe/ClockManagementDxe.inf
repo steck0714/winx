@@ -44,4 +44,4 @@
   gTegraPinMuxProtocolGuid
 
 [Depex]
-  gTegraPinMuxProtocolGuid
+  TRUE

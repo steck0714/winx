@@ -530,6 +530,9 @@ ImageNeedsNativeFramebuffer
             if (*P == L'\\' || *P == L'/') FileName = P + 1;
         }
 
+        // The SD diagnostic displays text using the current landscape GOP mode.
+        if (NameEqualsNoCase(FileName, L"SDTEST.EFI")) return FALSE;
+
         for (Index = 0; Index < ARRAY_SIZE(LoaderNames); Index++)
         {
             if (NameEqualsNoCase(FileName, LoaderNames[Index])) return TRUE;

@@ -95,6 +95,11 @@ READ_LOCK_STATUS   = TRUE
   INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
+  # Read-only exFAT filesystem driver from the upstream EfiFs v1.12 release.
+  FILE DRIVER = 33CB60C4-18E1-416C-9568-26F3585F34D0 {
+    SECTION PE32 = NintendoSwitchPkg/LiteSdTest/exfat_aa64.efi
+  }
+
   # Display
   INF NintendoSwitchPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
 
@@ -126,13 +131,10 @@ READ_LOCK_STATUS   = TRUE
   INF RuleOverride = ACPITABLE NintendoSwitchPkg/AcpiTables/AcpiTables.inf
 
   # Drivers
-  INF NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
-  INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
 !ifndef SWITCH_WOA
-  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !ifdef SWITCH_FAN_DUTY
   INF NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
 !endif
