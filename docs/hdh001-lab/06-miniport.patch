@@ -1,0 +1,425 @@
+--- a/WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c
++++ b/WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c
+@@ -38,31 +38,14 @@
+ // enabled until basic card enumeration and block I/O have been proven.
+ #define NV_T210_SAFE_BRINGUP 1
+ 
+-// Move all data with PIO, never DMA. On Windows 11 22621 the inbox sdbus could
+-// not read the boot volume with this non-coherent controller (_CCA = 0), and
+-// pretending it is coherent (_CCA = 1) hung the boot. PIO avoids DMA and cache
+-// maintenance entirely; it is slower but enough to boot.
+-#ifndef NV_T210_PIO_ONLY
+-#define NV_T210_PIO_ONLY 0
+-#endif
+-
+-// 0.3.0: PIO tops out near 5 MB/s (each 4-byte data port read costs ~0.8 us),
+-// so move data with ADMA2, 32-bit addressing only. The DMA adapter then bounces
+-// buffers above 4 GB into low memory, and 64-bit ADMA (which Tegra210 runs in
+-// host v4 mode under L4T) and its descriptor format are not used. Cache
+-// maintenance comes from _CCA = 0. Crashdump mode keeps PIO.
++// Lite deployment-media probe. Retain the SDMMC1 clock and pad setup
++// from the firmware that just read the WIM. Use PIO at default SD speed.
++#define NV_T210_PIO_ONLY 1
+ #define NV_T210_ADMA32 1
+-
+-// SDMMC1 input clock from the CAR: PLLP (408 MHz, source 0) divided by 8.5
+-// (7.1 divider field 15) = 48 MHz. High speed (50 MHz) then runs undivided
+-// at 48 MHz and identification divides by 120 to 400 kHz.
+-#ifndef NV_T210_FIXED_CAR_CLOCK
+-#define NV_T210_FIXED_CAR_CLOCK 1
+-#endif
+-#define NV_T210_CAR_BASE            0x60006000
+-#define NV_T210_CLK_SOURCE_SDMMC1   0x150
+-#define NV_T210_SDMMC1_CAR_SOURCE   ((0u << 29) | 15u)
+-#define NV_T210_SDMMC1_CAR_KHZ      48000
++#define NV_T210_CAR_BASE 0x60006000
++#define NV_T210_CLK_SOURCE_SDMMC1 0x150
++#define NV_T210_SDMMC1_BASE 0x700b0000
++#define NV_T210_PLLP_KHZ 408000u
+ 
+ // Boot diagnostics. Nothing (debugger, boot log, dump) survives a failed boot
+ // from the SD this driver serves, so if the slot has not read any data a few
+@@ -81,7 +64,7 @@
+ //         bit/index, 4 data timeout, 5 data CRC, 6 data end bit, 7 other,
+ //         8 the request could not be issued
+ #ifndef NV_DIAG_STOP
+-#define NV_DIAG_STOP 1
++#define NV_DIAG_STOP 0
+ #endif
+ #define NV_DIAG_DELAY_MS 2500
+ #define NV_DIAG_OK_BLOCKS 8
+@@ -310,6 +293,9 @@
+ 
+     Saves += 1;
+     NvDiagSetValue(Key, L"Saves", Saves);
++    NvDiagSetValue(Key, L"LastCommand", NvDiag.LastCommand);
++    NvDiagSetValue(Key, L"LastErrorCommand", NvDiag.LastErrorCommand);
++    NvDiagSetValue(Key, L"BlocksRead", NvDiag.BlocksRead);
+     NvDiagSetValue(Key, L"ClockKhzRequested", NvDiag.ClockKhzRequested);
+     NvDiagSetValue(Key, L"ClockKhzActual", NvDiag.ClockKhzActual);
+     NvDiagSetValue(Key, L"BaseClockKhz",
+@@ -406,6 +392,30 @@
+ // SlotExtension routines.
+ //-----------------------------------------------------------------------------
+ 
++// SDPORT only reads this table. Storing its callbacks in the image also
++// supplies real DIR64 relocations for the ARM64 kernel image loader.
++static SDPORT_INITIALIZATION_DATA LitePortCallbacks = {
++    .StructureSize = sizeof(SDPORT_INITIALIZATION_DATA),
++    .GetSlotCount = SdhcGetSlotCount,
++    .GetSlotCapabilities = SdhcGetSlotCapabilities,
++    .Initialize = SdhcSlotInitialize,
++    .IssueBusOperation = SdhcSlotIssueBusOperation,
++    .GetCardDetectState = SdhcSlotGetCardDetectState,
++    .GetWriteProtectState = SdhcSlotGetWriteProtectState,
++    .Interrupt = SdhcSlotInterrupt,
++    .IssueRequest = SdhcSlotIssueRequest,
++    .GetResponse = SdhcSlotGetResponse,
++    .ToggleEvents = SdhcSlotToggleEvents,
++    .ClearEvents = SdhcSlotClearEvents,
++    .RequestDpc = SdhcRequestDpc,
++    .SaveContext = SdhcSaveContext,
++    .RestoreContext = SdhcRestoreContext,
++    .PowerControlCallback = SdhcPoFxPowerControlCallback,
++    .Cleanup = SdhcCleanup,
++    .PrivateExtensionSize = sizeof(SDHC_EXTENSION),
++    .CrashdumpSupported = FALSE,
++};
++
+ NTSTATUS
+ DriverEntry(
+     _In_ PVOID DriverObject,
+@@ -432,7 +442,6 @@
+ 
+ {
+ 
+-    SDPORT_INITIALIZATION_DATA InitializationData;
+ 
+ #if NV_DIAG_STOP
+     if (DriverObject != NULL) {
+@@ -475,42 +484,7 @@
+     UNREFERENCED_PARAMETER(RegistryPath);
+ #endif
+ 
+-    RtlZeroMemory(&InitializationData, sizeof(InitializationData));
+-    InitializationData.StructureSize = sizeof(InitializationData);
+-
+-    //
+-    // Initialize the entry points/callbacks for the miniport interface.
+-    //
+-
+-    InitializationData.GetSlotCount = SdhcGetSlotCount;
+-    InitializationData.GetSlotCapabilities = SdhcGetSlotCapabilities;
+-    InitializationData.Initialize = SdhcSlotInitialize;
+-    InitializationData.IssueBusOperation = SdhcSlotIssueBusOperation;
+-    InitializationData.GetCardDetectState = SdhcSlotGetCardDetectState;
+-    InitializationData.GetWriteProtectState = SdhcSlotGetWriteProtectState;
+-    InitializationData.Interrupt = SdhcSlotInterrupt;
+-    InitializationData.IssueRequest = SdhcSlotIssueRequest;
+-    InitializationData.GetResponse = SdhcSlotGetResponse;
+-    InitializationData.ToggleEvents = SdhcSlotToggleEvents;
+-    InitializationData.ClearEvents = SdhcSlotClearEvents;
+-    InitializationData.RequestDpc = SdhcRequestDpc;
+-    InitializationData.SaveContext = SdhcSaveContext;
+-    InitializationData.RestoreContext = SdhcRestoreContext;
+-    InitializationData.PowerControlCallback = SdhcPoFxPowerControlCallback;
+-    InitializationData.Cleanup = SdhcCleanup;
+-
+-    //
+-    // Provide the number of slots and their size.
+-    //
+-
+-    InitializationData.PrivateExtensionSize = sizeof(SDHC_EXTENSION);
+-    InitializationData.CrashdumpSupported = TRUE;
+-
+-    //
+-    // Hook up the IRP dispatch routines.
+-    //
+-    
+-    return SdPortInitialize(DriverObject, RegistryPath, &InitializationData);
++    return SdPortInitialize(DriverObject, RegistryPath, &LitePortCallbacks);
+ }
+ 
+ NTSTATUS
+@@ -714,48 +688,24 @@
+     Capabilities->BaseClockFrequencyKhz =
+         CapabilitiesReg.BaseClockFrequency * 1000;
+ 
+-#if NV_T210_FIXED_CAR_CLOCK
+-    //
+-    // The controller reports 208 MHz, but its real input is the CAR
+-    // SDMMC1 clock, which the UEFI leaves at whatever card clock it used
+-    // last (tens of MHz). Dividing for 208 MHz then gave the card about a
+-    // sixth of the intended clock (2.6 MB/s). Set the CAR clock to a known
+-    // rate and divide from that. Not in crashdump mode: the normal load
+-    // already set it.
+-    //
+-
+-    BOOLEAN CarSet = (BOOLEAN) CrashdumpMode;
+-
+-    if (!CrashdumpMode) {
+-        PHYSICAL_ADDRESS Car;
+-        PULONG CarBase;
+-        USHORT ClockControl;
+-
+-        ClockControl = SdhcReadRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL);
+-        SdhcWriteRegisterUshort(SdhcExtension,
+-                                SDHC_CLOCK_CONTROL,
+-                                ClockControl & ~SDHC_CC_CLOCK_ENABLE);
+-
+-        Car.QuadPart = NV_T210_CAR_BASE;
+-        CarBase = (PULONG) MmMapIoSpaceEx(Car, PAGE_SIZE,
+-                                         PAGE_READWRITE | PAGE_NOCACHE);
+-        if (CarBase != NULL) {
+-            NvDiag.CarSdmmc1Before =
+-                READ_REGISTER_ULONG(&CarBase[NV_T210_CLK_SOURCE_SDMMC1 / 4]);
+-            WRITE_REGISTER_ULONG(&CarBase[NV_T210_CLK_SOURCE_SDMMC1 / 4],
+-                                 NV_T210_SDMMC1_CAR_SOURCE);
+-            KeStallExecutionProcessor(10);
+-            NvDiag.CarSdmmc1After =
+-                READ_REGISTER_ULONG(&CarBase[NV_T210_CLK_SOURCE_SDMMC1 / 4]);
+-            MmUnmapIoSpace(CarBase, PAGE_SIZE);
+-            CarSet = TRUE;
+-        }
+-    }
+-
+-    if (CarSet) {
+-        Capabilities->BaseClockFrequencyKhz = NV_T210_SDMMC1_CAR_KHZ;
+-    }
+-#endif
++    if (PhysicalBase.QuadPart == NV_T210_SDMMC1_BASE) {
++        PHYSICAL_ADDRESS carAddress;
++        PULONG car;
++        ULONG source;
++
++        carAddress.QuadPart = NV_T210_CAR_BASE;
++        car = (PULONG)MmMapIoSpaceEx(carAddress, PAGE_SIZE, PAGE_READONLY | PAGE_NOCACHE);
++        if (car == NULL)
++            return STATUS_INSUFFICIENT_RESOURCES;
++        source = READ_REGISTER_ULONG(&car[NV_T210_CLK_SOURCE_SDMMC1 / sizeof(ULONG)]);
++        MmUnmapIoSpace(car, PAGE_SIZE);
++        if ((source >> 29) != 0)
++            return STATUS_DEVICE_CONFIGURATION_ERROR;
++        NvDiag.CarSdmmc1Before = source;
++        NvDiag.CarSdmmc1After = source;
++        // The Lite firmware selects PLLP_OUT0 and Tegra's 7.1 divider.
++        Capabilities->BaseClockFrequencyKhz = 2u * NV_T210_PLLP_KHZ / ((source & 0xffu) + 2u);
++    }
+ 
+ #if NV_T210_ADMA32
+     CapabilitiesReg.SystemBus64Support = 0;
+@@ -794,13 +744,10 @@
+         Capabilities->Supported.Address64Bit = 1;
+     }
+ 
+-    if (CapabilitiesReg.Support8BitBus) {
+-        Capabilities->Supported.BusWidth8Bit = 1;
+-    }
+-
+-    if (CapabilitiesReg.HighSpeedSupport) {
+-        Capabilities->Supported.HighSpeed = 1;
+-    }
++    // SDMMC1 is a four-bit microSD slot. Keep the same default-speed
++    // timing as the Lite firmware. The port can request up to 25 MHz.
++    Capabilities->Supported.BusWidth8Bit = 0;
++    Capabilities->Supported.HighSpeed = 0;
+ 
+     if (Capabilities2Reg.SDR50Support) {
+         Capabilities->Supported.SDR50 = 1;
+@@ -862,14 +809,6 @@
+     Capabilities->Supported.AutoCmd12 = 1;
+     if (SpecVersion >= SDHC_SPEC_VERSION_3) {
+         Capabilities->Supported.AutoCmd23 = 1;
+-    }
+-
+-    if (CapabilitiesReg.Voltage18) {
+-        Capabilities->Supported.Voltage18V = 1;
+-    }
+-
+-    if (CapabilitiesReg.Voltage30) {
+-        Capabilities->Supported.Voltage30V = 1;
+     }
+ 
+     if (CapabilitiesReg.Voltage33) {
+@@ -1128,11 +1067,10 @@
+ --*/
+ 
+ {
+-    // Tegra210's SDHCI WRITE_PROTECT bit is not wired reliably.  Linux uses
+-    // the board GPIO when available and otherwise assumes write-enabled.
+-    // The Switch slot has no write-protect switch, so always report writable.
++    // Windows can mount and read this development card. Declare it
++    // write protected and reject mutating commands at the host as well.
+     UNREFERENCED_PARAMETER(PrivateExtension);
+-    return FALSE;
++    return TRUE;
+ }
+ 
+ BOOLEAN
+@@ -1252,6 +1190,19 @@
+     ULONG Index;
+     PSDHC_EXTENSION SdhcExtension;
+     NTSTATUS Status;
++
++    // Reject before queueing or touching any registers. CMD28, CMD29 and
++    // CMD38 can change the medium even without a data-out phase.
++    if ((Request->Type == SdRequestTypeCommandWithTransfer ||
++         Request->Type == SdRequestTypeStartTransfer) &&
++        Request->Command.TransferDirection != SdTransferDirectionRead) {
++        return STATUS_MEDIA_WRITE_PROTECTED;
++    }
++    switch (Request->Command.Index) {
++    case 24: case 25: case 26: case 27:
++    case 28: case 29: case 38:
++        return STATUS_MEDIA_WRITE_PROTECTED;
++    }
+ 
+     SdhcExtension = (PSDHC_EXTENSION) PrivateExtension;
+ 
+@@ -1908,16 +1859,16 @@
+         break;
+ 
+     case SdBusVoltage30:
+-        PowerControl = SDHC_PC_3_0V;
+-        break;
+-
+     case SdBusVoltage18:
+-        PowerControl = SDHC_PC_1_8V;
+-        break;
++        return STATUS_NOT_SUPPORTED;
+ 
+     case SdBusVoltageOff:
+-        PowerControl = 0;
+-        break;
++        // The SDHCI power-enable bit must stay clear for an off request.
++        // The common power-on sequence below requires a valid voltage.
++        SdhcWriteRegisterUchar(SdhcExtension, SDHC_POWER_CONTROL, 0);
++        SdPortWait(Delay);
++        return (SdhcReadRegisterUchar(SdhcExtension, SDHC_POWER_CONTROL) &
++                SDHC_PC_BUS_POWER) ? STATUS_DEVICE_POWER_FAILURE : STATUS_SUCCESS;
+ 
+     default:
+ 
+@@ -2216,89 +2167,17 @@
+ --*/
+ 
+ {
+-
+-    USHORT ClockControl;
+-    ULONG DatLines;
+-    USHORT HostControl2;
+-    USHORT Mask;
+-
+-    //
+-    // Disable the bus clock.
+-    //
+-
+-    ClockControl = SdhcReadRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL);
+-    ClockControl &= ~SDHC_CC_CLOCK_ENABLE;
+-    SdhcWriteRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL, ClockControl);
+-    SdPortWait(10000);
+-
+-    //
+-    // DAT[3:0] must be all zeroes.
+-    //
+-
+-    DatLines = 0;
+-    DatLines = 
+-        SDHC_PS_DAT_3_0 &
+-        SdhcReadRegisterUlong(SdhcExtension, SDHC_PRESENT_STATE);
+-
+-    if (DatLines != 0) {
+-        return STATUS_UNSUCCESSFUL;
+-    }
+-
+-    //
+-    // Set the signaling voltage.
+-    //
+-
+-    HostControl2 = SdhcReadRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2);
+-    Mask = SDHC_HC2_1_8V_SIGNALING;
+-    if (Enable) {
+-        HostControl2 |= Mask;
+-
+-    } else {
+-        HostControl2 &= ~Mask;
+-    }
+-
+-    SdhcWriteRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2, HostControl2);
+-    SdPortWait(5000);
+-    HostControl2 = SdhcReadRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2);
+-
+-    //
+-    // Make sure the signaling voltage latched.
+-    //
+-
+-    if (Enable) {
+-        if ((HostControl2 & Mask) == 0) {
+-            return STATUS_UNSUCCESSFUL;
+-        }
+-        
+-    } else {
+-        if ((HostControl2 & Mask) != 0) {
+-            return STATUS_UNSUCCESSFUL;
+-        }
+-    }
+-
+-    //
+-    // Reenable the bus clock.
+-    //
+-
+-    ClockControl = SdhcReadRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL);
+-    ClockControl |= SDHC_CC_CLOCK_ENABLE;
+-    SdhcWriteRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL, ClockControl);
+-    SdPortWait(10000);
+-
+-    //
+-    // DAT[3:0] must be all ones.
+-    //
+-
+-    DatLines = 0;
+-    DatLines =
+-        SDHC_PS_DAT_3_0 &
+-        SdhcReadRegisterUlong(SdhcExtension, SDHC_PRESENT_STATE);
+-
+-    if (DatLines != SDHC_PS_DAT_3_0) {
+-        return STATUS_UNSUCCESSFUL;
+-    }
+-
+-    return STATUS_SUCCESS;
++    // The card is initialized at 3.3 V and this miniport advertises only
++    // that voltage. SDPORT still requests 3.3 V at the end of card setup.
++    // DAT[3:0] are normally high then. The CMD11 low-line handshake only
++    // applies to a real 1.8 V transition; stopping the clock here would
++    // abort a valid card and leave the SD clock disabled.
++    if (Enable)
++        return STATUS_NOT_SUPPORTED;
++
++    USHORT control = SdhcReadRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2);
++    return (control & SDHC_HC2_1_8V_SIGNALING) ?
++        STATUS_DEVICE_CONFIGURATION_ERROR : STATUS_SUCCESS;
+ }
+ 
+ _IRQL_requires_max_(PASSIVE_LEVEL)
+--- a/WindowsDrivers/drivers/Tegra210Sdhc/nvtsdhc.inf
++++ b/WindowsDrivers/drivers/Tegra210Sdhc/nvtsdhc.inf
+@@ -3,7 +3,7 @@
+ Class=SDHost
+ ClassGuid={a0a588a4-c46f-4b37-b7ea-c82fe89870c6}
+ Provider=%ProviderName%
+-DriverVer=10/29/2026,0.3.2.0
++DriverVer=11/05/2026,0.3.2.1
+ CatalogFile=nvtsdhc.cat
+ PnpLockdown=1
+ 
+@@ -56,8 +56,8 @@
+ HKR,Parameters,SdAppCmdFlags,1,06,01,0D,01,16,01,17,01,33,01,12,01,19,01,1A,01,26,01,2B,01,2C,01,2D,01,2E,01,2F,01,30,01,31,01
+ 
+ [Strings]
+-ProviderName="Nintendo Switch Windows Project"
+-DeviceName="NVIDIA Tegra210 SDMMC1 Host Controller"
++ProviderName="Switch Lite WOA Test"
++DeviceName="Switch Lite SDMMC1 (PIO, read-only)"
+ ServiceName="Nintendo Switch Tegra210 SD Host Miniport"
+ SlotName="Nintendo Switch microSD slot %1!u!"
+ DiskName="Tegra210 SD Host Driver Disk"

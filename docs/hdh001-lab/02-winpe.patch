@@ -1,0 +1,222 @@
+diff --git a/Drivers/SdMmcDxe/SdMmc.c b/Drivers/SdMmcDxe/SdMmc.c
+index 69bac35..e670b00 100644
+--- a/Drivers/SdMmcDxe/SdMmc.c
++++ b/Drivers/SdMmcDxe/SdMmc.c
+@@ -111,9 +111,6 @@ SdDiagOnReadyToBoot (
+ )
+ {
+     SdLogControllerRegs ();
+-    if (gST->ConOut != NULL) {
+-        gST->ConOut->OutputString (gST->ConOut, mSdDiag);
+-    }
+     SdDiagPublish ();
+     gBS->CloseEvent (Event);
+ }
+diff --git a/Library/PlatformBootManagerLib/LiteSdBoot.c b/Library/PlatformBootManagerLib/LiteSdBoot.c
+index 174a413..5ed21ed 100644
+--- a/Library/PlatformBootManagerLib/LiteSdBoot.c
++++ b/Library/PlatformBootManagerLib/LiteSdBoot.c
+@@ -1,60 +1,149 @@
+ // SPDX-License-Identifier: BSD-2-Clause-Patent
+ #include "PlatformBm.h"
++#include <Guid/EventGroup.h>
++#include <Library/CacheMaintenanceLib.h>
+ #include <Library/UefiBootManagerLib.h>
+ #include <Protocol/SimpleFileSystem.h>
+ 
+-STATIC VOID
+-ShowSdLog (VOID)
++#define LOADER_PATH L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
++#define MARKER_PATH L"\\switchroot\\woa-lite-winpe\\MEDIA.ID"
++
++STATIC VOID EFIAPI
++MarkExitBootServices (EFI_EVENT Event, VOID *Context)
+ {
+-  EFI_GUID SdDriver = {0x5d69e400, 0xe850, 0x4a90, {0x8b,0x9b,0xe9,0x7a,0x8c,0x22,0x23,0x7d}};
+-  CHAR16 *Log;
+-  UINTN Size;
++  // Hekate's live 720 x 1280 framebuffer. The first 16 scanlines are the
++  // right edge in handheld orientation. Only RAM and CPU cache operations here.
++  volatile UINT32 *Fb = (volatile UINT32 *)(UINTN)0xf5a00000;
++  for (UINTN I = 0; I < 16 * 720; ++I) {
++    Fb[I] = 0xffffaa00;
++  }
++  WriteBackDataCacheRange ((VOID *)(UINTN)Fb, 16 * 720 * sizeof (*Fb));
++}
+ 
+-  if (!EFI_ERROR (GetVariable2 (L"SdDiag", &SdDriver, (VOID **)&Log, &Size))) {
+-    Print (L"%s", Log);
+-    FreePool (Log);
++STATIC EFI_STATUS
++CheckMarker (EFI_FILE_PROTOCOL *Root)
++{
++  STATIC CONST CHAR8 Expected[] = "SWITCH-LITE-WINPE-22621-R1\n";
++  CHAR8 Data[sizeof (Expected)];
++  UINTN Size = sizeof (Data);
++  EFI_FILE_PROTOCOL *File;
++  EFI_STATUS Status = Root->Open (Root, &File, MARKER_PATH, EFI_FILE_MODE_READ, 0);
++  if (EFI_ERROR (Status)) return Status;
++  Status = File->Read (File, &Size, Data);
++  File->Close (File);
++  if (EFI_ERROR (Status)) return Status;
++  if (Size != sizeof (Expected) - 1 || CompareMem (Data, Expected, Size) != 0)
++    return EFI_COMPROMISED_DATA;
++  return EFI_SUCCESS;
++}
++
++STATIC EFI_STATUS
++CheckFile (EFI_FILE_PROTOCOL *Root, CHAR16 *Name, CONST CHAR8 *Magic, UINTN MagicSize, BOOLEAN CheckTail)
++{
++  EFI_FILE_PROTOCOL *File;
++  UINT8 Buffer[512];
++  UINTN Size = MagicSize;
++  UINT64 Length = 0;
++  EFI_STATUS Status = Root->Open (Root, &File, Name, EFI_FILE_MODE_READ, 0);
++  if (!EFI_ERROR (Status)) {
++    Status = File->Read (File, &Size, Buffer);
++    if (!EFI_ERROR (Status) && (Size != MagicSize || CompareMem (Buffer, Magic, MagicSize) != 0))
++      Status = EFI_COMPROMISED_DATA;
++    if (!EFI_ERROR (Status)) Status = File->SetPosition (File, MAX_UINT64);
++    if (!EFI_ERROR (Status)) Status = File->GetPosition (File, &Length);
++    if (!EFI_ERROR (Status) && CheckTail) {
++      if (Length < sizeof (Buffer)) {
++        Status = EFI_BAD_BUFFER_SIZE;
++      } else {
++        Status = File->SetPosition (File, Length - sizeof (Buffer));
++        if (!EFI_ERROR (Status)) {
++          Size = sizeof (Buffer);
++          Status = File->Read (File, &Size, Buffer);
++          if (!EFI_ERROR (Status) && Size != sizeof (Buffer)) Status = EFI_END_OF_FILE;
++        }
++      }
++    }
++    File->Close (File);
+   }
++  Print (L"%s: %r (%Lu bytes)\r\n", Name, Status, Length);
++  return Status;
++}
++
++STATIC EFI_STATUS
++BootPe (EFI_HANDLE Volume, EFI_FILE_PROTOCOL *Root)
++{
++  EFI_STATUS Status;
++  EFI_EVENT ExitEvent;
++  EFI_DEVICE_PATH_PROTOCOL *Path;
++  EFI_BOOT_MANAGER_LOAD_OPTION Option;
++
++  Status = CheckFile (Root, L"\\EFI\\Microsoft\\Boot\\BCD", "regf", 4, FALSE);
++  if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\boot\\boot.sdi", "$SDI0001", 8, FALSE);
++  if (!EFI_ERROR (Status)) Status = CheckFile (Root, L"\\sources\\boot.wim", "MSWIM\0\0\0", 8, TRUE);
++  if (!EFI_ERROR (Status)) Status = CheckFile (Root, LOADER_PATH, "MZ", 2, FALSE);
++  Root->Close (Root);
++  if (EFI_ERROR (Status)) return Status;
++
++  Path = FileDevicePath (Volume, LOADER_PATH);
++  if (Path == NULL) return EFI_OUT_OF_RESOURCES;
++  Status = EfiBootManagerInitializeLoadOption (&Option, LoadOptionNumberUnassigned,
++             LoadOptionTypeBoot, LOAD_OPTION_ACTIVE, L"Windows PE ARM64", Path, NULL, 0);
++  FreePool (Path);
++  if (EFI_ERROR (Status)) return Status;
++
++  Status = gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, MarkExitBootServices,
++                               NULL, &gEfiEventExitBootServicesGuid, &ExitEvent);
++  if (!EFI_ERROR (Status)) {
++    Print (L"STARTING WINDOWS BOOT MANAGER\r\n");
++    gBS->Stall (1200000);
++    // EDK II supplies BootCurrent, ReadyToBoot and the standard image/device path.
++    EfiBootManagerBoot (&Option);
++    Status = Option.Status;
++    gBS->CloseEvent (ExitEvent);
++    Print (L"Boot Manager returned: %r\r\n", Status);
++  }
++  EfiBootManagerFreeLoadOption (&Option);
++  return Status;
+ }
+ 
+-// This diagnostic firmware boots only the application beside its BL33 on the SD card.
+ VOID EFIAPI
+ PlatformBootManagerAfterConsole (VOID)
+ {
+-  EFI_STATUS Status;
+   EFI_HANDLE *Volumes = NULL;
+-  EFI_HANDLE Child;
+-  EFI_DEVICE_PATH_PROTOCOL *Path;
+-  UINTN Index, Count = 0;
+-  BOOLEAN Started = FALSE;
++  UINTN Count = 0;
++  BOOLEAN Found = FALSE;
++  EFI_STATUS Status;
+ 
+   gBS->SetWatchdogTimer (0, 0, 0, NULL);
+   gST->ConOut->ClearScreen (gST->ConOut);
+-  Print (L"LITE UEFI / SD TEST 2\r\nConnecting SD volumes...\r\n");
++  Print (L"LITE / WINDOWS PE ARM64 / 22621\r\n");
+   EfiBootManagerConnectAll ();
+-  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
++  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid,
++                                    NULL, &Count, &Volumes);
+   Print (L"File systems: %u (%r)\r\n", (UINT32)Count, Status);
+   if (!EFI_ERROR (Status)) {
+-    for (Index = 0; Index < Count; ++Index) {
+-      Path = FileDevicePath (Volumes[Index], L"\\switchroot\\woa-lite-uefi\\SDTEST.EFI");
+-      if (Path == NULL) {
+-        Status = EFI_OUT_OF_RESOURCES;
+-        break;
+-      }
+-      Status = gBS->LoadImage (FALSE, gImageHandle, Path, NULL, 0, &Child);
+-      FreePool (Path);
+-      Print (L"FS %u / SDTEST.EFI: %r\r\n", (UINT32)Index, Status);
+-      if (!EFI_ERROR (Status)) {
+-        Started = TRUE;
+-        Status = gBS->StartImage (Child, NULL, NULL);
+-        Print (L"App returned: %r\r\n", Status);
+-        break;
++    for (UINTN Index = 0; Index < Count; ++Index) {
++      EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
++      EFI_FILE_PROTOCOL *Root;
++      Status = gBS->HandleProtocol (Volumes[Index], &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
++      if (EFI_ERROR (Status)) continue;
++      Status = Fs->OpenVolume (Fs, &Root);
++      if (EFI_ERROR (Status)) continue;
++      Status = CheckMarker (Root);
++      if (EFI_ERROR (Status)) {
++        Root->Close (Root);
++        if (Status != EFI_NOT_FOUND) Print (L"FS %u MEDIA.ID: %r\r\n", (UINT32)Index, Status);
++        continue;
+       }
++      Found = TRUE;
++      Print (L"Using SD volume %u\r\n", (UINT32)Index);
++      Status = BootPe (Volumes[Index], Root);
++      Print (L"PE launch ended: %r\r\n", Status);
++      break;
+     }
+     FreePool (Volumes);
+   }
+-  if (!Started || EFI_ERROR (Status)) ShowSdLog ();
++  if (!Found) Print (L"WinPE media marker not found.\r\n");
+   Print (L"Hold POWER 12s to turn off.\r\n");
+-  for (;;) {
+-    __asm__ volatile ("wfi");
+-  }
++  for (;;) { __asm__ volatile ("wfi"); }
+ }
+diff --git a/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf b/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+index 5a990da..1722653 100644
+--- a/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
++++ b/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+@@ -44,6 +44,7 @@
+ [LibraryClasses]
+   BaseLib
+   BaseMemoryLib
++  CacheMaintenanceLib
+   BootLogoLib
+   CapsuleLib
+   DebugLib
+@@ -76,6 +77,7 @@
+   gEfiFileSystemInfoGuid
+   gEfiFileSystemVolumeLabelInfoIdGuid
+   gEfiEndOfDxeEventGroupGuid
++  gEfiEventExitBootServicesGuid
+   gEfiTtyTermGuid
+   gUefiShellFileGuid
+ 
