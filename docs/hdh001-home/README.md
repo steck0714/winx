@@ -101,7 +101,7 @@ The correction is built and deployed. The next physical trace reached CPU 1996.8
 
 ## Display rollback
 
-The trimmed Pro installation showed `INACCESSIBLE_BOOT_DEVICE` (0x7B) after the Windows spinner with BasicDisplay and nvtsdhc 0.3.2.6. Its previous UEFI target exposed only WINARM, while the native SD driver exposed WINARM and FAT32. The BCD store, boot-start SD service and C: mapping matched the backup from before the two-volume update. The revised BasicDisplay firmware now uses the miniport's two-volume target. Its complete projected MBR matched the miniport byte for byte in a host test. Only BL33 was updated on the SD card. A desktop boot and FAT32 access in Windows await a board result.
+The earlier `INACCESSIBLE_BOOT_DEVICE` (0x7B) occurred when UEFI exposed only WINARM while nvtsdhc 0.3.2.6 exposed WINARM and FAT32. Replacing BL33 made UEFI present the same two volumes in the same order as the Windows driver. The next physical boot reached the desktop. The owner also confirmed FAT32 visibility, landscape and working Bluetooth on that boot.
 
 The WinX/Microsoft KMDOD experiment supplies software framebuffer blits and rotation, not GPU rendering acceleration. Its ARM64 VM rotation check passed, but the first Lite media boot went black at display-device restart. The owner subsequently chose to drop the extra CPU rotation work and cancelled the proposed physical PE trial.
 
@@ -130,8 +130,8 @@ connects and drains the timer and HCI requests before the interrupt disconnects.
 It counts ten seconds from successful child creation before clearing the boot
 marker. Windows PE 22621.2861 bound the signed 1.0.0.14 driver to an
 ACPI UART and ran its timer in safe mode. The guest vetoed device disable.
-Physical pairing and power transitions are pending. The physical blue-screen
-isolation test still uses 1.0.0.13.
+The owner confirmed working Bluetooth on the physical Lite with 1.0.0.13.
+Device pairing, radio range and power transitions still need specific measurements.
 
 For installation, add the signed `switchbt` directory beside `Install-LiteSystem.cmd` and supply the Switch-specific patch as `Firmware/BCM4356A3.hcd`. The optional installer copies it to `Windows/System32/drivers/SwitchWOA` before staging the driver. The standard five-package system/audio kit works without the Bluetooth directory. The firmware blob is not committed to this repository. The local test kit uses Switchroot's `CYW4356A3_001.004.009.0092.0095.bin`, unchanged apart from the filename; it is 38,950 bytes and contains 192 HCD command records. This is a Bluetooth patch, not a Wi-Fi driver.
 

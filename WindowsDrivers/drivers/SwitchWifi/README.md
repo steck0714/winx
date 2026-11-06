@@ -36,8 +36,10 @@ The ARM64 `switchwifi.sys` targets the opt-in WFI0 device. Windows PE
 ran its isolation method and registered its interrupt. The fixture supplies an
 interrupt and omits Tegra MMIO, so preparation stops at the memory check.
 The station implements NetAdapterCx packet queues, radio, scan/abort, open and
-WPA2-Personal association, and CCMP key operations. The physical Lite retains
-its BasicDisplay boot profile. Windows networking on that board awaits testing.
+WPA2-Personal association, and CCMP key operations. DISM staged 0.5.2.0 in the trimmed Pro image. Card readback matched the
+signed package, board firmware and calibration, and preparation EFI. The
+two-volume BasicDisplay firmware now exposes WFI0. Scanning and connecting
+from Windows on the Lite await a board result.
 Skipping networking during OOBE only affects first setup.
 
 ## Packet ownership contract

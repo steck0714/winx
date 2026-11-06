@@ -11,9 +11,11 @@ Windows association handler. A control-ring fixture exercises the corrected
 dispatch. The same Home firmware and external preparation EFI are used with
 this driver. Windows scanning, association and IP traffic still need a
 physical HDH-001 run. Version 0.5.2 also holds new TX across the EAPOL
-drain, firmware key write and authorization of the peer. Its local opt-in
-runtime uses the same two-volume SD target as the deployed BasicDisplay boot
-repair. The Wi-Fi runtime awaits a separate physical test.
+drain, firmware key write and authorization of the peer. The owner confirmed the trimmed Pro desktop booted with the repaired
+two-volume SD profile. DISM then staged 0.5.2.0 as `oem12.inf` on WINARM.
+Readback matched the signed package, board firmware, calibration and
+preparation EFI. The matching WFI0 firmware is installed for the first
+Windows scan and connection test.
 
 ## Verified source facts
 
@@ -154,7 +156,7 @@ BSSIDs and device calibration are not copied into this public record.
 The temporary `wifi_check=1` line has been removed from the returned card,
 restoring normal **Windows 11 Lite** launch. R6 was the firmware-only scan.
 The Windows driver has since gained station queues, association and CCMP
-keys. Its hardware activation is pending the BasicDisplay boot check.
+keys. The 0.5.2.0 driver is installed on the tested dual-volume profile.
 
 ## Build and focused checks
 
@@ -183,7 +185,7 @@ For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/
 3. Extend the implemented polled control/event transport with packet rings, interrupts and association/key commands. Linux cfg80211 and network callbacks need Windows equivalents; a Linux module cannot be used as a Windows SYS file.
 4. Add a Windows ARM64 Wi-Fi adapter interface with scan, authentication/association and packet transmit/receive. Validate DHCP, sustained traffic, disconnect/reconnect and Bluetooth coexistence.
 
-Board firmware and calibration are supplied privately. The physical Lite has exercised the pre-Windows scan. Its installed Windows profile is currently reserved for the separate BasicDisplay boot test.
+Board firmware and calibration are supplied privately. The physical Lite has exercised the pre-Windows scan. The next hardware result needed is a scan from the Windows Wi-Fi settings.
 
 The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. The driver publishes firmware capabilities, dispatches scans and implements packet queues. Version 0.2 adds directed association, CCMP keys and disconnect.
 
