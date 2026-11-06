@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: ISC */
 #include "requests.h"
+#include "scan.h"
 #include <TlvGeneratorParser.hpp>
 
 struct SWIFI_WDI {
@@ -7,6 +8,7 @@ struct SWIFI_WDI {
     SWIFI_WIN_CONTROL *Control;
     SWIFI_FIRMWARE_INFO *Info;
     TLV_CONTEXT Tlv;
+    SWIFI_SCAN *Scan;
     WDFWORKITEM Worker;
     KSPIN_LOCK Lock;
     LIST_ENTRY Pending;
@@ -33,7 +35,7 @@ static NTSTATUS CreateDirectDevice(WDFDEVICE Device, WIFIDIRECT_DEVICE_INIT *Ini
 
 NTSTATUS SwifiWdiCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control,
     SWIFI_FIRMWARE_INFO *Info, PFN_WIFI_DEVICE_CREATE_ADAPTER CreateAdapter,
-    SWIFI_WDI **Wdi)
+    VOID (*Recover)(PVOID, NTSTATUS), PVOID RecoveryContext, SWIFI_WDI **Wdi)
 {
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_WORKITEM_CONFIG WorkConfig;
@@ -60,6 +62,9 @@ NTSTATUS SwifiWdiCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control,
     if (!NT_SUCCESS(Status)) return Status;
     State->Tlv.PeerVersion = WifiDeviceGetOsWdiVersion(Device);
     if (State->Tlv.PeerVersion < WDI_VERSION_MIN_SUPPORTED) return STATUS_REVISION_MISMATCH;
+    Status = SwifiScanCreate(Device, Control, Info, State->Tlv.PeerVersion, Recover,
+        RecoveryContext, &State->Scan);
+    if (!NT_SUCCESS(Status)) return Status;
     *Wdi = State;
     return STATUS_SUCCESS;
 }
@@ -67,6 +72,7 @@ NTSTATUS SwifiWdiCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control,
 VOID SwifiWdiStart(SWIFI_WDI *Wdi)
 {
     KIRQL Irql;
+    SwifiScanStartSession(Wdi->Scan);
     KeAcquireSpinLock(&Wdi->Lock, &Irql);
     Wdi->Accepting = TRUE;
     KeReleaseSpinLock(&Wdi->Lock, Irql);
@@ -83,12 +89,25 @@ VOID SwifiWdiRequestStop(SWIFI_WDI *Wdi)
 
 VOID SwifiWdiQuiesce(SWIFI_WDI *Wdi)
 {
-    if (Wdi) WdfWorkItemFlush(Wdi->Worker);
+    if (Wdi) {
+        WdfWorkItemFlush(Wdi->Worker);
+        SwifiScanEndSession(Wdi->Scan);
+    }
+}
+
+VOID SwifiWdiStation(SWIFI_WDI *Wdi, WDI_PORT_ID Port, BOOLEAN Present)
+{
+    SwifiScanStation(Wdi->Scan, Port, Present);
+}
+
+BOOLEAN SwifiWdiFirmwareEvent(SWIFI_WDI *Wdi, const swifi_event_completion *Event)
+{
+    return Wdi && SwifiScanFirmwareEvent(Wdi->Scan, Event);
 }
 
 /* A successful M3 releases the WIFIREQUEST. The caller saves the input
  * header and preallocates M4 before reaching that ownership boundary. */
-static VOID Complete(WIFIREQUEST Request, NTSTATUS Status)
+VOID SwifiCompleteWdiRequest(WIFIREQUEST Request, NTSTATUS Status)
 {
     UINT Input, Output;
     WDI_MESSAGE_HEADER *Header = WifiRequestGetInOutBuffer(Request, &Input, &Output);
@@ -110,7 +129,7 @@ static VOID SendCommand(WDFDEVICE Device, WIFIREQUEST Request)
     KIRQL Irql;
     Node = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*Node), 'qFwS');
     if (!Node) {
-        Complete(Request, STATUS_INSUFFICIENT_RESOURCES);
+        SwifiCompleteWdiRequest(Request, STATUS_INSUFFICIENT_RESOURCES);
         return;
     }
     Node->Request = Request;
@@ -118,7 +137,7 @@ static VOID SendCommand(WDFDEVICE Device, WIFIREQUEST Request)
     if (!State->Accepting) {
         KeReleaseSpinLock(&State->Lock, Irql);
         ExFreePoolWithTag(Node, 'qFwS');
-        Complete(Request, STATUS_DEVICE_NOT_READY);
+        SwifiCompleteWdiRequest(Request, STATUS_DEVICE_NOT_READY);
         return;
     }
     InsertTailList(&State->Pending, &Node->Link);
@@ -129,12 +148,12 @@ static VOID SendCommand(WDFDEVICE Device, WIFIREQUEST Request)
     KeReleaseSpinLock(&State->Lock, Irql);
 }
 
-static NTSTATUS NewMessage(SWIFI_WDI *State, ULONG Length, WDFMEMORY *Memory,
+NTSTATUS SwifiAllocWdiMessage(WDFDEVICE Device, ULONG Length, WDFMEMORY *Memory,
     WDI_MESSAGE_HEADER **Buffer)
 {
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
-    Attributes.ParentObject = State->Device;
+    Attributes.ParentObject = Device;
     return WdfMemoryCreate(&Attributes, NonPagedPoolNx, 'mFwS', Length, Memory, (PVOID *)Buffer);
 }
 
@@ -152,7 +171,7 @@ static NTSTATUS RadioStatus(SWIFI_WDI *State, ULONG Disabled)
         sizeof(*Buffer), &State->Tlv, &Length, &Generated);
     if (NT_SUCCESS(Status)) {
         Status = Length >= sizeof(*Buffer) && Generated ?
-            NewMessage(State, Length, &Memory, &Buffer) : STATUS_DEVICE_PROTOCOL_ERROR;
+            SwifiAllocWdiMessage(State->Device, Length, &Memory, &Buffer) : STATUS_DEVICE_PROTOCOL_ERROR;
         if (NT_SUCCESS(Status)) {
             RtlCopyMemory(Buffer, Generated, Length);
             RtlZeroMemory(Buffer, sizeof(*Buffer));
@@ -173,7 +192,12 @@ static NTSTATUS SetSoftwareRadio(SWIFI_WDI *State, BOOLEAN Enabled)
      * high-half mask. Setting/clearing software disable leaves RFKILL and
      * Bluetooth alone. Read back actual hardware/software states. */
     ULONG Value = (1u << 16) | (Enabled ? 0u : 1u);
-    NTSTATUS Status = SwifiFirmwareCommand(State->Control, 0, 38, &Value, sizeof(Value), NULL, NULL);
+    NTSTATUS Status;
+    if (!Enabled) {
+        Status = SwifiScanCancelForRadio(State->Scan);
+        if (!NT_SUCCESS(Status)) return Status;
+    }
+    Status = SwifiFirmwareCommand(State->Control, 0, 38, &Value, sizeof(Value), NULL, NULL);
     if (!NT_SUCCESS(Status)) return Status;
     Value = 0;
     USHORT Returned;
@@ -197,15 +221,19 @@ static VOID Handle(SWIFI_WDI *State, WIFIREQUEST Request)
     NTSTATUS Status;
     BOOLEAN Enable;
     if (!Header || Input < sizeof(*Header) || Output < sizeof(*Header)) {
-        Complete(Request, STATUS_INVALID_PARAMETER);
+        SwifiCompleteWdiRequest(Request, STATUS_INVALID_PARAMETER);
+        return;
+    }
+    if (Id == WDI_TASK_SCAN || Id == WDI_ABORT_TASK) {
+        SwifiScanRequest(State->Scan, Request, Id == WDI_ABORT_TASK);
         return;
     }
     if (Id != WDI_TASK_SET_RADIO_STATE) {
-        Complete(Request, STATUS_NOT_SUPPORTED);
+        SwifiCompleteWdiRequest(Request, STATUS_NOT_SUPPORTED);
         return;
     }
     if (Header->PortId != WDI_PORT_ID_ADAPTER || !Header->TransactionId) {
-        Complete(Request, STATUS_INVALID_PARAMETER);
+        SwifiCompleteWdiRequest(Request, STATUS_INVALID_PARAMETER);
         return;
     }
     Status = (NTSTATUS)ParseWdiTaskSetRadioStateToIhv(Input - sizeof(*Header),
@@ -214,16 +242,16 @@ static VOID Handle(SWIFI_WDI *State, WIFIREQUEST Request)
     if (NT_SUCCESS(Status) && Parameters.SoftwareRadioState > 1) Status = STATUS_INVALID_PARAMETER;
     CleanupParsedWdiTaskSetRadioStateToIhv(&Parameters);
     if (!NT_SUCCESS(Status)) {
-        Complete(Request, Status);
+        SwifiCompleteWdiRequest(Request, Status);
         return;
     }
-    Status = NewMessage(State, sizeof(*Done), &Memory, &Done);
+    Status = SwifiAllocWdiMessage(State->Device, sizeof(*Done), &Memory, &Done);
     if (!NT_SUCCESS(Status)) {
-        Complete(Request, Status);
+        SwifiCompleteWdiRequest(Request, Status);
         return;
     }
     *Done = *Header;
-    Complete(Request, STATUS_SUCCESS);
+    SwifiCompleteWdiRequest(Request, STATUS_SUCCESS);
     Done->Status = (NDIS_STATUS)SetSoftwareRadio(State, Enable);
     /* WiFiCx takes the M1 command ID for an M4 completion. */
     WifiDeviceReceiveIndication(State->Device, Id, Memory);
@@ -249,7 +277,7 @@ static VOID CommandWorker(WDFWORKITEM Work)
         KeReleaseSpinLock(&State->Lock, Irql);
         SWIFI_WDI_COMMAND *Node = CONTAINING_RECORD(Link, SWIFI_WDI_COMMAND, Link);
         if (Online) Handle(State, Node->Request);
-        else Complete(Node->Request, STATUS_CANCELLED);
+        else SwifiCompleteWdiRequest(Node->Request, STATUS_CANCELLED);
         ExFreePoolWithTag(Node, 'qFwS');
     }
 }

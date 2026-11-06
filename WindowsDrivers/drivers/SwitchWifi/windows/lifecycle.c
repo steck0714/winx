@@ -50,7 +50,7 @@ static VOID RecoverControl(PVOID Context, NTSTATUS Reason)
 static VOID FirmwareEvent(PVOID Context, const swifi_event_completion *Event)
 {
     SWIFI_HARDWARE *H = Context;
-    H->Callbacks.Event(H->Context, Event);
+    if (!SwifiWdiFirmwareEvent(H->Wdi, Event)) H->Callbacks.Event(H->Context, Event);
 }
 
 NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
@@ -73,7 +73,8 @@ NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
     Status = WdfWorkItemCreate(&Config, &Attributes, &H->InitializeWork);
     if (!NT_SUCCESS(Status)) return Status;
     SwifiInitializeContext(H->InitializeWork)->Hardware = H;
-    Status = SwifiWdiCreate(Device, &H->Control, &H->FirmwareInfo, Callbacks->CreateAdapter, &H->Wdi);
+    Status = SwifiWdiCreate(Device, &H->Control, &H->FirmwareInfo, Callbacks->CreateAdapter,
+        Callbacks->ScheduleRecovery, H->Context, &H->Wdi);
     if (!NT_SUCCESS(Status)) SwifiHardwareDelete(H);
     return Status;
 }

@@ -33,9 +33,9 @@ periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
 These components are host-tested and compile to an ARM64 KMDF static library. There is
 currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-The shared device-creation helper initializes WiFiCx and the request worker handles the
-software radio task. DriverEntry, the station adapter, scanning/association, key
-management and NetAdapterCx packet queues still need integration and hardware acceptance. Do not add an empty network device or mark this driver as deployed.
+The shared device-creation helper initializes WiFiCx. The request worker handles
+software radio changes and station scans. DriverEntry, station creation, association,
+keys and NetAdapterCx packet queues still need integration and hardware acceptance. Do not add an empty network device or mark this driver as deployed.
 
 Skipping the network page during OOBE only allows first setup to continue offline;
 it does not create or disable the missing Wi-Fi driver.
@@ -275,7 +275,7 @@ with the WDK WiFiCx TLV library and the OS's negotiated WDI version. It saves
 the task header before completing M3, updates only the firmware's software
 radio-disable bit, queries the actual radio states and sends the radio status
 and task completion to Windows. Stop wakes pending firmware commands and joins
-this worker before clearing the radio state. The other WDI commands and the
+this worker before clearing the radio state. The scan and abort handlers are described below. Association, keys and the
 station packet queues still need binding.
 
 The static library includes the radio path and the allocation hooks used by
@@ -283,6 +283,33 @@ The static library includes the radio path and the allocation hooks used by
 [WiFiCx command handling](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),
 [WiFiCx radio task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-set-radio-state),
 [BCM4356 radio capabilities](https://www.infineon.com/part/CYW4356).
+
+## Windows station scans
+
+The station adapter supplies its WiFiCx port ID to `SwifiWdiStation` after
+initialization and removes it during teardown. The scan handler accepts
+`WDI_TASK_SCAN` and its matching `WDI_ABORT_TASK` on that port. It parses
+the WDK TLVs, prepares the BCM4356 escan command and completes M3 after the
+firmware accepts it. A passive lock orders M3 before early firmware events.
+The firmware path honors directed BSSIDs, up to ten SSIDs, channel lists,
+dwell times, scan repeat count and the host time limit. An active-only request
+filters restricted, passive and radar channels using the firmware’s per-channel
+information. Probe-request vendor IEs and the prior MPC setting are restored
+at the end of the task.
+
+UEFI and Windows share the escan v1 layout and v109 result decoder. Windows
+turns the BSS interval, capability and received information elements into a
+WDI management-frame body. The chipset’s v109 summary omits the AP timestamp,
+so the TSF field is zero. Live updates are batched at three records or 500 ms.
+An abort sends the brcmfmac scan-abort command and waits for a terminal event
+before reusing the scanner. A missing terminal requires device recovery because
+some terminal events lack a sync ID. D0 exit joins the scan timer and returns
+any accepted WDI task. Windows scan delivery on the board awaits the station
+adapter and real hardware testing.
+
+[Microsoft WDI frame-body example](https://github.com/microsoft/Windows-driver-samples/blob/main/network/wlan/WDI/PLATFORM/NDIS6/WDI_Common.c),
+[Windows scan task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-scan),
+[Switchroot escan](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c).
 
 ## Build and test
 

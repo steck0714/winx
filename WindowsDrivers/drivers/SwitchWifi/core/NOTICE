@@ -25,3 +25,6 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 The portable host implementation was adapted for the Windows port in 2026.
 It contains no Linux kernel calls, firmware binary, calibration data or keys.
+
+The escan v1 command and v109 BSS handling follow the same Switchroot brcmfmac
+cfg80211.c and brcmutil/d11.c sources, Copyright (c) 2010–2014 Broadcom Corporation.
