@@ -28,6 +28,7 @@
   CacheMaintenanceLib
   ArmLib
   I2cLib
+  ClockLib
   NonDiscoverableDeviceRegistrationLib
 
 [Protocols]

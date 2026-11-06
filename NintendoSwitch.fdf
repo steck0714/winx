@@ -133,6 +133,9 @@ READ_LOCK_STATUS   = TRUE
   # Drivers
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_AUDIO
+  INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteAudio.inf
+!endif
 !ifdef SWITCH_LITE_PERFORMANCE
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/t214/LitePerformanceDxe.inf
 !endif

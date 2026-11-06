@@ -31,6 +31,20 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE LITE_AUDIO_FLAGS       =
+!ifdef SWITCH_LITE_AUDIO
+  DEFINE LITE_AUDIO_FLAGS       = -DSWITCH_LITE_AUDIO=1
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_AUDIO requires the I2C1 fan profile"
+  !endif
+!endif
+  DEFINE LITE_DISPLAY_FLAGS     =
+!ifdef SWITCH_LITE_DISPLAY
+  DEFINE LITE_DISPLAY_FLAGS     = -DSWITCH_LITE_DISPLAY=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_DISPLAY requires the HDH-001 framebuffer/touch profile"
+  !endif
+!endif
   DEFINE LITE_SYSTEM_FLAGS      =
 !ifdef SWITCH_LITE_SYSTEM
   DEFINE LITE_SYSTEM_FLAGS      = -DSWITCH_LITE_SYSTEM=1
@@ -150,7 +164,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -550,6 +564,9 @@
   NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
   NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_AUDIO
+  NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteAudio.inf
+!endif
 !ifdef SWITCH_LITE_PERFORMANCE
   NintendoSwitchPkg/Drivers/ClockManagementDxe/t214/LitePerformanceDxe.inf
 !endif

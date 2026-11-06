@@ -127,8 +127,10 @@ static VOID SwCpuPrepare(WDFDEVICE Device)
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     LARGE_INTEGER Id;
     NTSTATUS Status;
+    // CPU M4/PLLX control is independent of the firmware's EMC result.
+    // Keep the voltage/readback and thermal checks even when RAM stays stock.
     if (Dev->CpuConfigured || Dev->Car == NULL || Dev->Config.CpuKhz != LITE_CPU_KHZ ||
-        Dev->Config.Status != LitePerfReady) return;
+        Dev->Config.Status == LitePerfDisabled || Dev->Config.Status == LitePerfBadConfig) return;
     if (Dev->Config.PmicAddress == 0x31 && Dev->ConnectionCount >= 2) Id = Dev->PmicIds[0];
     else if (Dev->Config.PmicAddress == 0x33 && Dev->ConnectionCount >= 3) Id = Dev->PmicIds[1];
     else { SwFanTrace(L"CpuLastError", STATUS_DEVICE_CONFIGURATION_ERROR); return; }

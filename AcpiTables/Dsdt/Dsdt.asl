@@ -428,6 +428,22 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 #endif
+#ifdef SWITCH_LITE_DISPLAY
+        // Display-only ownership of Hekate's existing POST framebuffer.
+        // The Windows miniport obtains the active address/stride through
+        // DxgkCbAcquirePostDisplayOwnership; no Tegra GPU engines are exposed.
+        Device (DISP)
+        {
+            Name (_HID, "WINX0001")
+            Name (_UID, Zero)
+            Name (_CLS, Package () { 0x03, Zero, Zero })
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0xF5A00000, 0x01000000)
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+#endif
 #if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_TOUCH)
         // ---- Windows-for-Switch (hayato41200) SWOA devices -------------------------------
         // ACPI\SWOA0101..0801: GPIO, I2C, battery/USB-C, fan/backlight, touch, power
@@ -651,13 +667,16 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         }
 
 #endif
-#ifdef SWITCH_ACPI_SWOA_ENABLE
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_AUDIO)
         // R402: audio for switchaudio.sys (ACPI\SWOA0C01). AHUB (ADMAIF, XBAR,
         // I2S1 at 0x702D1000), ADMA, and the ALC5639 codec on I2C1. UEFI turns
         // on the APE clocks, sets up the codec and starts I2S1.
         Device (AUD0)
         {
             Name (_HID, "SWOA0C01")
+#ifdef SWITCH_LITE_AUDIO
+            Name (_DEP, Package () { \_SB.I2C1 })
+#endif
             Name (_UID, Zero)
             Name (_CRS, ResourceTemplate ()
             {
@@ -672,6 +691,8 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#ifdef SWITCH_ACPI_SWOA_ENABLE
         // R375: CPU clock control for switchcpu.sys (ACPI\SWOA0701). CAR window
         // (PLLX, CCLK burst policy), MAX77621 VDD_CPU on I2C5, TMP451 on I2C1
         // (shared with the fan driver) for the thermal guard.

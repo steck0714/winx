@@ -201,7 +201,9 @@ VOID SwFanEvtTimer(WDFTIMER Timer)
         ULONG Temp = (Remote > Local) ? Remote : Local;
         Dev->Failures = 0;
         ULONG Duty = SwFanDutyForTemp(Temp, Dev->Duty);
-        if (Dev->CpuConfigured && Duty < 51) Duty = 51;
+        // Keep cooling enabled for a requested Lite overclock even if EMC or
+        // CPU preparation failed; diagnostics must not silently stop the fan.
+        if (Dev->IsLite && Dev->Config.CpuKhz == LITE_CPU_KHZ && Duty < 51) Duty = 51;
         SwFanSetDuty(Dev, Duty);
         SwCpuTemperature(Dev, Temp, TRUE);
         SwFanTrace(L"TempSoC", Remote);
@@ -367,6 +369,7 @@ NTSTATUS SwFanEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIS
     SwFanTrace(L"PmicAddress", Dev->Config.PmicAddress);
     SwFanTrace(L"CoreMv", Dev->Config.CoreMv);
     SwFanTrace(L"BpmpError", Dev->Config.BpmpError);
+    SwFanTrace(L"BpmpChannel", Dev->Config.BpmpChannel);
     SwFanTrace(L"CsrAtStart", READ_REGISTER_ULONG((PULONG)(Dev->Pwm + Dev->FanOffset)));
     return STATUS_SUCCESS;
 }
@@ -539,7 +542,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&SwFanParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, SwFanParamsPath);
     }
-    SwFanTrace(L"DriverVersion", 3);
+    SwFanTrace(L"DriverVersion", 4);
     WDF_DRIVER_CONFIG_INIT(&Config, SwFanEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);
 }

@@ -13,7 +13,8 @@
 #define ENV_ADDRESS 0xA9FC0000UL
 #define ENV_SIZE    0x40000U
 #define SEMAPHORE   0x60001000UL
-#define ATOMICS    0x70016C00UL
+#define ATOMICS_TRIGGER 0x70016000UL
+#define ATOMICS_RESULT0 0x70016C00UL
 #define BPMP_IRQ   0x60004018UL
 #define MRQ_CLK    22U
 #define MRQ_EMC_DVFS_TABLE 32U
@@ -117,10 +118,20 @@ LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
   if ((Config->CpuKhz != 0 && Config->CpuKhz != LITE_CPU_KHZ) ||
       (Config->RamKhz != 1600000 && Config->RamKhz != LITE_RAM_KHZ)) goto Done;
   Config->Status = LitePerfNoBpmp;
-  if (!WaitChannel (2)) goto Done;
-  MmioWrite32 (ATOMICS, 4); // ATOMIC_CMD_GET for channel 0
-  mChannel = MmioRead32 (ATOMICS);
-  if (mChannel < 0x40000000 || mChannel > 0x4003FF80 || (mChannel & 3) != 0) goto Done;
+  if (!WaitChannel (2)) { mLastBpmp = -110; goto Done; }
+  // TRIGGER0 accepts commands; RESULT0 is read-only command output.
+  // Match Switchroot mail_t210.c rather than writing the result register.
+  MmioWrite32 (ATOMICS_TRIGGER, 4); // ATOMIC_CMD_GET for channel 0
+  mChannel = MmioRead32 (ATOMICS_RESULT0);
+  Config->BpmpChannel = (UINT32)mChannel;
+  // Hekate's Mariko BPMP runs in the non-secure-accessible SECFW carveout.
+  // Its channel buffers can be in DRAM, unlike the older IRAM-only path.
+  if ((mChannel & 3) != 0 ||
+      !((mChannel >= 0x40000000 && mChannel <= 0x4003FF80) ||
+        (mChannel >= 0xFFE00000 && mChannel <= 0xFFEFFF80))) {
+    mLastBpmp = -22;
+    goto Done;
+  }
 
   Config->Status = LitePerfNoEmc;
   Request = 14U << 24; // CLK_GET_ALL_INFO, ID 0

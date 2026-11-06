@@ -62,7 +62,10 @@ int main(void){
  ULONG regs[64]={0};car=regs;regs[0x20/4]=0x20008888;
  regs[0xe0/4]=(1u<<30)|(1u<<27)|(2u<<20)|(156u<<8)|2u;
  SWFAN_DEVICE d={0};d.Car=(UCHAR*)regs;d.Config.CpuKhz=LITE_CPU_KHZ;
- d.Config.Status=LitePerfReady;d.Config.PmicAddress=0x33;d.ConnectionCount=3;
+ d.Config.Status=LitePerfBadConfig;d.Config.PmicAddress=0x33;d.ConnectionCount=3;
+ SwCpuPrepare(&d);assert(!d.CpuConfigured);
+ /* Regression: the physical Lite reported NoBpmp while CPU remained 998.4 MHz. */
+ d.Config.Status=LitePerfNoBpmp;
  SwCpuPrepare(&d);assert(d.CpuConfigured && d.BootCpuKhz==998400);
  count=0;SwCpuTemperature(&d,40,TRUE);
  assert(d.CpuApplied && voltage==174 && SwCpuKhz(&d)==1996800 && events[0]=='V');
@@ -73,5 +76,5 @@ int main(void){
  SwCpuTemperature(&d,0,FALSE);assert(!d.CpuApplied && voltage==110);
  count=0;bad_read=true;SwCpuTemperature(&d,30,TRUE);
  assert(!d.CpuApplied && SwCpuKhz(&d)==998400 && count==1 && events[0]=='V');
- puts("PASS: 1996.8 MHz, M4-only writes, voltage ordering, thermal hysteresis and sensor/readback failure");
+ puts("PASS: CPU independent of EMC failure; M4-only writes, voltage ordering, thermal hysteresis and readback failure");
 }

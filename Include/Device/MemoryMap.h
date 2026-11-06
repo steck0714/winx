@@ -77,12 +77,13 @@ typedef struct {
  *                              the display keeps scanning one of them after hand-off, so this
  *                              range must never be handed out as free memory.
  *   0x0F6A00000 - 0x0FE000000  free
- *   0x0FE000000 - 0x100000000  NOT MAPPED. hekate's L4T security carveouts live here: with the
+ *   0x0FE000000 - 0x100000000  Normally NOT MAPPED. hekate's L4T security carveouts live here: with the
  *                              default config (CARVEOUT_NVDEC_TSEC_ENABLE=0) GPU WPR 0xFFC00000,
  *                              GPU FW 0xFFD00000, SECFW 0xFFE00000, TZDRAM 0xFFF00000; with
  *                              CARVEOUT_NVDEC_TSEC_ENABLE=1 they reach down to 0xFE600000.
  *                              The 0xFE000000 cut covers both with margin. Non-secure access
- *                              to a memory-controller carveout faults, so stay clear.
+ *                              to protected carveouts faults. SWITCH_LITE_PERFORMANCE maps only
+ *                              the CPU-accessible BPMP carveout at 0xFFE00000 for its mailbox.
  *   0x100000000 - 0x170000000  free (bank 1, unchanged from the coreboot map)
  */
 static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] =
@@ -184,6 +185,19 @@ static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] =
 		AddMem,
 		EfiConventionalMemory
 	},
+#ifdef SWITCH_LITE_PERFORMANCE
+	{
+		// Hekate Mariko BPMP firmware and mailboxes. CPU non-secure access
+		// is allowed by GSC1; keep it reserved and uncached, outside OS RAM.
+		0xffe00000,
+		0x00100000,
+		EFI_RESOURCE_MEMORY_RESERVED,
+		EFI_RESOURCE_ATTRIBUTE_UNCACHEABLE,
+		ARM_MEMORY_REGION_ATTRIBUTE_DEVICE,
+		AddMem,
+		EfiReservedMemoryType
+	},
+#endif
 	{
 		// HLOS memory 4 (bank 1)
 		0x100000000,

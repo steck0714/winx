@@ -4,6 +4,8 @@ This branch integrates the tested Switch Lite SD path, an NTFS desktop boot path
 
 On 2026-11-05, one HDH-001 booted Simplified Chinese Windows 11 ARM64 Home 23H2 (22631.2861) from an 80 GiB NTFS WINARM volume. The owner could tap the Windows Setup error dialog. Setup phase 4 and windeploy subsequently completed successfully. The planned reboot before OOBE left the screen dark; manual startup subsequently reached the OOBE network-selection page. Desktop acceptance is pending.
 
+The latest offline SYSTEM hive records OOBEInProgress=0, SystemSetupInProgress=0, and SetupType=0. The media update preserves that completed state. Its combined firmware, six signed driver packages, and landscape helper have been deployed to the existing installation; the next Lite boot is the hardware acceptance step.
+
 ## Firmware build
 
 Use the EDK2 and devkitA64 build environment from the [WinPE source recipe](../hdh001-lab/README.md). This branch builds a desktop firmware using the same per-card identity header as the Windows SD miniport.
@@ -40,7 +42,7 @@ Build [touch-check.c](../../LiteTouch/touch-check.c) with [build-check.sh](../..
 
 A subsequent log showed that Setup tried to resume an installation whose saved MainQueueOnline was absent. The recovery now archives the Panther setup record and clears Setup/WorkingDirectory so the next boot can build a new first-boot queue.
 
-These last state changes are specific to this interrupted installation. Logs in `Windows/Panther` and `Windows/Panther/UnattendGC` determine whether a retry is appropriate. The next physical run completed phase 4 with return code 0, and windeploy also returned 0 after requesting a reboot before OOBE. SYSTEM now records GeneralizationState 7 and ChildCompletion/setup.exe 3. Preserve this successful state. The remaining black screen is being investigated at the reboot boundary; see [the reset candidate](power-performance.md). Manual startup reached OOBE network selection. Offline continuation and the desktop touch check remain pending.
+These last state changes are specific to this interrupted installation. Logs in `Windows/Panther` and `Windows/Panther/UnattendGC` determine whether a retry is appropriate. The next physical run completed phase 4 with return code 0, and windeploy also returned 0 after requesting a reboot before OOBE. SYSTEM then recorded GeneralizationState 7 and ChildCompletion/setup.exe 3. Preserve this successful state. The black screen was at the reboot boundary; see [the reset candidate](power-performance.md). Manual startup reached OOBE network selection, and the later saved hive cleared the setup flags as recorded above. The desktop touch check remains pending.
 
 ## Power-button development
 
@@ -54,7 +56,7 @@ The combined Lite build adds `-D SWITCH_LITE_POWER=1 -D SWITCH_LITE_FAN=1 -D SWI
 
 `cpu_oc=1996800` requests 1996.8 MHz CPU. `ram_oc=2100000` prepares the 2100 MHz memory timing in Hekate and requests it through BPMP in firmware. Setting `cpu_oc=0` and `ram_oc=1600000` restores the normal boot profile on the next launch. Fan control is automatic; GPU overclocking is not implemented.
 
-The firmware preserves the Hekate environment, identifies the MAX77812 variant, checks the trained EMC table and existing VDD_CORE supply, changes the EMC rate through BPMP and records the result in reserved memory. The shared `WindowsDrivers/drivers/SwitchFan` driver consumes this handoff. Its T214 CPU helper uses MAX77812 M4 at 1120 mV and PLLX for the requested 1996.8 MHz. It restores the boot frequency at 80 C or after repeated sensor failures, resumes below 70 C and keeps at least 51/236 fan duty while CPU overclocking is configured.
+The firmware preserves the Hekate environment, identifies the MAX77812 variant, checks the trained EMC table and existing VDD_CORE supply, changes the EMC rate through BPMP and records the result in reserved memory. The shared `WindowsDrivers/drivers/SwitchFan` driver consumes this handoff. Its T214 CPU helper uses MAX77812 M4 at 1120 mV and PLLX for the requested 1996.8 MHz. It restores the boot frequency at 80 C or after repeated sensor failures and resumes below 70 C. A valid CPU overclock request keeps at least 51/236 fan duty even if clock preparation fails. CPU preparation is independent of the EMC result; voltage readback and temperature checks still apply.
 
 Shared GPIO, I2C and fan sources remain in their upstream directories. The model-specific clock helper is `WindowsDrivers/drivers/SwitchFan/src/t214/`; firmware-specific handoff and reset code live under the corresponding ClockManagementDxe/PmicDxe `t214` directories. The existing Erista backlight behavior remains in the shared fan driver; the Lite resource maps only PWM1 and does not accept backlight control.
 
@@ -78,8 +80,38 @@ RTC uses the upstream Windows-only offset. After a manual time change or a succe
 
 The volume keys reuse the upstream ACPI button mapping. Hekate configures PX6/PX7 as inputs; the Lite GPIO driver already exposes the corresponding bank interrupt. No separate volume-button binary is needed. Working volume-button input does not imply audio playback support.
 
-`LiteTouch/build-drivers.sh` now also builds the battery and RTC packages; the battery link requires the ARM64 WDK `battc.lib` in WDK_EXTRA_LIB. Keep the shared sources under `WindowsDrivers/drivers/SwitchBattery` and `SwitchRtc`. Place signed INF/SYS/catalog files in the matching subdirectories beside [Install-LiteSystem.cmd](Install-LiteSystem.cmd). Use `Install-LiteSystem.cmd offline W:\` from ARM64 maintenance WinPE, or `Install-LiteSystem.cmd online` from an elevated prompt in the existing Home installation. GPIO and I²C must already be installed. Replace W: with WINARM's actual drive letter. The script stages fan, power-button, battery, and RTC drivers without changing Windows setup state.
+`LiteTouch/build-drivers.sh` now also builds the battery and RTC packages; the battery link requires the ARM64 WDK `battc.lib` in WDK_EXTRA_LIB. Keep the shared sources under `WindowsDrivers/drivers/SwitchBattery` and `SwitchRtc`. Place signed INF/SYS/catalog files in the matching subdirectories beside [Install-LiteSystem.cmd](Install-LiteSystem.cmd). Use `Install-LiteSystem.cmd offline W:\` from ARM64 maintenance WinPE, or `Install-LiteSystem.cmd online` from an elevated prompt in the existing Home installation. GPIO and I²C must already be installed. Replace W: with WINARM's actual drive letter. The current script stages fan, power-button, battery, RTC, display, and audio drivers and registers LiteLandscape when included, without changing Windows setup state.
 
 The Hekate entry remains **Lite Windows 11 Home**. Firmware and ARM64/KMDF builds pass. Signed SYS/catalog verification and PnPUtil staging of both packages passed in ARM64 WinPE 22621.1. Battery readings, RTC persistence, and physical volume-key input still await testing on this Lite.
 
 Board references: [Switchroot Lite power tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [Lite button pinmux](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-pinmux.dtsi), and [Hekate button inputs](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/soc/hw_init.c).
+
+## Performance R1 hardware finding and correction
+
+The first physical run recorded `CpuActualKhz=998400`, `HandoffStatus=3`, `RamActualKhz=0`, 292 temperature polls, 34 C SoC / 33 C board temperature, and fan duty zero. The temperature driver was running; the EMC handoff had failed, and the old `CpuConfigured` condition also disabled the requested fan floor. Zero RAM readback means unknown, not a measured zero clock.
+
+The firmware now sends ATOMICS GET to trigger register 0x70016000 and reads result register 0x70016C00, following Switchroot `mail_t210.c`. It accepts and maps Hekate's CPU-accessible Mariko BPMP DRAM carveout at 0xFFE00000, in addition to the IRAM channel range. The previous code wrote to the result register and accepted only IRAM. `BpmpChannel` and an explicit initialization error now travel in the handoff. Shared SwitchFan 1.0.0.4 keeps the requested minimum fan duty and permits CPU setup independently of an EMC failure. The host CPU-helper regression covers that observed failure state.
+
+The correction is built and deployed; 1996.8 MHz CPU, 2100 MHz RAM, and physical fan response still require confirmation on the Lite.
+
+## Display rotation and default landscape
+
+Add `-D SWITCH_LITE_DISPLAY=1`. The firmware exposes ACPI WINX0001 over the existing Hekate framebuffer reservation. Build the existing [WinX display-only sources](../../winx-display/winx-display/README.md) with `winx-display/build-arm64.sh` and use the `winxdisplay-lite.inf` profile as `winxdisplay.inf` in its signed package. This is Microsoft's KMDOD software-blit path with the upstream rotation changes; it provides no GPU rendering acceleration.
+
+Build `LiteLandscape.exe` with `winx-display/build-landscape.sh`. The combined package installs it under `ProgramData\SwitchLite` and registers it for sign-in. On its first successful run for each user, it requests 1280x720 with `DMDO_90` and saves the setting through the Windows display API. It records success under `HKCU\Software\SwitchLite\Display`; later runs preserve the user's choice. The boot loader still uses the panel's native framebuffer.
+
+The touch driver retains its native portrait HID coordinates. Windows applies the display rotation to input; the KMDOD rotation maps landscape (x,y) to panel (y,1279-x), matching the existing Hekate/touch transform. Actual orientation and touch alignment remain hardware acceptance items.
+
+## Speaker and headphone audio
+
+Add `-D SWITCH_LITE_AUDIO=1` with the Lite fan/I2C1 profile. `Drivers/UsbPowerAuditDxe/LiteAudio.inf` builds an audio-only entry from the existing upstream source. It prepares the APE power domain and clocks, initializes I2C1 explicitly, and calls the shared R403 codec/I2S/headphone setup. It does not invoke the Erista USB or CPU bring-up entry.
+
+The Lite wiring matches Switchroot: RT5639 at I2C1 address 0x1C, codec LDO enable PZ4, I2S1/DAP1, and active-low headphone detection PV6. The Lite power tree supplies the speaker amplifier from the battery and codec rails from SD3; the port retains those board supplies. The shared Windows `switchaudio` 1.0.0.7 uses PortCls/WaveRT, ADMA channel 0, ADMAIF1, and 48 kHz / 16-bit stereo. Speakers and headphones share one Windows endpoint; the driver switches the codec output after jack changes. Microphone capture is not implemented by this upstream driver.
+
+Build with `WindowsDrivers/drivers/SwitchAudio/build-arm64.sh`, using ARM64 WDK `portcls.lib` and `libcntpr.lib`. Sign the final package and inject `switchaudio.inf` alongside the display and fan packages. Firmware and driver builds pass; actual playback, jack switching, and audio quality remain unverified on HDH-001.
+
+References: [Switchroot common audio wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Lite supplies](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [upstream R403 firmware](https://github.com/hayato41200/Windows-for-Switch/blob/main/Drivers/UsbPowerAuditDxe/UsbPowerAudit.c), and [Switchroot BPMP transport](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/linux-5.1.2/drivers/firmware/tegra/mail_t210.c).
+
+The display miniport subsequently reported Started in ARM64 WinPE; rotation from 800x600 to 600x800 and restoration both succeeded. This is VM integration evidence, not a Lite hardware result.
+
+The offline deployment matched complete INF/CAT/SYS sets in DriverStore for all six packages. Newly exposed display and audio devices are installed by Plug and Play on the next boot; their absence from System32/drivers before that boot is not a DISM failure. [Microsoft offline driver servicing](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/add-and-remove-drivers-to-an-offline-windows-image)

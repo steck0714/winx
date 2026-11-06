@@ -14,6 +14,6 @@ enum {
 typedef struct {
   unsigned int Magic, Version, CpuKhz, RamKhz;
   unsigned int RamActualKhz, Status, PmicAddress, CoreMv;
-  unsigned int BpmpError, BootPllx, BootPolicy, Reserved;
+  unsigned int BpmpError, BootPllx, BootPolicy, BpmpChannel;
 } LITE_PERFORMANCE;
 #endif

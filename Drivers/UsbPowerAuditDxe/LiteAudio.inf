@@ -1,0 +1,51 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = LiteAudioDxe
+  FILE_GUID                      = b7c7f5f1-0e30-4d34-a5c1-2ccf21df9b82
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = LiteAudioInitialize
+
+[Sources.common]
+  UsbPowerAudit.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  DxeServicesTableLib
+  DxeServicesLib
+  UefiLib
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  PrintLib
+  CacheMaintenanceLib
+  ArmLib
+  I2cLib
+  ClockLib
+  NonDiscoverableDeviceRegistrationLib
+
+[Protocols]
+  gPmicProtocolGuid
+  gEfiSimpleTextOutProtocolGuid
+  gEdkiiNonDiscoverableDeviceProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiPciIoProtocolGuid
+  gEfiDriverBindingProtocolGuid
+  gEfiComponentName2ProtocolGuid
+  gEfiUsb2HcProtocolGuid
+  gEfiUsbIoProtocolGuid
+  gEfiBlockIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiAcpi20TableGuid
+
+[Depex]
+  gPmicProtocolGuid AND gEfiSimpleTextOutProtocolGuid
