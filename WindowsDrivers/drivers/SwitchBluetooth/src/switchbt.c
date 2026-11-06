@@ -108,6 +108,10 @@
  *     entry: after -Mode Retry the driver starts right away, also when
  *     Windows "shut down" with fast startup (a hibernate: the driver is not
  *     loaded again, so the old decision used to stay).
+ *
+ * 1.0.0.14: poll for Retry and dispatch HCI traffic only while UART-D's
+ * interrupt is connected. Drain the timer before D0 exit. Count the boot
+ * guard from successful child creation, including a child added on retry.
  */
 #include <ntddk.h>
 #include <ntstrsafe.h>
@@ -221,6 +225,9 @@ typedef struct _SWBT_DEVICE {
     WDFINTERRUPT Interrupt;
     BOOLEAN ChipOk;
     BOOLEAN SafeMode;               /* the last boot did not finish: stay idle */
+    BOOLEAN D0Active;               /* protected by Lock; interrupt connected */
+    BOOLEAN BootGuardPending;
+    ULONG HealthyChildTicks;
     BOOLEAN HighSpeedNow;           /* the chip and the UART run at 3 Mbaud */
     ULONG ChildTick;                /* timer tick at which the child is added */
     UCHAR BdAddr[6];                /* little endian, as HCI */
@@ -301,6 +308,8 @@ EVT_WDF_DRIVER_DEVICE_ADD SwBtEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE SwBtEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE SwBtEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY SwBtEvtD0Entry;
+EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED SwBtEvtD0Ready;
+EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED SwBtEvtD0Stopping;
 EVT_WDF_DEVICE_D0_EXIT SwBtEvtD0Exit;
 EVT_WDF_INTERRUPT_ISR SwBtEvtIsr;
 EVT_WDF_INTERRUPT_DPC SwBtEvtDpc;
@@ -334,11 +343,12 @@ static VOID SwBtFlush(VOID)
     }
 }
 
-static VOID SwBtTrace(PCWSTR Name, ULONG Value)
+static NTSTATUS SwBtTrace(PCWSTR Name, ULONG Value)
 {
     if (SwBtParamsPath[0] != L'\0' && KeGetCurrentIrql() == PASSIVE_LEVEL) {
-        (VOID)RtlWriteRegistryValue(RTL_REGISTRY_ABSOLUTE, SwBtParamsPath, Name, REG_DWORD, &Value, sizeof(Value));
+        return RtlWriteRegistryValue(RTL_REGISTRY_ABSOLUTE, SwBtParamsPath, Name, REG_DWORD, &Value, sizeof(Value));
     }
+    return STATUS_INVALID_DEVICE_STATE;
 }
 
 static VOID SwBtTraceString(PCWSTR Name, PCWSTR Value)
@@ -818,7 +828,7 @@ NTSTATUS SwBtEvtInterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE AssociatedDevi
     UNREFERENCED_PARAMETER(Interrupt);
     Dev->RxHead = Dev->RxTail = 0;
     Dev->TxBusy = Dev->TxDone = FALSE;
-    Dev->Ier = Dev->SafeMode ? 0 : UART_IER_RX;
+    Dev->Ier = Dev->SafeMode || !Dev->ChipOk ? 0 : UART_IER_RX;
     SwBtWrite(Dev, UART_IER, Dev->Ier);
     return STATUS_SUCCESS;
 }
@@ -1041,6 +1051,10 @@ VOID SwBtEvtDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject)
     for (;;) {
         ULONG Count = 0, Index;
         WdfSpinLockAcquire(Dev->Lock);
+        if (!Dev->D0Active) {
+            WdfSpinLockRelease(Dev->Lock);
+            break;
+        }
         WdfInterruptAcquireLock(Interrupt);
         while (Count < sizeof(Chunk) && Dev->RxTail != Dev->RxHead) {
             Chunk[Count++] = Dev->RxRing[Dev->RxTail & (RX_RING_SIZE - 1)];
@@ -1115,12 +1129,13 @@ VOID SwBtEvtIoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLength
 
     case IOCTL_BTHX_WRITE_HCI:
         InterlockedIncrement(&Dev->WriteRequests);
-        if (!Dev->ChipOk) {
+        Done.Count = 0;
+        WdfSpinLockAcquire(Dev->Lock);
+        if (!Dev->D0Active || !Dev->ChipOk) {
+            WdfSpinLockRelease(Dev->Lock);
             WdfRequestComplete(Request, STATUS_DEVICE_NOT_READY);
             return;
         }
-        Done.Count = 0;
-        WdfSpinLockAcquire(Dev->Lock);
         Status = WdfRequestForwardToIoQueue(Request, Dev->TxQueue);
         if (NT_SUCCESS(Status)) {
             SwBtStartTx(Dev, &Done);
@@ -1146,6 +1161,11 @@ VOID SwBtEvtIoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLength
         InterlockedIncrement(Type == HciPacketEvent ? &Dev->ReadEventRequests : &Dev->ReadAclRequests);
         Done.Count = 0;
         WdfSpinLockAcquire(Dev->Lock);
+        if (!Dev->D0Active || !Dev->ChipOk) {
+            WdfSpinLockRelease(Dev->Lock);
+            WdfRequestComplete(Request, STATUS_DEVICE_NOT_READY);
+            return;
+        }
         Status = WdfRequestForwardToIoQueue(Request, Type == HciPacketEvent ? Dev->EventQueue : Dev->AclQueue);
         if (NT_SUCCESS(Status)) {
             if (Type == HciPacketEvent) {
@@ -1170,12 +1190,19 @@ VOID SwBtEvtIoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLength
     WdfRequestComplete(Request, STATUS_INVALID_PARAMETER);
 }
 
-/* Diagnostics: every 2 s for the first minute, then every 10 s. */
+/* Diagnostics and retry run every 2 s until the child has settled. */
 VOID SwBtEvtTimer(WDFTIMER Timer)
 {
     PSWBT_DEVICE Dev = SwBtGetDevice((WDFDEVICE)WdfTimerGetParentObject(Timer));
     WCHAR Text[160];
     ULONG Index, Next;
+
+    WdfSpinLockAcquire(Dev->Lock);
+    if (!Dev->D0Active) {
+        WdfSpinLockRelease(Dev->Lock);
+        return;
+    }
+    WdfSpinLockRelease(Dev->Lock);
 
     SwBtTrace(L"IsrCalls", (ULONG)Dev->IsrCalls);
     SwBtTrace(L"IirSeen", Dev->IirSeen);
@@ -1236,12 +1263,13 @@ VOID SwBtEvtTimer(WDFTIMER Timer)
         WdfInterruptAcquireLock(Dev->Interrupt);
         Dev->RxHead = Dev->RxTail = 0;
         Dev->TxBusy = Dev->TxDone = FALSE;
-        Dev->Ier = UART_IER_RX;
+        Dev->Ier = Dev->ChipOk ? UART_IER_RX : 0;
         SwBtWrite(Dev, UART_IER, Dev->Ier);
         WdfInterruptReleaseLock(Dev->Interrupt);
     }
-    if (!Dev->SafeMode && Dev->ChildAdded && Dev->Ticks == Dev->ChildTick + 5) {
-        SwBtTrace(L"BootPending", 0);           /* 10 s after the child: this boot is fine */
+    if (Dev->BootGuardPending && Dev->ChipOk && Dev->ChildAdded &&
+        ++Dev->HealthyChildTicks >= 5 && NT_SUCCESS(SwBtTrace(L"BootPending", 0))) {
+        Dev->BootGuardPending = FALSE;
         SwBtFlush();
     }
     if (!Dev->SafeMode && Dev->Ticks >= Dev->ChildTick && !Dev->ChildAdded && Dev->ChipOk) {
@@ -1255,11 +1283,15 @@ VOID SwBtEvtTimer(WDFTIMER Timer)
         SwBtTrace(L"Stage", 6);
     }
     {
-        BOOLEAN Settled = !Dev->SafeMode && Dev->ChildAdded && Dev->Ticks > Dev->ChildTick + 5;
+        BOOLEAN Settled = Dev->ChipOk && Dev->ChildAdded && !Dev->BootGuardPending;
         if (!Settled && !Dev->SafeMode) {
-            SwBtFlush();                        /* only while a hang is still possible */
+            SwBtFlush();
         }
-        WdfTimerStart(Timer, WDF_REL_TIMEOUT_IN_SEC(Settled ? 10 : 2));
+        WdfSpinLockAcquire(Dev->Lock);
+        if (Dev->D0Active) {
+            WdfTimerStart(Timer, WDF_REL_TIMEOUT_IN_SEC(Settled ? 10 : 2));
+        }
+        WdfSpinLockRelease(Dev->Lock);
     }
 }
 
@@ -1390,6 +1422,7 @@ static BOOLEAN SwBtSafeModeCleared(PSWBT_DEVICE Dev)
     Dev->SafeMode = FALSE;
     SwBtTrace(L"SafeMode", 0);
     SwBtTrace(L"SafeModeLeftByRetry", 1);
+    Dev->BootGuardPending = TRUE;
     SwBtTrace(L"BootPending", 1);
     SwBtStage(1);
     return TRUE;
@@ -1398,13 +1431,16 @@ static BOOLEAN SwBtSafeModeCleared(PSWBT_DEVICE Dev)
 /* Probes the chip (polling, the UART interrupt off) and schedules the child. */
 static VOID SwBtStart(PSWBT_DEVICE Dev)
 {
+    BOOLEAN ChipOk;
     SwBtStage(4);
-    Dev->ChipOk = SwBtProbe(Dev);
-    Dev->RxGot = 0;
+    ChipOk = SwBtProbe(Dev);
     WdfSpinLockAcquire(Dev->Lock);
+    Dev->ChipOk = ChipOk;
+    Dev->RxGot = 0;
     SwBtFreeKept(Dev);
     WdfSpinLockRelease(Dev->Lock);
-    SwBtTrace(L"ChipOk", Dev->ChipOk);
+    SwBtTrace(L"ChipOk", ChipOk);
+    Dev->HealthyChildTicks = 0;
     Dev->ChildTick = Dev->Ticks + CHILD_DELAY_TICKS;
     SwBtStage(5);
 }
@@ -1419,6 +1455,46 @@ NTSTATUS SwBtEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
         return STATUS_SUCCESS;
     }
     SwBtStart(Dev);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS SwBtEvtD0Ready(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
+{
+    PSWBT_DEVICE Dev = SwBtGetDevice(Device);
+    UNREFERENCED_PARAMETER(PreviousState);
+
+    WdfSpinLockAcquire(Dev->Lock);
+    Dev->D0Active = TRUE;
+    WdfTimerStart(Dev->Timer, WDF_REL_TIMEOUT_IN_SEC(2));
+    WdfSpinLockRelease(Dev->Lock);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS SwBtEvtD0Stopping(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
+{
+    PSWBT_DEVICE Dev = SwBtGetDevice(Device);
+    WDFQUEUE Queues[] = { Dev->TxQueue, Dev->EventQueue, Dev->AclQueue };
+    WDFREQUEST Request;
+    ULONG Index;
+    UNREFERENCED_PARAMETER(TargetState);
+
+    WdfSpinLockAcquire(Dev->Lock);
+    Dev->D0Active = FALSE;
+    Request = Dev->TxRequest;
+    Dev->TxRequest = NULL;
+    WdfSpinLockRelease(Dev->Lock);
+    WdfTimerStop(Dev->Timer, TRUE);
+
+    /* The HCI queues are intentionally not power managed. Close this D0
+       session's requests after releasing Lock, before disconnecting UART-D. */
+    if (Request != NULL) {
+        WdfRequestComplete(Request, STATUS_DEVICE_NOT_READY);
+    }
+    for (Index = 0; Index < RTL_NUMBER_OF(Queues); ++Index) {
+        while (NT_SUCCESS(WdfIoQueueRetrieveNextRequest(Queues[Index], &Request))) {
+            WdfRequestComplete(Request, STATUS_DEVICE_NOT_READY);
+        }
+    }
     return STATUS_SUCCESS;
 }
 
@@ -1511,6 +1587,8 @@ NTSTATUS SwBtEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Pnp.EvtDevicePrepareHardware = SwBtEvtPrepareHardware;
     Pnp.EvtDeviceReleaseHardware = SwBtEvtReleaseHardware;
     Pnp.EvtDeviceD0Entry = SwBtEvtD0Entry;
+    Pnp.EvtDeviceD0EntryPostInterruptsEnabled = SwBtEvtD0Ready;
+    Pnp.EvtDeviceD0ExitPreInterruptsDisabled = SwBtEvtD0Stopping;
     Pnp.EvtDeviceD0Exit = SwBtEvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &Pnp);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWBT_DEVICE);
@@ -1540,6 +1618,7 @@ NTSTATUS SwBtEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     if (Dev->SafeMode) {
         SwBtFlush();                            /* idle until -Mode Retry clears BootPending */
     } else {
+        Dev->BootGuardPending = TRUE;
         SwBtTrace(L"BootPending", 1);
         SwBtStage(1);
     }
@@ -1574,7 +1653,6 @@ NTSTATUS SwBtEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
-        WdfTimerStart(Dev->Timer, WDF_REL_TIMEOUT_IN_SEC(2));
     }
     SwBtStage(2);                           /* the child comes from the timer */
     return STATUS_SUCCESS;
@@ -1589,7 +1667,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&SwBtParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, SwBtParamsPath);
     }
-    SwBtTrace(L"DriverVersion", 13);
+    SwBtTrace(L"DriverVersion", 14);
     WDF_DRIVER_CONFIG_INIT(&Config, SwBtEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);
 }

@@ -118,7 +118,15 @@ References: [Switchroot common audio wiring](https://github.com/CTCaer/switch-l4
 
 Add `-D SWITCH_LITE_BLUETOOTH=1` to the combined Home profile; it requires the Lite I2C5 power profile. `Drivers/UsbPowerAuditDxe/LiteBluetooth.inf` reuses the existing Bluetooth setup through a dedicated entry. It initializes I2C5, the PMIC GPIO4 32 kHz output, UART-D pins/clock, PH4 reset, and PH3 wake. It then checks HCI at 115200 before Windows takes ownership. The firmware exposes BTH0 (`ACPI\SWOA0B01`), UART-D at 0x70006300 and GSI 122.
 
-The existing `WindowsDrivers/drivers/SwitchBluetooth` source is unchanged from upstream 1.0.0.13. The Lite driver build includes it. It loads the Broadcom patch, switches UART-D to 3 Mbaud, and attaches its radio child to Windows BthMini. The upstream delayed child creation and failed-boot recovery remain intact. Wait for the radio child to enumerate before checking Bluetooth Settings.
+The card has switchbt 1.0.0.13. The shared driver loads the Broadcom patch,
+switches UART-D to 3 Mbaud, and attaches its radio child to Windows BthMini.
+The separate 1.0.0.14 build starts its retry timer after the UART interrupt
+connects and drains the timer and HCI requests before the interrupt disconnects.
+It counts ten seconds from successful child creation before clearing the boot
+marker. Windows PE 22621.2861 bound the signed 1.0.0.14 driver to an
+ACPI UART and ran its timer in safe mode. The guest vetoed device disable.
+Physical pairing and power transitions are pending. The physical blue-screen
+isolation test still uses 1.0.0.13.
 
 For installation, add the signed `switchbt` directory beside `Install-LiteSystem.cmd` and supply the Switch-specific patch as `Firmware/BCM4356A3.hcd`. The optional installer copies it to `Windows/System32/drivers/SwitchWOA` before staging the driver. The standard five-package system/audio kit works without the Bluetooth directory. The firmware blob is not committed to this repository. The local test kit uses Switchroot's `CYW4356A3_001.004.009.0092.0095.bin`, unchanged apart from the filename; it is 38,950 bytes and contains 192 HCD command records. This is a Bluetooth patch, not a Wi-Fi driver.
 
