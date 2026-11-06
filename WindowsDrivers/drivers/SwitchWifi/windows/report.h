@@ -20,8 +20,13 @@ typedef enum SWIFI_RX_CASE {
     SwifiRxCases
 } SWIFI_RX_CASE;
 
+typedef struct SWIFI_JOIN_SELECTION {
+    ULONG Policy, Auth, Names, Offered, Accepted, Rejected;
+} SWIFI_JOIN_SELECTION;
+
 typedef struct SWIFI_REPORT_DATA {
     ULONG Session, Step, FailedStep, HardwareStep;
+    SWIFI_JOIN_SELECTION Selection;
     NTSTATUS HardwareStatus;
     NTSTATUS StepStatus, FailureStatus, ScanStatus, JoinStatus;
     ULONG Scans, Attempts, KeyInstalls, KeyRemovals, KeyMask;
@@ -42,6 +47,7 @@ VOID SwifiReportStep(SWIFI_REPORT *R, SWIFI_BOOT_STEP Step, NTSTATUS Status);
 VOID SwifiReportIo(SWIFI_REPORT *R, LONG IrqSeen, LONG RingSeen);
 VOID SwifiReportHardware(SWIFI_REPORT *R, SWIFI_HW_STEP Step, NTSTATUS Status);
 VOID SwifiReportScan(SWIFI_REPORT *R, NTSTATUS Status);
+VOID SwifiReportSelection(SWIFI_REPORT *R, const SWIFI_JOIN_SELECTION *Selection);
 VOID SwifiReportJoin(SWIFI_REPORT *R, NTSTATUS Status);
 VOID SwifiReportFilter(SWIFI_REPORT *R, ULONG Flags, ULONG Count, ULONG Mode, NTSTATUS Status);
 VOID SwifiReportKeys(SWIFI_REPORT *R, ULONG Mask, ULONG Adds, ULONG Removes);

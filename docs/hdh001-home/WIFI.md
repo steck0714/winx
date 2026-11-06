@@ -19,7 +19,10 @@ preparation EFI. Windows enumerated WFI0, loaded the radio firmware and recorded
 failed with `0xC0200211` before the first scan. The 0.5.3.0 driver corrects the
 NetAdapterCx context attributes and keeps WDI teardown at PASSIVE_LEVEL.
 Windows then started the station and the owner saw nearby networks. The hardware
-report counted 19 scans with success for the latest one and zero join attempts.
+first recorded 19 scans. After the owner tried to connect, it recorded 70 scans
+and 10 rejected joins (`0xC00000BB`), with zero key installations. Version
+0.5.4.0 updates host candidate selection and records which filter rejects a
+candidate. Windows association and DHCP still need a physical result.
 The trimmed image includes the Windows on-screen keyboard at
 `%SystemRoot%\System32\osk.exe` for entering network credentials.
 [Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)

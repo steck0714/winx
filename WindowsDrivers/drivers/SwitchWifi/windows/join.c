@@ -358,17 +358,48 @@ static BOOLEAN VendorBlob(const WDI_BYTE_BLOB *Blob)
     return TRUE;
 }
 
-static NTSTATUS Candidates(SWIFI_JOIN *J, const WDI_TASK_CONNECT_PARAMETERS *P)
+/* Report the stage that excludes a host candidate without recording any
+ * SSID, BSSID, association frame or key. A broadcast allow-list entry
+ * still requires a unicast BSS explicitly offered by Windows. */
+enum {
+    RejectAddress=1, RejectList=2, RejectFt=4, RejectBand=8, RejectChannel=16,
+    RejectNoFrame=32, RejectProfile=64, RejectPmkid=128, RejectVendor=256
+};
+
+static BOOLEAN MatchDesiredSsid(const WDI_CONNECT_PARAMETERS_CONTAINER *C, const WDI_BYTE_BLOB *Frame,
+    ULONG Mask, swifi_bss_profile *Profile)
 {
+    /* A suppressed SSID identifies a hidden target only when the host names one. */
+    BOOLEAN Hidden = C->ConnectionSettings.HiddenNetwork && C->SSIDList.ElementCount == 1;
+    for (ULONG I = 0; I < C->SSIDList.ElementCount; ++I) {
+        const WDI_SSID *Ssid = &C->SSIDList.pElements[I];
+        if (swifi_match_bss(Frame->pElements, Frame->ElementCount, Ssid->pElements,
+            Ssid->ElementCount, Hidden, Mask, Profile)) return TRUE;
+    }
+    return FALSE;
+}
+
+static NTSTATUS Candidates(SWIFI_JOIN *J, const WDI_TASK_CONNECT_PARAMETERS *P,
+    SWIFI_JOIN_SELECTION *Selection)
+{
+    static const UCHAR Broadcast[6] = {255,255,255,255,255,255};
     const WDI_CONNECT_PARAMETERS_CONTAINER *C = &P->ConnectParameters;
     ULONG Mask = AuthMask(C), Blocked = J->DisallowedBands;
-    if (!Mask || C->SSIDList.ElementCount != 1 || C->ConnectionSettings.HostFIPSModeEnabled ||
-        C->ConnectionSettings.IsFIPSConnection || C->ConnectionSettings.MFPEnabled ||
-        C->ConnectionSettings.RoamRequest || C->Optional.HESSIDInfo_IsPresent ||
-        C->Optional.OWEDHIE_IsPresent || C->ConnectionSettings.MloConnectionSupported)
-        return STATUS_NOT_SUPPORTED;
-    const WDI_SSID *Ssid = &C->SSIDList.pElements[0];
-    if (!Ssid->ElementCount || Ssid->ElementCount > 32) return STATUS_INVALID_PARAMETER;
+    Selection->Auth = Mask;
+    Selection->Names = C->SSIDList.ElementCount;
+    Selection->Offered = P->PreferredBSSEntryList.ElementCount;
+    Selection->Policy = (!Mask ? 1u : 0) | (!Selection->Names ? 2u : 0) |
+        ((C->ConnectionSettings.HostFIPSModeEnabled || C->ConnectionSettings.IsFIPSConnection) ? 4u : 0) |
+        (C->ConnectionSettings.MFPEnabled ? 8u : 0) | (C->ConnectionSettings.RoamRequest ? 16u : 0) |
+        (C->Optional.HESSIDInfo_IsPresent ? 32u : 0) | (C->Optional.OWEDHIE_IsPresent ? 64u : 0) |
+        (C->ConnectionSettings.MloConnectionSupported ? 128u : 0);
+    if (Selection->Policy) return STATUS_NOT_SUPPORTED;
+    for (ULONG I = 0; I < Selection->Names; ++I) {
+        ULONG Size = C->SSIDList.pElements[I].ElementCount;
+        if (!Size || Size > 32) return STATUS_INVALID_PARAMETER;
+    }
+    BOOLEAN AnyBssid = !C->AllowedBSSIDs.ElementCount ||
+        (C->AllowedBSSIDs.ElementCount == 1 && Listed(&C->AllowedBSSIDs, Broadcast));
     if (C->Optional.UnavailableBandList_IsPresent) {
         for (ULONG I = 0; I < C->UnavailableBandList.ElementCount; ++I) {
             if (C->UnavailableBandList.pElements[I] == WDI_BAND_ID_2400) Blocked |= SWIFI_BAND_2GHZ;
@@ -383,7 +414,7 @@ static NTSTATUS Candidates(SWIFI_JOIN *J, const WDI_TASK_CONNECT_PARAMETERS *P)
             if (Type == WDI_PHY_TYPE_ANY) { Phys = MAXULONG; break; }
             if (Type < 32) Phys |= 1u << Type;
         }
-        if (!Phys) return STATUS_NOT_SUPPORTED;
+        if (!Phys) { Selection->Policy |= 256; return STATUS_NOT_SUPPORTED; }
     }
     WDI_BYTE_BLOB Empty = {0};
     const WDI_BYTE_BLOB *Global = C->Optional.AssociationRequestVendorIE_IsPresent ? &C->AssociationRequestVendorIE : &Empty;
@@ -391,43 +422,57 @@ static NTSTATUS Candidates(SWIFI_JOIN *J, const WDI_TASK_CONNECT_PARAMETERS *P)
     for (ULONG I = 0; I < P->PreferredBSSEntryList.ElementCount; ++I) {
         const WDI_CONNECT_BSS_ENTRY_CONTAINER *B = &P->PreferredBSSEntryList.pElements[I];
         const UCHAR *Peer = B->BSSID.Address;
-        if ((Peer[0] & 1) || !memcmp(Peer,"\0\0\0\0\0\0",6) || Listed(&C->DisallowedBSSIDs, Peer) ||
-            (C->AllowedBSSIDs.ElementCount && !Listed(&C->AllowedBSSIDs, Peer)) ||
-            B->Optional.FTInitialAssocParameters_IsPresent || B->Optional.FTReAssocParameters_IsPresent) continue;
+        if ((Peer[0] & 1) || !memcmp(Peer,"\0\0\0\0\0\0",6)) {
+            Selection->Rejected |= RejectAddress; continue;
+        }
+        if (Listed(&C->DisallowedBSSIDs, Peer) || (!AnyBssid && !Listed(&C->AllowedBSSIDs, Peer))) {
+            Selection->Rejected |= RejectList; continue;
+        }
+        if (B->Optional.FTInitialAssocParameters_IsPresent || B->Optional.FTReAssocParameters_IsPresent) {
+            Selection->Rejected |= RejectFt; continue;
+        }
         ULONG Ch = B->ChannelInfo.ChannelNumber;
         if (!Ch || Ch > 196 || B->ChannelInfo.BandId != (Ch <= 14 ? WDI_BAND_ID_2400 : WDI_BAND_ID_5000) ||
-            (Blocked & (Ch <= 14 ? SWIFI_BAND_2GHZ : SWIFI_BAND_5GHZ))) continue;
+            (Blocked & (Ch <= 14 ? SWIFI_BAND_2GHZ : SWIFI_BAND_5GHZ))) {
+            Selection->Rejected |= RejectBand; continue;
+        }
         ULONG K = 0;
         while (K < J->Info->ChannelCount && J->Info->Channels[K] != Ch) ++K;
-        if (K == J->Info->ChannelCount) continue;
+        if (K == J->Info->ChannelCount) { Selection->Rejected |= RejectChannel; continue; }
         const WDI_BYTE_BLOB *Body = NULL;
         WDI_BYTE_BLOB Cached = {0};
         swifi_bss_profile Profile;
+        BOOLEAN SawFrame = FALSE;
         const WDI_BYTE_BLOB *Frames[] = {&B->ProbeResponseFrame, &B->BeaconFrame};
         for (ULONG K = 0; K < RTL_NUMBER_OF(Frames); ++K) {
             const WDI_BYTE_BLOB *Frame = Frames[K];
-            if (Frame->ElementCount && Frame->ElementCount <= SwifiAssocBodyMax &&
-                swifi_match_bss(Frame->pElements, Frame->ElementCount, Ssid->pElements, Ssid->ElementCount,
-                    C->ConnectionSettings.HiddenNetwork, Mask, &Profile)) { Body = Frame; break; }
-            /* A supplied security mismatch must not be overridden by an older cache entry. */
-            if (Frame->ElementCount && K == 0) break;
+            if (!Frame->ElementCount) continue;
+            SawFrame = TRUE;
+            if (Frame->ElementCount < 12) continue; /* no management body */
+            if (Frame->ElementCount <= SwifiAssocBodyMax && MatchDesiredSsid(C, Frame, Mask, &Profile))
+                Body = Frame;
+            /* A supplied security mismatch cannot select older cached security. */
+            break;
         }
-        if (!Body && !B->ProbeResponseFrame.ElementCount && !B->BeaconFrame.ElementCount) {
-            Cached.pElements = J->Frames.Req; /* scratch until firmware reports the association */
+        if (!SawFrame) {
+            Cached.pElements = J->Frames.Req;
             for (ULONG K = 0; K < 2; ++K) {
                 Cached.ElementCount = SwifiScanLookup(J->Scan, J->Port, Peer, Ch, K == 0,
                     Cached.pElements, sizeof(J->Frames.Req));
                 if (!Cached.ElementCount) continue;
-                if (swifi_match_bss(Cached.pElements, Cached.ElementCount, Ssid->pElements,
-                    Ssid->ElementCount, C->ConnectionSettings.HiddenNetwork, Mask, &Profile)) Body = &Cached;
+                SawFrame = TRUE;
+                if (MatchDesiredSsid(C, &Cached, Mask, &Profile)) Body = &Cached;
                 break;
             }
         }
-        if (!Body) continue;
-        if (B->Optional.PMKID_IsPresent && (B->PMKID.ElementCount != 16 || Profile.auth != SWIFI_AUTH_PSK_CCMP))
-            continue;
+        if (!Body) { Selection->Rejected |= SawFrame ? RejectProfile : RejectNoFrame; continue; }
+        if (B->Optional.PMKID_IsPresent && (B->PMKID.ElementCount != 16 || Profile.auth != SWIFI_AUTH_PSK_CCMP)) {
+            Selection->Rejected |= RejectPmkid; continue;
+        }
         const WDI_BYTE_BLOB *Local = B->Optional.AssociationRequestVendorIE_IsPresent ? &B->AssociationRequestVendorIE : &Empty;
-        if (!VendorBlob(Local) || Global->ElementCount + Local->ElementCount > SwifiScanVendorMax) continue;
+        if (!VendorBlob(Local) || Global->ElementCount + Local->ElementCount > SwifiScanVendorMax) {
+            Selection->Rejected |= RejectVendor; continue;
+        }
         JOIN_CANDIDATE *New = ExAllocatePool2(POOL_FLAG_NON_PAGED, FIELD_OFFSET(JOIN_CANDIDATE, Bytes) +
             Body->ElementCount + Global->ElementCount + Local->ElementCount, 'jFwS');
         if (!New) return STATUS_INSUFFICIENT_RESOURCES;
@@ -445,6 +490,7 @@ static NTSTATUS Candidates(SWIFI_JOIN *J, const WDI_TASK_CONNECT_PARAMETERS *P)
         if (Local->ElementCount) RtlCopyMemory(New->Bytes+New->BeaconLength+Global->ElementCount,
             Local->pElements, Local->ElementCount);
         InsertTailList(&J->Pending, &New->Link);
+        ++Selection->Accepted;
     }
     return IsListEmpty(&J->Pending) ? STATUS_NOT_SUPPORTED : STATUS_SUCCESS;
 }
@@ -709,7 +755,10 @@ static NTSTATUS Connect(SWIFI_JOIN *J, WDI_MESSAGE_HEADER *H, ULONG Bytes)
         return STATUS_DEVICE_BUSY;
     WDI_TASK_CONNECT_PARAMETERS P = {0};
     NTSTATUS Status = (NTSTATUS)ParseWdiTaskConnectToIhv(Bytes, (PUCHAR)(H+1), &J->Tlv, &P);
-    if (NT_SUCCESS(Status)) Status = Candidates(J, &P);
+    SWIFI_JOIN_SELECTION Selection = {0};
+    if (NT_SUCCESS(Status)) Status = Candidates(J, &P, &Selection);
+    else Selection.Policy = 0x80000000u;
+    SwifiReportSelection(&J->Owner->Report, &Selection);
     CleanupParsedWdiTaskConnectToIhv(&P);
     if (NT_SUCCESS(Status)) {
         Status = NewTask(J, &J->Connect, WDI_TASK_CONNECT, H);

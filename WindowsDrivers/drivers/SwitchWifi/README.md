@@ -507,7 +507,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.5.3.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.5.4.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -582,7 +582,23 @@ PASSIVE_LEVEL, where scan and join can acquire their wait locks. A retiring
 port finishes cleanup before another station can claim it.
 [KMDF cleanup levels](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfobject/nc-wdfobject-evt_wdf_object_context_cleanup)
 
-Version 0.5.3.0 was installed offline as `oem13.inf`. The previous package was retired and the existing Wi-Fi instance was marked for driver selection on its next enumeration. The returned card confirms the driver bound as 0.5.3.0. Its report shows `step=5/00000000 failure=0/00000000 scan=19/00000000 join=0/00000000`. The owner saw nearby networks. WPA2 association, DHCP and traffic through a rekey still require a connection test.
+Version 0.5.3.0 was installed offline as `oem13.inf`. The previous package was retired and the existing Wi-Fi instance was marked for driver selection on its next enumeration. The returned card confirms the driver bound as 0.5.3.0. Its report shows `step=5/00000000 failure=0/00000000 scan=19/00000000 join=0/00000000`. The owner saw nearby networks. A later report on the same card recorded
+`scan=70/00000000 join=10/C00000BB keys=0 add=0`. WLAN AutoConfig recorded
+WPA2-Personal/AES association requests and connection failures. The driver
+returned STATUS_NOT_SUPPORTED before installing a key.
+
+Version 0.5.4.0 checks the candidate against every requested SSID. An individual
+hidden network can still match a suppressed SSID. A sole broadcast entry in
+the allowed BSSID list permits any unicast candidate offered by Windows.
+Explicit exclusions take precedence. When a probe response is too short to
+contain a management body, the driver checks the supplied beacon.
+
+`select=policy/auth/names/offered/accepted/rejected` in `SwitchWifiReport`
+records the last selection. Names, offered and accepted are counts. Policy,
+auth and rejected are hexadecimal masks. Rejection bits 0–8 cover the BSSID,
+allow/deny lists, fast transition, band, channel, missing frame, frame profile,
+PMKID and vendor elements. A successful association, DHCP lease and rekey on
+hardware are still pending.
 
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),
