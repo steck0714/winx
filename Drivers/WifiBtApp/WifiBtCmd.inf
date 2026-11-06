@@ -11,6 +11,7 @@
   WifiPcie.h
   WifiPexStages.h
   WifiNvram.h
+  WifiErom.h
   t214/uphy.h
 
 [Packages]

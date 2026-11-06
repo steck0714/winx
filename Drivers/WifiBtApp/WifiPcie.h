@@ -591,17 +591,29 @@ PexCheckLink (
 // Backplane window over BAR0 (brcmf_pcie_buscore_*)
 // ---------------------------------------------------------------------------------------------
 STATIC
-VOID
+BOOLEAN
 BpSetWin (
   IN UINT32  Addr
   )
 {
   UINT32  Base = Addr & ~0xFFFU;
+  UINTN   Attempt;
 
   if (Base != mBpWin) {
-    PexCfgWr (1, 0, 0, BCM_BAR0_WINDOW, Base);
-    mBpWin = Base;
+    // brcmfmac retries a BAR0 window write once if configuration readback
+    // does not match. Do not cache an address that the endpoint rejected.
+    for (Attempt = 0; Attempt < 2; Attempt++) {
+      PexCfgWr (1, 0, 0, BCM_BAR0_WINDOW, Base);
+      if (PexCfgRd (1, 0, 0, BCM_BAR0_WINDOW) == Base) {
+        mBpWin = Base;
+        return TRUE;
+      }
+    }
+    mBpWin = 0xFFFFFFFFU;
+    Log (L"backplane: BAR0 window %08x did not latch", Base);
+    return FALSE;
   }
+  return TRUE;
 }
 
 STATIC
@@ -611,7 +623,10 @@ BpRd32 (
   OUT UINT32  *V
   )
 {
-  BpSetWin (Addr);
+  if (!BpSetWin (Addr)) {
+    *V = 0xFFFFFFFFU;
+    return FALSE;
+  }
   *V = Rd (mBar0, Addr & 0xFFC);
   return TRUE;
 }
@@ -623,7 +638,7 @@ BpWr32 (
   IN UINT32  V
   )
 {
-  BpSetWin (Addr);
+  if (!BpSetWin (Addr)) return FALSE;
   Wr (mBar0, Addr & 0xFFC, V);
   return TRUE;
 }

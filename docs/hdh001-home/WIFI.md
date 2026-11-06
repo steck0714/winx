@@ -16,11 +16,30 @@ Vali's GPIO defaults hold PH0 (RF_DISABLE) low and PH1 (Wi-Fi reset/power) high 
 
 ## Firmware loading
 
+`pchip` now discovers the CR4, D11 and PCIe Gen2 cores from the chip's AI EROM descriptors rather than resetting guessed wrapper addresses. It handles master/slave wrappers, address/size extension words and the table terminator. BCM4356 TCM size uses the CR4 six-bit bank-size field in 8 KiB units. BAR0 window writes require configuration readback, and reset failures stop the operation. Explicit diagnostic core/size overrides remain available but are reported in the log. Failed discovery cannot proceed to firmware loading or reset an unknown core during cleanup.
+
 `wifibt pfw brcmfmac4356-pcie.bin brcmfmac4356-pcie.txt` requires both files after `pex` and `pchip`. `pall` runs those stages together and leaves the Bluetooth/UART setup alone. PCIe stage failures return a nonzero shell status as well as a log message.
 
 The NVRAM converter follows brcmfmac's printable key/value, inline-comment, NUL-separated entry, default boardrev and aligned length-token format. It accepts a final entry without a newline and rejects empty/oversized data. Switch-specific single-board files are required; router-style multi-device files with `devpath` or `pcie/` prefixes need device selection and are rejected rather than uploaded unchanged.
 
-Files and the combined firmware/NVRAM RAM layout are checked before halting CR4. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host format fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. Chip firmware startup still requires physical acceptance; these checks do not establish a working Wi-Fi link.
+Files and the combined firmware/NVRAM RAM layout are checked before writing TCM. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host EROM and NVRAM fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. Chip firmware startup still requires physical acceptance; these checks do not establish a working Wi-Fi link.
+
+## Build and focused checks
+
+From the configured EDK2 workspace, build the command module with:
+
+```sh
+build -a AARCH64 -t GCC5 -b RELEASE -p NintendoSwitchPkg/NintendoSwitch.dsc -m NintendoSwitchPkg/Drivers/WifiBtApp/WifiBtCmd.inf -D SWITCH_WIFIBT=1
+```
+
+From the repository root, the descriptor/format fixtures use the actual shared headers:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined Drivers/WifiBtApp/tests/test-erom.c -o /tmp/test-erom && /tmp/test-erom
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined Drivers/WifiBtApp/tests/test-nvram.c -o /tmp/test-nvram && /tmp/test-nvram
+```
+
+These checks cover descriptor and buffer-format behavior. They do not test PCIe link training, DMA, radio operation or Windows networking.
 
 ## Milestones
 
@@ -40,3 +59,4 @@ The firmware blob, board calibration, MAC address and credentials are not commit
 - [B01 PCIe PHY defaults and calibration](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/phy/tegra/xusb-tegra210.c)
 - [brcmfmac PCIe transport](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c)
 - [brcmfmac firmware/NVRAM parser](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/firmware.c)
+- [brcmfmac EROM discovery and CR4 RAM sizing](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c)

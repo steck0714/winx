@@ -1279,36 +1279,36 @@ Hex (
 }
 
 STATIC
-VOID
+BOOLEAN
 CoreDisable (
   IN UINT32  Wrap,
   IN UINT32  Pre,
   IN UINT32  Reset
   )
 {
-  UINT32  V = 0;
+  UINT32  V;
   UINTN   T;
 
-  SbRead32 (Wrap + 0x800, &V);
+  if (!SbRead32 (Wrap + 0x800, &V) || V == 0xFFFFFFFFU) return FALSE;
   if (!(V & 1)) {
-    SbWrite32 (Wrap + 0x408, Pre | 2 | 1);
-    SbRead32 (Wrap + 0x408, &V);
-    SbWrite32 (Wrap + 0x800, 1);
+    if (!SbWrite32 (Wrap + 0x408, Pre | 2 | 1) ||
+        !SbRead32 (Wrap + 0x408, &V) || !SbWrite32 (Wrap + 0x800, 1)) return FALSE;
     Us (20);
     for (T = 0; T < 300; T++) {
-      SbRead32 (Wrap + 0x800, &V);
-      if (V == 1) {
-        break;
-      }
+      if (!SbRead32 (Wrap + 0x800, &V)) return FALSE;
+      if (V == 1) break;
       Us (1);
     }
+    if (T == 300) {
+      Log (L"core: reset assertion timed out at %08x", Wrap);
+      return FALSE;
+    }
   }
-  SbWrite32 (Wrap + 0x408, Reset | 2 | 1);
-  SbRead32 (Wrap + 0x408, &V);
+  return SbWrite32 (Wrap + 0x408, Reset | 2 | 1) && SbRead32 (Wrap + 0x408, &V) && V != 0xFFFFFFFFU;
 }
 
 STATIC
-VOID
+BOOLEAN
 CoreReset (
   IN UINT32  Wrap,
   IN UINT32  Pre,
@@ -1316,20 +1316,21 @@ CoreReset (
   IN UINT32  Post
   )
 {
-  UINT32  V = 0;
+  UINT32  V;
   UINTN   T;
 
-  CoreDisable (Wrap, Pre, Reset);
+  if (!CoreDisable (Wrap, Pre, Reset)) return FALSE;
   for (T = 0; T < 50; T++) {
-    SbRead32 (Wrap + 0x800, &V);
-    if (!(V & 1)) {
-      break;
-    }
-    SbWrite32 (Wrap + 0x800, 0);
+    if (!SbRead32 (Wrap + 0x800, &V)) return FALSE;
+    if (!(V & 1)) break;
+    if (!SbWrite32 (Wrap + 0x800, 0)) return FALSE;
     Us (60);
   }
-  SbWrite32 (Wrap + 0x408, Post | 1);
-  SbRead32 (Wrap + 0x408, &V);
+  if (T == 50) {
+    Log (L"core: reset release timed out at %08x", Wrap);
+    return FALSE;
+  }
+  return SbWrite32 (Wrap + 0x408, Post | 1) && SbRead32 (Wrap + 0x408, &V) && V != 0xFFFFFFFFU;
 }
 
 STATIC
@@ -1368,7 +1369,10 @@ StepWfw (
   CopyMem (&Rst, Fw, 4);
   Log (L"wfw: firmware reset vector word = %08x", Rst);
   Log (L"wfw: disabling ARM CR4");
-  CoreDisable (Wrap, 0x20, 0x20);                            // CPUHALT
+  if (!CoreDisable (Wrap, 0x20, 0x20)) {
+    FreePool (Fw);
+    return;
+  }                                                       // CPUHALT
   Log (L"wfw: writing %d bytes of firmware to %08x", FwSz, Ram);
   if (!SbWriteBlock (Ram, Fw, FwSz)) {
     Log (L"wfw: firmware write failed");
@@ -1427,7 +1431,7 @@ StepWfw (
   }
   Log (L"wfw: set reset vector + release ARM CR4");
   SbWrite32 (0, Rst);
-  CoreReset (Wrap, 0x20, 0, 0);
+  if (!CoreReset (Wrap, 0x20, 0, 0)) return;
   if (SdioClk (0x10, 0x80)) {
     Log (L"wfw: HT clock available -> firmware appears to be RUNNING");
   } else {
@@ -1490,14 +1494,18 @@ RunWifiBt (
     } else if (StrnCmp (Argv[I], L"size=", 5) == 0) {
       Size = Hex (Argv[I] + 5);
       mRamSize = Size;
+      mChipOverrides |= BIT3;
     } else if (StrnCmp (Argv[I], L"arm=", 4) == 0) {
       Arm = Hex (Argv[I] + 4);
       mArmBase = Arm;
+      mChipOverrides |= BIT0;
     } else if (StrnCmp (Argv[I], L"wrap=", 5) == 0) {
       Wrap = Hex (Argv[I] + 5);
       mArmWrap = Wrap;
+      mChipOverrides |= BIT1;
     } else if (StrnCmp (Argv[I], L"d11=", 4) == 0) {
       mD11Wrap = Hex (Argv[I] + 4);
+      mChipOverrides |= BIT2;
     } else if (StrnCmp (Argv[I], L"rst=", 4) == 0) {
       mPexRstRun = (UINT32)StrDecimalToUintn (Argv[I] + 4);
     } else if (StrnCmp (Argv[I], L"gen2=", 5) == 0) {
