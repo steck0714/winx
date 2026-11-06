@@ -28,6 +28,31 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Display | Trimmed Pro reaches the desktop with BasicDisplay. The owner confirmed landscape. | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
 | Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |
 
+## USB-C host on HDH-001
+
+Switchroot on this Lite loaded XUSB **51.06** (built 2019-10-17 16:01:14 UTC)
+and registered both root hubs. Its BM92T on I²C1 address 0x18 reported type
+0x0603 and revision 0x0D7C. USB 2.0 uses `usb2-0` with a +6 high-speed
+current offset. SuperSpeed uses PCIe PHY lane 5; the BCM4356 uses lane 0.
+The Lite power tree sets PD input ceilings of 2000, 1500, 1200 and 900 mA
+at 5, 9, 12 and 15 V respectively. [Switchroot lane assignments](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi) · [Lite PD configuration](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi)
+
+The Ubuntu boot partition already contains the matching B01 Falcon image.
+Extract a private copy from that Ubuntu release's gzip-compressed U-Boot
+initramfs; its header is 64 bytes. The extracted file on this unit is 122368
+bytes, and its internal version and timestamp match the Linux boot log.
+
+```sh
+tail -c +65 "$initramfs" | gzip -dc | bsdtar -xOf - lib/firmware/tegra210b01_xusb_firmware > tegra210b01_xusb_firmware
+```
+
+The installed Windows image has the USBXHCI, UCX01000 and USBHUB3 services
+and binaries. Its enumerated ACPI tree has a battery device and no host
+controller. The Lite firmware needs to prepare the B01 Falcon and PHY,
+hand the running controller to the inbox xHCI driver, and coordinate VBUS
+with the BM92T/BQ24193. A USB peripheral on Windows remains unverified.
+[Switchroot B01 host driver](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/usb/host/xhci-tegra.c)
+
 ## Execution order
 
 1. Continue Wi-Fi PCIe, firmware messaging and Windows networking integration.
