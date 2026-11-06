@@ -22,7 +22,7 @@ Vali's GPIO defaults hold PH0 (RF_DISABLE) low and PH1 (Wi-Fi reset/power) high 
 
 The NVRAM converter follows brcmfmac's printable key/value, inline-comment, NUL-separated entry, default boardrev and aligned length-token format. It accepts a final entry without a newline and rejects empty/oversized data. Switch-specific single-board files are required; router-style multi-device files with `devpath` or `pcie/` prefixes need device selection and are rejected rather than uploaded unchanged.
 
-The loader also honors the optional firmware `RAMS` aperture header. Files and the combined firmware/NVRAM RAM layout are checked before writing TCM. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host EROM and NVRAM fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. Chip firmware startup still requires physical acceptance; these checks do not establish a working Wi-Fi link.
+The loader also honors the optional firmware `RAMS` aperture header. Files and the combined firmware/NVRAM RAM layout are checked before writing TCM. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host EROM and NVRAM fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. R6 subsequently accepted chip firmware startup and passive scanning on hardware (see below); these host checks alone do not establish a working Wi-Fi link.
 
 ## Control transport and passive scan
 
@@ -78,13 +78,13 @@ does not attempt to create a log file. Photograph the final result. The Home
 boot manager displays it for 30 seconds and requests shutdown without starting
 Windows. The entry remains **Lite Windows 11 Home**.
 
-R2 is deployed and its three files were read back from WINARM. Physical radio
-results are pending. The offline copy adds only the three
+R2 was deployed and its three files were read back from WINARM. Physical radio
+results were still pending at that stage. The offline copy adds only the three
 files above; Windows registry, drivers, boot store, partitions and BL31 are
 unchanged. The FAT update replaces Home BL33. Remove `wifi_check=1` after
 collecting the result to restore normal Windows launch. A completed scan is
-not a Windows network connection; physical PCIe/firmware/scan results remain
-pending.
+not a Windows network connection; R6 physical PCIe/firmware/scan acceptance is
+recorded below.
 
 The R2 physical run returned `Device Error`; its final photograph retained
 only the parent status, so the exact child failure stage is unknown. Loader
@@ -189,3 +189,21 @@ The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for t
 - [Linux CLM upload](https://github.com/torvalds/linux/blob/v6.1/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c)
 - [WiFiCx client initialization](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver)
 - [WiFiCx/NetAdapterCx compatibility](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/building-a-wificx-driver-for-multiple-versions-of-windows)
+
+## Windows packet-path implementation
+
+The canonical driver repository now contains `drivers/SwitchWifi/core/msgbuf_data.c`,
+mirrored in [WindowsDrivers](../../WindowsDrivers/drivers/SwitchWifi/README.md).
+It implements msgbuf-v5 flow-ring creation/deletion, Ethernet packet descriptors,
+RX posting/completion, priority-to-FIFO mapping and buffer ownership across
+completion or reset. It has no UEFI dependency and compiles as an ARM64 Windows
+COFF object. Sanitized native tests cover wire fixtures, queue backpressure,
+stale completions, RX bounds and exactly-once cancellation.
+
+This is not a linked or installed Windows driver. The Windows transport must
+provide DMA synchronization, ring indices, interrupts and reset, then bind the
+packet path and connection/key operations to WiFiCx/NetAdapterCx. No adapter
+was added to the card and no Windows networking acceptance is claimed.
+
+The existing OOBE bypass only skips first-setup networking. It does not disable
+WLAN or account for the missing Windows Wi-Fi adapter.

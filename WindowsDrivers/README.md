@@ -8,6 +8,8 @@ The media display experiment went black at device restart. At the owner's reques
 
 The companion firmware's R6 pre-Windows Wi-Fi probe completed passive scanning with six records and return Success. This accepts the BCM4356A3 PCIe/firmware/control-event DMA path, not a Windows Wi-Fi adapter. Association, keys, packet transport and Windows networking integration remain in progress; see the [shared Wi-Fi status](https://github.com/ruje0504-2/winx/blob/hdh001/docs/hdh001-home/WIFI.md).
 
+The shared [SwitchWifi packet core](drivers/SwitchWifi/README.md) now implements msgbuf-v5 flow-ring lifecycle, Ethernet TX/RX descriptors and buffer ownership. Host sanitizer checks and ARM64 Windows object compilation pass; WiFiCx registration, Windows DMA/interrupt transport, association/keys and OS packet queues remain unfinished. This source component is not installed on WINARM.
+
 KMDF drivers and SwitchCenter, a tray/control-center application, for Windows on ARM (ARM64) on the Nintendo Switch (Tegra210 / Erista).
 
 The upstream UEFI and DSDT are maintained in [Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch). These drivers bind to devices exposed by that firmware, starting with R367. Install upstream packages from release ZIPs, or build them with `release/Make-Release.ps1`.

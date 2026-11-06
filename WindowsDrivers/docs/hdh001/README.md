@@ -108,3 +108,7 @@ See the [shared Wi-Fi implementation and evidence](https://github.com/ruje0504-2
 Windows shutdown/restart still black-screen with the fan running. A pre-Windows
 shutdown using the same Power R4 BL31 succeeded, so final Windows exit and
 runtime hardware state remain under investigation.
+
+## Windows Wi-Fi packet core
+
+The shared [SwitchWifi packet core](../../drivers/SwitchWifi/README.md) now implements msgbuf-v5 flow-ring lifecycle, Ethernet TX/RX descriptors and buffer ownership. Host sanitizer checks and ARM64 Windows object compilation pass; WiFiCx registration, Windows DMA/interrupt transport, association/keys and OS packet queues remain unfinished. This source component is not installed on WINARM.
