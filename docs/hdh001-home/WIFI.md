@@ -9,8 +9,8 @@ Previously the control worker passed events only to the escan handler. A
 SET_SSID success, failure or disconnect could therefore never reach the
 Windows association handler. A control-ring fixture exercises the corrected
 dispatch. The same Home firmware and external preparation EFI are used with
-this driver. Windows scanning, association and IP traffic still need a
-physical HDH-001 run. Version 0.5.2 also holds new TX across the EAPOL
+this driver. The physical Windows scan is recorded below. Association and IP
+traffic still need a connection test. Version 0.5.2 also holds new TX across the EAPOL
 drain, firmware key write and authorization of the peer. The owner confirmed the trimmed Pro desktop booted with the repaired
 two-volume SD profile. DISM then staged 0.5.2.0 as `oem12.inf` on WINARM.
 Readback matched the signed package, board firmware, calibration and
@@ -18,6 +18,10 @@ preparation EFI. Windows enumerated WFI0, loaded the radio firmware and recorded
 `hw=9/00000000 irq=1 ring=1`. The owner found no Wi-Fi option. Station creation
 failed with `0xC0200211` before the first scan. The 0.5.3.0 driver corrects the
 NetAdapterCx context attributes and keeps WDI teardown at PASSIVE_LEVEL.
+Windows then started the station and the owner saw nearby networks. The hardware
+report counted 19 scans with success for the latest one and zero join attempts.
+The trimmed image includes the Windows on-screen keyboard at
+`%SystemRoot%\System32\osk.exe` for entering network credentials.
 [Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
 
 ## Verified source facts
@@ -188,7 +192,7 @@ For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/
 3. Extend the implemented polled control/event transport with packet rings, interrupts and association/key commands. Linux cfg80211 and network callbacks need Windows equivalents; a Linux module cannot be used as a Windows SYS file.
 4. Add a Windows ARM64 Wi-Fi adapter interface with scan, authentication/association and packet transmit/receive. Validate DHCP, sustained traffic, disconnect/reconnect and Bluetooth coexistence.
 
-Board firmware and calibration are supplied privately. The physical Lite has exercised the pre-Windows scan. The next hardware result needed is a scan from the Windows Wi-Fi settings.
+Board firmware and calibration are supplied privately. The physical Lite has exercised the pre-Windows scan. Windows Wi-Fi settings now show nearby networks. The next hardware result is a connection and assigned IP address.
 
 The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. The driver publishes firmware capabilities, dispatches scans and implements packet queues. Version 0.2 adds directed association, CCMP keys and disconnect.
 
@@ -343,7 +347,7 @@ the signed driver. The runtime-only `WIRS` method checks PCIEX/PEX/AFI reset
 state and can hold these dedicated reset lines if both endpoint halt and port
 reset fail. The Windows package staged in an isolated PE VM. The Lite has not
 received this runtime build. The Windows station now handles directed WPA2-Personal association and CCMP
-key installation. Physical scanning, authentication, DHCP and rekey remain pending.
+key installation. Windows scanning subsequently passed on the physical Lite. Authentication, DHCP and rekey await a board connection.
 
 ## Windows connection package
 

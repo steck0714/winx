@@ -320,7 +320,7 @@ so the TSF field is zero. Live updates are batched at three records or 500 ms.
 An abort sends the brcmfmac scan-abort command and waits for a terminal event
 before reusing the scanner. A missing terminal requires device recovery because
 some terminal events lack a sync ID. D0 exit joins the scan timer and returns
-any accepted WDI task. Physical WDI scan delivery on HDH-001 is pending.
+any accepted WDI task. The physical Lite subsequently displayed nearby networks on 0.5.3.0.
 
 [Microsoft WDI frame-body example](https://github.com/microsoft/Windows-driver-samples/blob/main/network/wlan/WDI/PLATFORM/NDIS6/WDI_Common.c),
 [Windows scan task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-scan),
@@ -579,11 +579,10 @@ framework object, which rejects the execution-level override.
 Version 0.5.3.0 uses the default context attributes and stores its WDI port
 binding in adapter-owned paged framework memory. KMDF calls its cleanup at
 PASSIVE_LEVEL, where scan and join can acquire their wait locks. A retiring
-port finishes cleanup before another station can claim it. The next board
-check is a Windows scan and connection to a WPA2 network.
+port finishes cleanup before another station can claim it.
 [KMDF cleanup levels](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfobject/nc-wdfobject-evt_wdf_object_context_cleanup)
 
-Version 0.5.3.0 was installed offline as `oem13.inf`. The previous package was retired and the existing Wi-Fi instance was marked for driver selection on its next enumeration.
+Version 0.5.3.0 was installed offline as `oem13.inf`. The previous package was retired and the existing Wi-Fi instance was marked for driver selection on its next enumeration. The returned card confirms the driver bound as 0.5.3.0. Its report shows `step=5/00000000 failure=0/00000000 scan=19/00000000 join=0/00000000`. The owner saw nearby networks. WPA2 association, DHCP and traffic through a rekey still require a connection test.
 
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),
