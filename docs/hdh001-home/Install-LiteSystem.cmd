@@ -5,6 +5,7 @@ rem Place this script beside the five shared system/audio packages.
 rem Optional switchbt requires Firmware\BCM4356A3.hcd.
 rem Optional switchwifi requires WifiPrepare.efi and the target board's A3 files in Firmware.
 set "drivers=switchfan switchpwrbtn switchbattery switchrtc switchaudio"
+if exist "%~dp0switchsio\switchsio.inf" set "drivers=%drivers% switchsio"
 if exist "%~dp0switchbt\switchbt.inf" set "drivers=%drivers% switchbt"
 if exist "%~dp0switchwifi\switchwifi.inf" set "drivers=%drivers% switchwifi"
 set "wifiOnly="

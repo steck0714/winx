@@ -144,7 +144,12 @@ BL33 is separate. The display-isolation card retains its existing profile.
 [Wi-Fi package and hardware status](WIFI.md#windows-connection-package).
 
 
-Switchroot's Lite device tree explicitly disables the host SPI4 controller because SIO owns it. The Erista `SwitchSensor` SPI4 profile is therefore left disabled; the Lite's built-in controls and motion data need the SIO transport. The native framebuffer orientation is retained.
+Switchroot assigns the Lite IMU to SIO. Add `-D SWITCH_LITE_SIO=1` to the
+Lite touch/GPIO firmware build to expose UART-C and the Home GPIO as
+`ACPI\SWOA0902`. Stage the signed `switchsio` package to enable the internal
+gamepad and read accelerometer samples through SwitchSensor. The firmware and
+driver build and the host protocol tests pass. Physical controls and motion
+still need a board result.
 
 References: [Lite SIO ownership](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/tegra210b01-vali.dts), [UART-D Bluetooth wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Switchroot patch provenance](https://gitlab.com/switchroot/android/proprietary_vendor_firmware/-/blob/main/README.md), and [upstream Bluetooth source and recovery tool](https://github.com/hayato41200/Windows-for-Switch-Drivers/tree/main/kits/Switch-Bluetooth).
 
