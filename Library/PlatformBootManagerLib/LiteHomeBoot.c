@@ -93,7 +93,11 @@ ReplayWifiOutput (VOID)
     --Start;
     if (mWifiTrace[Start] == '\n' && ++Lines == 12) { ++Start; break; }
   }
-  Print (L"Wi-Fi probe output (last lines):\r\n%s\r\n", mWifiTrace + Start);
+  Print (L"Wi-Fi probe output (last lines):\r\n");
+  // Print() formats at most PcdUefiLibMaxPrintBufferSize characters (320 in
+  // Home). Send the already-formatted trace directly so its end is retained.
+  gST->ConOut->OutputString (gST->ConOut, mWifiTrace + Start);
+  gST->ConOut->OutputString (gST->ConOut, L"\r\n");
 }
 
 STATIC VOID
@@ -104,7 +108,7 @@ CheckWifiBeforeWindows (VOID)
   UINTN Count, I;
   EFI_STATUS Status;
   if (BootCheckMode ("wifi_check=") != 1) return;
-  Print (L"WIFI CHECK / CONFIG 1 / LOADER R3\r\nWindows will not start during this check.\r\n");
+  Print (L"WIFI CHECK / CONFIG 1 / LOADER R4\r\nWindows will not start during this check.\r\n");
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
   if (!EFI_ERROR (Status)) {
     Status = EFI_NOT_FOUND;

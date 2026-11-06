@@ -90,7 +90,11 @@ The R2 physical run returned `Device Error`; its final photograph retained
 only the parent status, so the exact child failure stage is unknown. Loader
 R3 captures the child console output and reprints the last 12 lines after
 image exit. This diagnostic changes only Home BL33; the R2 application and
-firmware/NVRAM on WINARM are unchanged. It is deployed for stage identification.
+firmware/NVRAM on WINARM are unchanged. The R3 result confirmed that the probe reached PCIe initialization, but
+`Print()` truncated the replay at its configured 320-character limit. R4 sends
+the already-formatted tail directly through `OutputString`, preserving the
+end of the trace. R4 is deployed; the actual failing hardware stage is still
+pending an untruncated result.
 
 ## Build and focused checks
 
