@@ -25,7 +25,8 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Built-in controls / motion | Opt-in UART-C ACPI profile and ARM64 SIO driver built; protocol fixtures pass | Verify buttons, both sticks and accelerometer on the Lite |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
-| Display | Trimmed Pro reaches the desktop with BasicDisplay. The owner confirmed landscape. | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
+| Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
+| 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. | Run a Direct3D workload on a Tegra hardware adapter. |
 | Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |
 
 ## USB-C host on HDH-001

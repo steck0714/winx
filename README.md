@@ -9,12 +9,13 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Feature | Result on the tested Lite |
 | --- | --- |
 | Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. |
-| Display and touch | The trimmed Pro desktop works in landscape with Microsoft Basic Display. The FTM4 touchscreen accepts taps in Windows Setup. |
+| Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
+| 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. |
 | Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth works on the trimmed Pro installation. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 
-Windows shutdown and restart can leave the display black and the fan running. Windows USB-C host support and GPU acceleration remain open. Headphone output still needs testing. [Porting status](docs/hdh001-home/PORTING.md)
+Windows shutdown and restart can leave the display black with the fan still running. Windows USB-C host support is under development. Headphone output still needs testing. [Porting status](docs/hdh001-home/PORTING.md)
 
 ## Storage profiles
 
