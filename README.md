@@ -8,6 +8,8 @@ Physical CPU readback is 1996.8 MHz and the owner confirmed the fan turns. BPMP 
 
 An optional Bluetooth profile reuses the upstream UART-D driver and Switch-specific patch. The combined BasicDisplay/audio/Bluetooth update is built and deployed; the next boot confirmed patch loading, 3 Mbaud transport and the BthMini child. Pairing and range remain unconfirmed. The Erista SPI4 sensor profile stays disabled because Lite SIO owns that bus.
 
+A physical pre-Windows Wi-Fi probe now completes passive scanning with BCM4356A3 firmware: six scan records, terminal status 0 and UEFI return Success. The B01 PCIe supply and bridge BAR window fixes are in the shared firmware source. The temporary diagnostic setting was removed, restoring normal Home boot. Windows Wi-Fi association, packet transport and adapter integration remain unfinished.
+
 - [Driver porting goal and Wi-Fi roadmap](docs/hdh001-home/PORTING.md)
 - [Stage 6 builds and first-boot troubleshooting](docs/hdh001-home/README.md)
 - [Windows Boot Manager entry](Library/PlatformBootManagerLib/LiteHomeBoot.c)

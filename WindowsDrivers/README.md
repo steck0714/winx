@@ -1,6 +1,12 @@
 # Windows for Switch — Drivers
 
-This is the upstream driver snapshot bundled with WinX, with the shared HDH-001 changes applied. See the [Stage 6 build and integration notes](../docs/hdh001-home/README.md) for the Lite profile. A physical Lite has reached Windows 11 Home 23H2 OOBE and accepts touch input; desktop validation and the latest fan/clock/restart results are pending.
+This branch consolidates HDH-001 development: bounded WINARM SD (0.3.2.5), shared GPIO/I²C, FTM4 touch, power button, fan, battery, RTC and audio. T214 clock helpers stay alongside the shared fan implementation. See the [Lite build notes](docs/hdh001/README.md).
+
+A physical Lite reaches the Home 23H2 desktop with BasicDisplay and working setup touch. CPU readback is 1996.8 MHz and RAM is 1866 MHz; the requested 2100 MHz RAM target remains unmet. The owner confirmed fan operation, audible output after the audio-pad update, and working brightness buttons. Returned-card readback confirms active SwitchAudio 1.0.0.9 and SwitchFan 1.0.0.5, plus a 512 MiB pagefile with a 2048 MB maximum. Headphones, jack switching and display wake remain untested. Windows shutdown and restart still hang on the companion Power R4 firmware. Pre-Windows shutdown with the same BL31 passed; the Windows late-exit/runtime-state boundary remains unresolved.
+
+The media display experiment went black at device restart. At the owner's request, the Home installer now excludes CPU-rendered display rotation and the landscape helper; the companion firmware retains BasicDisplay. The proposed PE display trial was cancelled. The combined update includes the shared UART-D Bluetooth driver and patch-aware installer; it is built, staged and deployed, with patch loading, 3 Mbaud transport and BthMini startup confirmed by the next boot; pairing and range remain pending. The upstream devices listed below are not all enabled or validated on Lite.
+
+The companion firmware's R6 pre-Windows Wi-Fi probe completed passive scanning with six records and return Success. This accepts the BCM4356A3 PCIe/firmware/control-event DMA path, not a Windows Wi-Fi adapter. Association, keys, packet transport and Windows networking integration remain in progress; see the [shared Wi-Fi status](https://github.com/ruje0504-2/winx/blob/hdh001/docs/hdh001-home/WIFI.md).
 
 KMDF drivers and SwitchCenter, a tray/control-center application, for Windows on ARM (ARM64) on the Nintendo Switch (Tegra210 / Erista).
 
@@ -18,6 +24,9 @@ The upstream UEFI and DSDT are maintained in [Windows-for-Switch](https://github
 | `switchpwrbtn` | ACPI\SWOA0601 | R374 | Power-button HID through VHF |
 | `switchcpu` | ACPI\SWOA0701 | R375 | Erista CPU clock profiles (614–1766 MHz) and thermal limits |
 | `switchrtc` | ACPI\SWOA0801 | R377 | MAX77620 RTC with a persistent Windows time offset |
+| `switchbt` | ACPI\SWOA0B01 | R390 | BCM4356A3 on UART-D, connected to the Windows BthMini stack at 3 Mbps. Supply `BCM4356A3.hcd` separately; it is not distributed. Upstream reports very short radio range while Wi-Fi is unavailable. |
+| `switchaudio` (beta) | ACPI\SWOA0C01 | R403; R402 for speakers only | PortCls WaveRT playback: 48 kHz, 16-bit stereo, speakers/headphones with automatic jack switching. One shared speaker endpoint and volume; no microphone. |
+| `switchsensor` | ACPI\SWOA0901 | R379 | Tilt sensing for automatic rotation. Upstream could not detect the ambient-light sensor on the tested device. |
 | `swoadiag` | Loaded on demand | — | Read-only USB (XUSB) register diagnostics |
 
 ## Tested operating systems
@@ -33,7 +42,7 @@ For Lite, use the HDH-001 build notes rather than installing every Erista packag
 
 1. Download `SwitchDrivers-<version>.zip` and `SwitchCenter-<version>-arm64.zip` from [Releases](https://github.com/hayato41200/Windows-for-Switch-Drivers/releases).
 2. Prepare test signing once: follow Switch-Stage0 to enable test-signing mode, then import the included `SwitchWOA-Test.cer` into Trusted Root Certification Authorities and Trusted Publishers on the Switch.
-3. Extract the ZIP and use each Switch-* kit's installation script. Follow its README. Install GPIO (Stage1), I²C (Stage3), battery, fan, touch, power button, CPU, and RTC in that order.
+3. Extract the ZIP and use each Switch-* kit's installation script. Follow its README. Install GPIO (Stage1), I²C (Stage3), battery, fan, touch, power button, CPU, and RTC in that order. Then install sensors and Bluetooth if supported by the firmware. Bluetooth requires R390 or later and the firmware patch described in its kit README.
 4. Extract `SwitchCenter-<version>-arm64.zip` and run `SwitchCenter.exe`. Its tray menu provides CPU profiles, brightness, status, power settings, and the driver list.
 
 ## SwitchPatcher
@@ -43,7 +52,7 @@ SwitchPatcher runs on a PC with the Switch SD card inserted. It installs drivers
 - Download: `SwitchPatcher-<version>-x64.zip` from releases.
 - Usage: [SwitchPatcher kit](kits/Switch-Patcher/README-ja.md) (upstream Japanese documentation).
 - Design: [SwitchPatcher design notes](docs/Design-SwitchPatcher-ja.md) (Japanese).
-- Upstream status: This bundled snapshot documents virtual-disk testing only; physical SD-card testing was still pending.
+- Upstream status: Version 0.3.0 was tested with a physical SD card and Switch running Windows 11 ARM64 22H2.
 
 ## Build on a PC
 
@@ -58,13 +67,16 @@ Requirements:
 .\release\Make-Release.ps1 -Version 2026.10.26
 ```
 
-Build output is written to `out\<version>\`. This snapshot documents these release artifacts:
+Build output is written to `out\<version>\`. The release contains:
 
 - `SwitchDrivers-<version>.zip`
 - `SwitchCenter-<version>-arm64.zip`
+- `SwitchPatcher-<version>-x64.zip`
 - `manifest.json`
 
 Create a GitHub release tagged `drivers-<version>` and attach the generated artifacts.
+
+Use `-Beta` for a prerelease. Drivers marked Beta in the release table are included only in beta packages. Selecting the beta update channel in SwitchCenter allows prerelease updates.
 
 With GitHub CLI already authenticated (`gh auth login`), `-Publish` creates the release and uploads the files. Use `-PublishOnly` to publish files built earlier.
 

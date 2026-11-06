@@ -131,8 +131,17 @@ outbound AFI aperture is unchanged. The focused layout fixture decodes the
 bridge register and checks coverage of both BARs and the firmware TCM interval.
 
 R6 is deployed and read back as an application-only update on WINARM; R5 BL33 and the Ubuntu board data
-remain in place. Firmware startup, msgbuf exchange and scan acceptance still
-require a physical result.
+remain in place. The owner’s R6 result is **SCAN COMPLETE / LAST STAGE 5**, UEFI return
+`Success`, terminal scan status 0 and six scan records on channels 1, 9 and 36.
+Records include repeats and are not a count of distinct networks. This accepts
+pre-Windows PCIe/firmware startup, control/event DMA and passive scanning.
+The probe reported endpoint reset and DMA release before exit. Network names,
+BSSIDs and device calibration are not copied into this public record.
+
+The temporary `wifi_check=1` line has been removed from the returned card,
+restoring normal **Lite Windows 11 Home** launch. No Windows Wi-Fi adapter has
+been installed. Association/key management, packet transmit/receive and the
+Windows network interface remain the next implementation work.
 
 ## Build and focused checks
 
