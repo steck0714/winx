@@ -1,32 +1,28 @@
 /** @file
-  wifibt - Nintendo Switch (Erista) Broadcom BCM4356 Bluetooth + Wi-Fi bring-up experiment.  DRAFT, UNTESTED.
+  BCM4356 bring-up commands for the Nintendo Switch.
 
-  The Switch has ONE combo chip, BCM4356 (Wi-Fi: SDIO, Bluetooth: HCI over UART).  A real 802.11 / Bluetooth
-  stack does not exist in EDK2, so this tool only does the part that can be done at shell level and that you
-  need to find out first on real hardware:
+  Wi-Fi uses PCIe root port 1 and lane pcie-0. Bluetooth uses UART-D.
+  The shared PCIe path preserves Bluetooth power/reset and UART pinmux.
 
-    wifibt info                      GPIO H / pinmux / UART-D / SDMMC3 / PMIC 32 kHz state (read only)
-    wifibt pwr                       PMIC 32 kHz out (GPIO4 alt function) + pinmux for BT/WiFi control pins
+    wifibt pex                       power, PHY, root port and endpoint BARs
+    wifibt pchip                     discover CR4/D11/PCIe cores and TCM
+    wifibt pfw fw.bin nvram.txt      upload Switch-specific firmware/NVRAM
+    wifibt pcon                      dump the chip firmware console
+    wifibt pctl                      query the msgbuf-v5 control interface
+    wifibt pscan [firmware.clm_blob] passive escan with optional CLM upload
+    wifibt pall fw.bin nvram.txt     run pex, pchip and pfw together
+    wifibt poff                      stop Wi-Fi, preserving Bluetooth
     wifibt bt [fw.hcd] [baud=N] [flow=0|1]
-                                     power BT, UART-D @115200, HCI Reset / Read Version / Read BD_ADDR,
-                                     optional Broadcom patchram (.hcd), optional baud switch (e.g. 3000000)
-    wifibt wifi [base=0x700B0400]    power Wi-Fi, SDHCI bring-up, SDIO CMD5/3/7, CCCR dump, chip id, EROM dump
-    wifibt wfw fw.bin nvram.txt [ram=0x180000] [size=0xC0000] [arm=0x18002000] [wrap=0x18102000]
-                                     (after `wifi`) put the ARM CR4 in reset, download firmware + NVRAM, start it
-    wifibt all                       pwr, bt, wifi
-    wifibt off                       power both radios down
+    wifibt btscan [seconds]          Bluetooth HCI inquiry
+    wifibt info                      read GPIO, pinmux, UART and clock state
 
-  Every step is logged to the screen AND to wifibt.log (flushed per line) BEFORE the risky access, so the last
-  line of the log names the step that faulted (the idea: fix alignment/abort faults one by one on real HW).
-  All register accesses are 32-bit aligned MMIO; SDIO data uses PIO (no DMA), so no cache/alignment surprises
-  except the ones the SoC itself raises.
+  pctl/pscan stop Wi-Fi before releasing their DMA buffers. Reload the chip
+  firmware before a subsequent probe. These shell commands do not provide
+  Windows networking. PCIe/radio behavior still requires hardware acceptance.
+  The legacy wifi/wfw SDIO commands are unsuitable for Switch Wi-Fi.
 
-  Sources: fail0verflow/switch-linux tegra210-nintendo-switch.dts (BT on UART-D 0x70006300, GPIO H3/H4,
-  pinmux), Linux drivers/net/wireless/broadcom/brcm80211/brcmfmac (chip.c, sdio.c), hekate (bdk uart/sdmmc/gpio).
-  Firmware (brcmfmac4356-sdio.bin/.txt, BCM4356A2.hcd) is NOT included; copy it from your own Switch Linux.
-  UNVERIFIED assumptions: Wi-Fi SDIO is on SDMMC3 (0x700B0400); GPIO H0=WIFI_EN H1=WIFI_RST (high = on);
-  BCM4356 RAM base 0x180000 size 0xC0000; ARM CR4 core 0x18002000/wrapper 0x18102000.  `wifi` dumps the EROM so
-  the real core layout can be read.
+  References: Switchroot brcmfmac PCIe/msgbuf, Tegra PCIe/UPHY and B01 board
+  descriptions. Firmware and per-device calibration are supplied locally.
 **/
 
 #include <Uefi.h>
@@ -41,8 +37,14 @@
 #include <Library/ShellLib.h>
 #include <Library/TimerLib.h>
 #include <Library/I2cLib.h>
+#include <Library/DmaLib.h>
 #include <Protocol/ShellParameters.h>
 #include <Protocol/ShellDynamicCommand.h>
+#if defined(WIFI_AUTO_PROBE)
+#include <Library/FileHandleLib.h>
+#include <Protocol/LoadedImage.h>
+#include <Protocol/SimpleFileSystem.h>
+#endif
 
 // ---------------------------------------------------------------------------------------------
 #define CAR_BASE        0x60006000
@@ -130,6 +132,9 @@
 
 // ---------------------------------------------------------------------------------------------
 STATIC SHELL_FILE_HANDLE  mLog = NULL;
+#if defined(WIFI_AUTO_PROBE)
+STATIC EFI_FILE_PROTOCOL *mProbeRoot;
+#endif
 STATIC UINTN              mSd   = 0x700B0400;
 STATIC BOOLEAN            mSdUp = FALSE;
 STATIC UINT32             mFlow = 0;
@@ -152,8 +157,13 @@ Log (
   Print (L"%s\n", Buf);
   if (mLog != NULL) {
     Len = AsciiSPrint (Out, sizeof (Out), "%s\r\n", Buf);
+#if defined(WIFI_AUTO_PROBE)
+    FileHandleWrite ((EFI_FILE_PROTOCOL *)mLog, &Len, Out);
+    FileHandleFlush ((EFI_FILE_PROTOCOL *)mLog);
+#else
     ShellWriteFile (mLog, &Len, Out);
     ShellFlushFile (mLog);
+#endif
   }
 }
 
@@ -468,24 +478,45 @@ ReadFile (
 
   *Buf = NULL;
   *Size = 0;
+#if defined(WIFI_AUTO_PROBE)
+  S = mProbeRoot->Open (mProbeRoot, (EFI_FILE_PROTOCOL **)&H, (CHAR16 *)Name, EFI_FILE_MODE_READ, 0);
+#else
   S = ShellOpenFileByName (Name, &H, EFI_FILE_MODE_READ, 0);
+#endif
   if (EFI_ERROR (S)) {
     Log (L"file: cannot open %s (%r)", Name, S);
     return S;
   }
+#if defined(WIFI_AUTO_PROBE)
+  S = FileHandleGetSize ((EFI_FILE_PROTOCOL *)H, &Sz);
+#else
   S = ShellGetFileSize (H, &Sz);
+#endif
   if (EFI_ERROR (S) || Sz > MAX_UINTN - 4) {
+#if defined(WIFI_AUTO_PROBE)
+    FileHandleClose ((EFI_FILE_PROTOCOL *)H);
+#else
     ShellCloseFile (&H);
+#endif
     return EFI_ERROR (S) ? S : EFI_BAD_BUFFER_SIZE;
   }
   *Buf = AllocateZeroPool ((UINTN)Sz + 4);
   if (*Buf == NULL) {
+#if defined(WIFI_AUTO_PROBE)
+    FileHandleClose ((EFI_FILE_PROTOCOL *)H);
+#else
     ShellCloseFile (&H);
+#endif
     return EFI_OUT_OF_RESOURCES;
   }
   N = (UINTN)Sz;
+#if defined(WIFI_AUTO_PROBE)
+  S = FileHandleRead ((EFI_FILE_PROTOCOL *)H, &N, *Buf);
+  FileHandleClose ((EFI_FILE_PROTOCOL *)H);
+#else
   S = ShellReadFile (H, &N, *Buf);
   ShellCloseFile (&H);
+#endif
   if (EFI_ERROR (S) || N != (UINTN)Sz) {
     FreePool (*Buf);
     *Buf = NULL;
@@ -1456,6 +1487,8 @@ StepOff (
 }
 
 #include "WifiPexStages.h"
+#include "WifiMsgbuf.h"
+#include "WifiScan.h"
 
 // ---------------------------------------------------------------------------------------------
 STATIC
@@ -1477,7 +1510,7 @@ RunWifiBt (
   SHELL_STATUS  Result = SHELL_SUCCESS;
 
   if (Argc < 2) {
-    Print (L"usage: wifibt info|pwr|bt [fw.hcd] [baud=N] [flow=1]|btscan [sec] [baud=N]|pex [rst=0|1] [gen2=1]|pchip [arm= wrap= d11= size= ram=]|pfw fw.bin nvram.txt|pcon|pall fw nvram|poff|wifi (OLD SDIO, wrong for Switch)|wfw|all|off\n");
+    Print (L"usage: wifibt info|pwr|bt [fw.hcd] [baud=N] [flow=1]|btscan [sec] [baud=N]|pex [rst=0|1] [gen2=1]|pchip [arm= wrap= d11= size= ram=]|pfw fw.bin nvram.txt|pcon|pctl|pscan [clm_blob]|pall fw nvram|poff|wifi (OLD SDIO, wrong for Switch)|wfw|all|off\n");
     return SHELL_INVALID_PARAMETER;
   }
   Cmd = Argv[1];
@@ -1554,6 +1587,18 @@ RunWifiBt (
     }
   } else if (StrCmp (Cmd, L"pcon") == 0) {
     PexConsole ();
+  } else if (StrCmp (Cmd, L"pctl") == 0) {
+    if (!PexControlProbe ()) Result = SHELL_DEVICE_ERROR;
+  } else if (StrCmp (Cmd, L"pscan") == 0) {
+    UINT8 *Clm = NULL;
+    UINTN ClmSize = 0;
+    if (Pos[0] != NULL && (EFI_ERROR (ReadFile (Pos[0], &Clm, &ClmSize)) || ClmSize == 0)) {
+      Log (L"pscan: could not read the requested CLM file");
+      Result = SHELL_INVALID_PARAMETER;
+    } else if (!PexScanProbe (Clm, ClmSize)) {
+      Result = SHELL_DEVICE_ERROR;
+    }
+    if (Clm != NULL) FreePool (Clm);
   } else if (StrCmp (Cmd, L"poff") == 0) {
     PexOff ();
   } else if (StrCmp (Cmd, L"pall") == 0) {
@@ -1600,6 +1645,8 @@ WifiBtCmdHandler (
   IN EFI_SHELL_PROTOCOL                  *Shell
   )
 {
+  EFI_STATUS Status = ShellInitialize ();
+  if (EFI_ERROR (Status)) return SHELL_DEVICE_ERROR;
   gEfiShellParametersProtocol = ShellParameters;
   gEfiShellProtocol           = Shell;
   return (SHELL_STATUS)RunWifiBt (ShellParameters->Argc, ShellParameters->Argv);
@@ -1614,7 +1661,7 @@ WifiBtCmdGetHelp (
   )
 {
   STATIC CONST CHAR16  Help[] =
-    L"wifibt info|pwr|bt [fw.hcd] [baud=N] [flow=1]|btscan [sec]|pex|pchip|pfw fw nvram|pcon|pall|poff|all|off  (BCM4356 Bluetooth/Wi-Fi bring-up, DRAFT; log: wifibt.log)\r\n";
+    L"wifibt info|pwr|bt [fw.hcd] [baud=N] [flow=1]|btscan [sec]|pex|pchip|pfw fw nvram|pcon|pctl|pscan [clm_blob]|pall|poff|all|off  (BCM4356 Bluetooth/Wi-Fi bring-up, DRAFT; log: wifibt.log)\r\n";
 
   return AllocateCopyPool (sizeof (Help), Help);
 }
@@ -1634,3 +1681,64 @@ WifiBtCmdInitialize (
 {
   return gBS->InstallProtocolInterface (&ImageHandle, &gEfiShellDynamicCommandProtocolGuid, EFI_NATIVE_INTERFACE, &mWifiBtCommand);
 }
+
+#if defined(WIFI_AUTO_PROBE)
+/* Run without a keyboard or UEFI Shell. The boot manager starts this image
+ * only for an explicit wifi_check=1 diagnostic boot. */
+EFI_STATUS EFIAPI
+WifiProbeMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+{
+  EFI_LOADED_IMAGE_PROTOCOL *Loaded;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
+  EFI_FILE_PROTOCOL *Root, *ClmFile;
+  EFI_STATUS Status;
+  UINT8 *Clm = NULL;
+  UINTN ClmSize = 0;
+  UINT32 Stage = 0;
+  BOOLEAN Pass = FALSE;
+
+  (VOID)SystemTable;
+  gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded);
+  if (EFI_ERROR (Status)) return Status;
+  Status = gBS->HandleProtocol (Loaded->DeviceHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  if (EFI_ERROR (Status)) return Status;
+  Status = Fs->OpenVolume (Fs, &Root);
+  if (EFI_ERROR (Status)) return Status;
+  Status = Root->Open (Root, &mProbeRoot, L"\\switchroot\\woa-lite-home\\wifi", EFI_FILE_MODE_READ, 0);
+  Root->Close (Root);
+  if (EFI_ERROR (Status)) return Status;
+  Status = mProbeRoot->Open (mProbeRoot, (EFI_FILE_PROTOCOL **)&mLog, L"wifi-probe.log",
+                           EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
+  if (EFI_ERROR (Status)) { mLog = NULL; goto Done; }
+  FileHandleSetPosition ((EFI_FILE_PROTOCOL *)mLog, MAX_UINT64);
+  Log (L"WIFI PCIE / FIRMWARE / PASSIVE SCAN CHECK R1");
+  Log (L"Windows has not started. Bluetooth reset and UART are preserved.");
+  Stage = 1;
+  if (!PexUp ()) goto Done;
+  Stage = 2;
+  if (!PexEnum ()) goto Done;
+  Stage = 3;
+  if (!PexChip ()) goto Done;
+  Stage = 4;
+  if (!PexFw (L"firmware.bin", L"nvram.txt")) { PexConsole (); goto Done; }
+  PexConsole ();
+  Stage = 5;
+  Status = mProbeRoot->Open (mProbeRoot, &ClmFile, L"firmware.clm_blob", EFI_FILE_MODE_READ, 0);
+  if (!EFI_ERROR (Status)) {
+    ClmFile->Close (ClmFile);
+    if (EFI_ERROR (ReadFile (L"firmware.clm_blob", &Clm, &ClmSize)) || ClmSize == 0) goto Done;
+  } else if (Status != EFI_NOT_FOUND) {
+    goto Done;
+  }
+  Pass = PexScanProbe (Clm, ClmSize);
+Done:
+  if (Stage && mPexUp) PexOff ();
+  if (Clm != NULL) FreePool (Clm);
+  Log (L"WIFI CHECK %s / LAST STAGE %d", Pass ? L"SCAN COMPLETE" : L"FAILED", Stage);
+  Log (L"This result does not establish a Windows network connection.");
+  if (mLog != NULL) { FileHandleClose ((EFI_FILE_PROTOCOL *)mLog); mLog = NULL; }
+  mProbeRoot->Close (mProbeRoot); mProbeRoot = NULL;
+  return Pass ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
+#endif

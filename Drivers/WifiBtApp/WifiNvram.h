@@ -21,6 +21,24 @@
 
 #define PEX_NVRAM_MAX 64000U
 
+/* brcmfmac/pcie.c RAMS header: the firmware can reserve part of CR4 RAM.
+ * Keep the result inside the discovered aperture before placing the token. */
+STATIC BOOLEAN PexFirmwareRamSize (CONST UINT8 *Fw, UINTN Length,
+  UINT32 Capacity, UINT32 *Size)
+{
+  UINT32 Value = Capacity;
+  *Size = 0;
+  if (Fw == NULL || Length < 4 || Length > Capacity) return FALSE;
+  if (Length >= 0x74 && Fw[0x6c] == 'R' && Fw[0x6d] == 'A' &&
+      Fw[0x6e] == 'M' && Fw[0x6f] == 'S') {
+    Value = Fw[0x70] | ((UINT32)Fw[0x71] << 8) |
+            ((UINT32)Fw[0x72] << 16) | ((UINT32)Fw[0x73] << 24);
+  }
+  if (Value < Length || Value > Capacity || (Value & 3)) return FALSE;
+  *Size = Value;
+  return TRUE;
+}
+
 STATIC
 BOOLEAN
 PexNvramBuild (

@@ -73,6 +73,18 @@ int main(void)
     large[1] = '=';
     reject(large, PEX_NVRAM_MAX + 2);
     free(large);
-    puts("NVRAM format, comments, packed entries and length bounds passed");
+    UINT8 firmware[0x74] = {0};
+    UINT32 ram;
+    assert(PexFirmwareRamSize(firmware,sizeof(firmware),1024,&ram) && ram==1024);
+    memcpy(firmware+0x6c,"RAMS",4);firmware[0x71]=2;
+    assert(PexFirmwareRamSize(firmware,sizeof(firmware),1024,&ram) && ram==512);
+    firmware[0x71]=8;
+    assert(!PexFirmwareRamSize(firmware,sizeof(firmware),1024,&ram) && ram==0);
+    firmware[0x71]=0;
+    assert(!PexFirmwareRamSize(firmware,sizeof(firmware),1024,&ram));
+    firmware[0x71]=2;firmware[0x70]=1;
+    assert(!PexFirmwareRamSize(firmware,sizeof(firmware),1024,&ram));
+    assert(!PexFirmwareRamSize(firmware,3,1024,&ram));
+    puts("NVRAM packing/bounds and firmware RAMS aperture checks passed");
     return 0;
 }

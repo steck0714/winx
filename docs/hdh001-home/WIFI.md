@@ -6,7 +6,7 @@ Wi-Fi is part of the active porting goal. It is not yet a working Windows adapte
 
 The Switchroot B01 board description selects BCM4356 FullMAC on PCIe root port index 1 (`pci@2,0`), using UPHY lane `pcie-0`. Port index 0 is disabled. The old SDIO commands in WifiBtApp are explicitly unsuitable for the Switch Wi-Fi path.
 
-The existing upstream `Drivers/WifiBtApp/WifiPcie.h` and `WifiPexStages.h` already implement draft PCIe link, endpoint BAR, backplane/chip and firmware-console stages. They do not implement message-buffer rings, scan/join, EFI networking or a Windows network adapter. Reuse this source rather than starting a parallel Lite implementation.
+The existing upstream `Drivers/WifiBtApp/WifiPcie.h` and `WifiPexStages.h` already implement draft PCIe link, endpoint BAR, backplane/chip and firmware-console stages. The shared source now includes msgbuf-v5 control/event rings and passive scanning. Association, packet transport and a Windows network adapter remain unfinished. Reuse this source rather than starting a parallel Lite implementation.
 
 Switchroot's `tegra210b01_pcie_data` differs from Erista: it does not request the Erista PCIe IO-DPD and MBIST workarounds, and its lane configuration resolves to x4+x1. Power supplies are MAX77620 LDO1/SD3. Wi-Fi and Bluetooth share the chip and low-power clock. The shared PCIe entry configures only Wi-Fi pins, leaving Bluetooth/UART pinmux intact, and skips the Erista IO-DPD workaround on B01.
 
@@ -22,7 +22,62 @@ Vali's GPIO defaults hold PH0 (RF_DISABLE) low and PH1 (Wi-Fi reset/power) high 
 
 The NVRAM converter follows brcmfmac's printable key/value, inline-comment, NUL-separated entry, default boardrev and aligned length-token format. It accepts a final entry without a newline and rejects empty/oversized data. Switch-specific single-board files are required; router-style multi-device files with `devpath` or `pcie/` prefixes need device selection and are rejected rather than uploaded unchanged.
 
-Files and the combined firmware/NVRAM RAM layout are checked before writing TCM. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host EROM and NVRAM fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. Chip firmware startup still requires physical acceptance; these checks do not establish a working Wi-Fi link.
+The loader also honors the optional firmware `RAMS` aperture header. Files and the combined firmware/NVRAM RAM layout are checked before writing TCM. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host EROM and NVRAM fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. Chip firmware startup still requires physical acceptance; these checks do not establish a working Wi-Fi link.
+
+## Control transport and passive scan
+
+`WifiMsgbuf.h` implements the BCM4356 shared-memory v5 control transport from
+Switchroot brcmfmac. It publishes five common rings, supports TCM indices and
+2-/4-byte host DMA indices, and posts separate IOCTL/event response buffers.
+`pctl` queries the firmware command/version interface. `pscan [clm_blob]`
+registers the escan event, brings the radio up and requests a passive scan.
+Scan events report BSSID, channel, RSSI and SSID through the shared log.
+
+The transport owns a below-4-GiB uncached DMA arena, uses producer/consumer
+barriers, and temporarily bypasses only the AFI SMMU group. Before unmapping or
+freeing that arena it disables endpoint bus mastering, stops CR4 and holds the
+Wi-Fi endpoint in reset. Both commands therefore require a fresh `pall` before
+a subsequent probe; no DMA allocation is handed to Windows.
+
+For firmware that requires a matching external CLM file, `pscan` uploads it
+before `WLC_UP`, using the Linux v1 download header and 1400-byte chunks. The
+first/last flags, payload length, zero CRC/padding and failed-chunk abort follow
+brcmfmac. Do not mix a generic Cypress CLM with a different board firmware.
+
+## Automatic physical check
+
+The owner’s Ubuntu partition was read without mounting it writable. Its boot
+log identifies BCM4356 revision 3, loads firmware **7.35.252.108 / FWID
+01-65333037**, and creates `wlp1s0`. The matching files are
+`brcm/brcmfmac4356A3-pcie.bin` and `brcm/brcmfmac4356A3-pcie.txt`. The similarly
+named `fw_bcmdhd.bin` is a different BCM4354 SDIO image and is not used. These
+local files and the device identifiers are not committed to this repository.
+
+`WifiProbe.inf` builds an application from the same source as `wifibt`. It uses
+EFI file handles directly, so it does not depend on a shell or keyboard. The
+shell command explicitly initializes ShellLib before using its file helpers.
+The Home boot manager starts the application only when its Hekate environment
+contains `wifi_check=1`; a normal configuration never runs the PCIe probe.
+
+The local FAT package is:
+
+```text
+switchroot/woa-lite-home/wifi/WifiProbe.efi
+switchroot/woa-lite-home/wifi/firmware.bin   # the owner's A3 PCIe image
+switchroot/woa-lite-home/wifi/nvram.txt     # matching A3 board data
+```
+
+A matching `firmware.clm_blob` is optional. The current A3 package does not add
+the unrelated generic Cypress CLM. The probe runs controller/link, endpoint,
+chip discovery, firmware handshake and passive scan in that order. It appends
+`wifi-probe.log` in the same folder, reports the last stage and stops Wi-Fi.
+The Home boot manager displays the result for 30 seconds and requests shutdown
+without starting Windows. The entry remains **Lite Windows 11 Home**.
+
+WifiCheck R1 has been built and deployed for physical acceptance. Windows files,
+partitions and BL31 are unchanged. Remove `wifi_check=1` after collecting the
+result to restore normal Windows launch. A completed scan is not a Windows
+network connection; physical PCIe/firmware/scan results are still pending.
 
 ## Build and focused checks
 
@@ -37,18 +92,23 @@ From the repository root, the descriptor/format fixtures use the actual shared h
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined Drivers/WifiBtApp/tests/test-erom.c -o /tmp/test-erom && /tmp/test-erom
 cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined Drivers/WifiBtApp/tests/test-nvram.c -o /tmp/test-nvram && /tmp/test-nvram
+cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all Drivers/WifiBtApp/tests/test-msgbuf.c -o /tmp/test-msgbuf && /tmp/test-msgbuf
 ```
 
-These checks cover descriptor and buffer-format behavior. They do not test PCIe link training, DMA, radio operation or Windows networking.
+The msgbuf model covers IOCTL/event interleaving, index wrap/full conditions, malformed replies, timeouts, passive-scan parameters, CLM chunking and reset-before-DMA-release. The actual Ubuntu firmware/NVRAM pair also passes the loader format/layout check. The shell module, automatic probe and Home firmware compile for AARCH64. These checks do not test physical PCIe link training, DMA, radio operation or Windows networking.
+
+For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/WifiBtApp/WifiProbe.inf`; the DSC supplies its `WIFI_AUTO_PROBE` and DMA configuration. Copy the resulting application to FAT rather than enabling the shell module in the normal Home firmware.
 
 ## Milestones
 
 1. Adapt the shared PCIe bring-up for B01 and obtain a physical link/chip-ID readback. Do not claim a connected network from an enumerated endpoint.
 2. Supply the Switch-specific `brcmfmac4356-pcie.bin` and matching board NVRAM locally. Load the chip firmware, verify its shared-memory/console handshake and retain the actual failure stage.
-3. Adapt brcmfmac PCIe message-buffer rings, DMA/cache handling, interrupts and control messages. Linux cfg80211 and network callbacks need Windows equivalents; a Linux module cannot be used as a Windows SYS file.
+3. Extend the implemented polled control/event transport with packet rings, interrupts and association/key commands. Linux cfg80211 and network callbacks need Windows equivalents; a Linux module cannot be used as a Windows SYS file.
 4. Add a Windows ARM64 Wi-Fi adapter interface with scan, authentication/association and packet transmit/receive. Validate DHCP, sustained traffic, disconnect/reconnect and Bluetooth coexistence.
 
-The firmware blob, board calibration, MAC address and credentials are not committed. The active Home package does not yet enable the unverified PCIe radio path.
+The firmware blob, board calibration, MAC address and credentials are not committed. The PCIe radio path runs only in the explicit pre-Windows diagnostic; no Windows Wi-Fi driver is installed yet.
+
+The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. Firmware capabilities, scan/association/key operations and packet queues must be connected to that interface; a registered placeholder adapter would not establish functionality.
 
 ## Primary references
 
@@ -60,3 +120,8 @@ The firmware blob, board calibration, MAC address and credentials are not commit
 - [brcmfmac PCIe transport](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c)
 - [brcmfmac firmware/NVRAM parser](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/firmware.c)
 - [brcmfmac EROM discovery and CR4 RAM sizing](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c)
+
+- [brcmfmac control/event/packet message format](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c)
+- [Linux CLM upload](https://github.com/torvalds/linux/blob/v6.1/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c)
+- [WiFiCx client initialization](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver)
+- [WiFiCx/NetAdapterCx compatibility](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/building-a-wificx-driver-for-multiple-versions-of-windows)

@@ -766,6 +766,7 @@
   # DRAFT: BCM4356 Bluetooth (UART-D HCI) + Wi-Fi (PCIe x1, brcmfmac-style firmware boot) bring-up, built-in shell command `wifibt`.
   NintendoSwitchPkg/Drivers/WifiBtApp/WifiBtCmd.inf {
     <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
       ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
       FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
       SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
@@ -774,8 +775,27 @@
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
     <PcdsFixedAtBuild>
       gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
     <BuildOptions>
       GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align
+  }
+!endif
+!ifdef SWITCH_WIFI_PROBE
+  # Standalone automatic PCIe/firmware/passive-scan diagnostic, loaded from FAT.
+  NintendoSwitchPkg/Drivers/WifiBtApp/WifiProbe.inf {
+    <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1
   }
 !endif
 !ifdef SWITCH_PERF

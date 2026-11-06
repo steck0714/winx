@@ -1,0 +1,47 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = WifiProbe
+  FILE_GUID      = c93862c4-48eb-4e1b-951f-765b1942a249
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = WifiProbeMain
+
+[Sources]
+  WifiBt.c
+  WifiPcie.h
+  WifiPexStages.h
+  WifiNvram.h
+  WifiErom.h
+  WifiMsgbuf.h
+  WifiScan.h
+  t214/uphy.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  ArmPkg/ArmPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PrintLib
+  IoLib
+  DebugLib
+  ShellLib
+  FileHandleLib
+  I2cLib
+  TimerLib
+  DmaLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+  gEfiShellParametersProtocolGuid
+  gEfiShellDynamicCommandProtocolGuid
+

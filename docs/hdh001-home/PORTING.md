@@ -23,7 +23,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed | Discovery, pairing, data exchange and usable range |
 | USB | Upstream firmware paths exist; Lite Windows support unfinished | Device enumeration and keyboard/storage operation through the supported host path |
 | Built-in controls / motion | Lite SIO owns SPI4; Erista direct-SPI sensor profile is unsuitable | Lite SIO transport, button/stick input and sensor reports |
-| Wi-Fi | B01 PHY/clock/radio adaptation and NVRAM loader build; PCIe module remains outside the Home package | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
+| Wi-Fi | B01 PCIe, A3 firmware/NVRAM loader and msgbuf-v5 control/event/passive scan build; an explicit pre-Windows probe is deployed, physical result pending | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
 | Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |

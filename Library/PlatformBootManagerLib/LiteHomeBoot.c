@@ -12,16 +12,16 @@
 /* The Hekate BL33 environment is reserved by the performance profile.
  * Configuration avoids VOL- being consumed by Hekate before BL33 starts. */
 STATIC UINT32
-PowerCheckMode (VOID)
+BootCheckMode (CONST CHAR8 *Key)
 {
   CONST CHAR8 *Text = (CONST CHAR8 *)0xA9FC0000UL;
-  STATIC CONST CHAR8 Key[] = "power_check=";
+  UINTN KeyLength = AsciiStrLen (Key);
   UINTN Pos = 0;
   if (MmioRead32 (0xA9FBFFFCUL) != 0x33334C42U) return 0;
   while (Pos < 0x40000U && Text[Pos] != 0) {
     UINTN End = Pos;
     while (End < 0x40000U && Text[End] != 0 && Text[End] != '\n') End++;
-    if (End - Pos == sizeof (Key) && CompareMem (Text + Pos, Key, sizeof (Key) - 1) == 0) {
+    if (End - Pos == KeyLength + 1 && CompareMem (Text + Pos, Key, KeyLength) == 0) {
       CHAR8 Value = Text[End - 1];
       return Value == '1' || Value == '2' ? (UINT32)(Value - '0') : 0;
     }
@@ -33,7 +33,7 @@ PowerCheckMode (VOID)
 STATIC VOID
 CheckPowerBeforeWindows (VOID)
 {
-  UINT32 Mode = PowerCheckMode ();
+  UINT32 Mode = BootCheckMode ("power_check=");
   UINTN I;
   EFI_RESET_TYPE Action;
   if (!Mode || (MmioRead32 (0x70000804) & 0xFFF0) != 0x2120) return;
@@ -46,6 +46,38 @@ CheckPowerBeforeWindows (VOID)
   Print (L"\r\nResetSystem called now.\r\n");
   gRT->ResetSystem (Action, EFI_SUCCESS, 0, NULL);
   Print (L"FAILED: ResetSystem returned.\r\n");
+  for (;;) __asm__ volatile ("wfi");
+}
+
+STATIC VOID
+CheckWifiBeforeWindows (VOID)
+{
+  STATIC CHAR16 ProbePath[] = L"\\switchroot\\woa-lite-home\\wifi\\WifiProbe.efi";
+  EFI_HANDLE *Volumes = NULL, Image;
+  UINTN Count, I;
+  EFI_STATUS Status;
+  if (BootCheckMode ("wifi_check=") != 1) return;
+  Print (L"WIFI CHECK / CONFIG 1\r\nWindows will not start during this check.\r\n");
+  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
+  if (!EFI_ERROR (Status)) {
+    Status = EFI_NOT_FOUND;
+    for (I = 0; I < Count; I++) {
+      EFI_DEVICE_PATH_PROTOCOL *Path = FileDevicePath (Volumes[I], ProbePath);
+      if (Path == NULL) { Status = EFI_OUT_OF_RESOURCES; break; }
+      Status = gBS->LoadImage (FALSE, gImageHandle, Path, NULL, 0, &Image);
+      FreePool (Path);
+      if (EFI_ERROR (Status)) continue;
+      Status = gBS->StartImage (Image, NULL, NULL);
+      gBS->UnloadImage (Image);
+      break;
+    }
+    FreePool (Volumes);
+  }
+  Print (L"Wi-Fi check returned: %r\r\n", Status);
+  Print (L"Log: switchroot/woa-lite-home/wifi/wifi-probe.log\r\n");
+  Print (L"Powering off in 30 seconds.\r\n");
+  for (I = 30; I > 0; I--) gBS->Stall (1000000);
+  gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
   for (;;) __asm__ volatile ("wfi");
 }
 #endif
@@ -128,6 +160,7 @@ PlatformBootManagerAfterConsole (VOID)
   EfiBootManagerConnectAll ();
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
   CheckPowerBeforeWindows ();
+  CheckWifiBeforeWindows ();
 #endif
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
   if (!EFI_ERROR (Status)) {

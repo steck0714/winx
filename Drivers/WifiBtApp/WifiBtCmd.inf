@@ -12,12 +12,15 @@
   WifiPexStages.h
   WifiNvram.h
   WifiErom.h
+  WifiMsgbuf.h
+  WifiScan.h
   t214/uphy.h
 
 [Packages]
   MdePkg/MdePkg.dec
   ShellPkg/ShellPkg.dec
   ArmPkg/ArmPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
   NintendoSwitchPkg/NintendoSwitch.dec
 
 [LibraryClasses]
@@ -33,6 +36,7 @@
   ShellLib
   I2cLib
   TimerLib
+  DmaLib
 
 [Protocols]
   gEfiShellParametersProtocolGuid

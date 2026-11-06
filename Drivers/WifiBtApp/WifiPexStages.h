@@ -8,8 +8,9 @@
     pcon   : dump the firmware console ring (the firmware's own boot log)                          [PexConsole]
     poff   : everything down again                                                                 [PexOff]
 
-  What is NOT here: msgbuf rings / ioctl / scan / join / EFI_SIMPLE_NETWORK. Reaching "pfw: firmware is running" and a readable
-  firmware console establishes chip boot only; Windows networking still requires the transport and adapter driver.
+  WifiMsgbuf.h and WifiScan.h add control-ring queries and passive scanning.
+  Reaching "pfw: firmware is running" establishes chip boot only; association,
+  packet transport and Windows adapter integration remain separate stages.
 
   DRAFT, UNTESTED. All device accesses are naturally aligned 32-bit MMIO (see Rd/Wr/TcmRd32/TcmWr32).
 **/
@@ -25,6 +26,7 @@ STATIC UINT32  mPcieRev    = 0;
 STATIC UINT32  mChipOverrides = 0;         // explicit arm/wrap/d11/size options
 STATIC UINT32  mRamBase    = BCM_RAMBASE_4356;
 STATIC UINT32  mRamSize    = 0;
+STATIC UINT32  mRamCapacity = 0;
 STATIC UINT32  mSharedAddr = 0;
 STATIC BOOLEAN mChipReady = FALSE;
 
@@ -393,6 +395,7 @@ PexChip (
     return FALSE;
   }
   Log (L"chip: %d TCM banks, size=%08x, using %08x bytes at %08x", Banks, Size, mRamSize, mRamBase);
+  mRamCapacity = mRamSize;
   mChipReady = TRUE;
   return TRUE;
 }
@@ -433,12 +436,15 @@ PexFw (
   UINT32   I;
   UINT32   V;
 
+  UINT32   FirmwareRamSize;
+
   if (!mPexEnum || !mChipReady || mRamSize < 4 || (mRamBase & 3) || (mRamSize & 3) ||
       !PexTcmContains (mRamBase, mRamSize)) {
     Log (L"pfw: run `pex` and `pchip` first; RAM must fit the BAR2 aperture");
     return FALSE;
   }
-  if (EFI_ERROR (ReadFile (FwName, &Fw, &FwSz)) || FwSz < 4 || FwSz > mRamSize) {
+  if (EFI_ERROR (ReadFile (FwName, &Fw, &FwSz)) ||
+      !PexFirmwareRamSize (Fw, FwSz, mRamCapacity, &FirmwareRamSize)) {
     Log (L"pfw: invalid firmware file or RAM size");
     goto Failed;
   }
@@ -449,8 +455,8 @@ PexFw (
   }
   FreePool (Nv);
   Nv = NULL;
-  if (NvLen > mRamSize || ((FwSz + 3) & ~(UINTN)3) > mRamSize - NvLen) {
-    Log (L"pfw: firmware (%d) overlaps NVRAM (%d) in RAM (%08x)", FwSz, NvLen, mRamSize);
+  if (NvLen > FirmwareRamSize || ((FwSz + 3) & ~(UINTN)3) > FirmwareRamSize - NvLen) {
+    Log (L"pfw: firmware (%d) overlaps NVRAM (%d) in RAM (%08x)", FwSz, NvLen, FirmwareRamSize);
     goto Failed;
   }
   Rst = Le32 (Fw);
@@ -458,6 +464,8 @@ PexFw (
   Log (L"pfw: halting CR4");
   mSharedAddr = 0;
   if (!CoreReset (mArmWrap, 0x20, 0x20, 0x20)) goto Failed;
+  mRamSize = FirmwareRamSize;
+  Log (L"pfw: firmware RAM size=%08x, discovered capacity=%08x", mRamSize, mRamCapacity);
 
   Log (L"pfw: writing firmware to TCM offset %08x (32-bit stores)", mRamBase);
   TcmWriteBuf (mRamBase, Fw, FwSz);
