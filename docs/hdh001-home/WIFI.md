@@ -14,6 +14,14 @@ The SoC-specific `t214/uphy.h` helper enables B01's 102 MHz UPHY management cloc
 
 Vali's GPIO defaults hold PH0 (RF_DISABLE) low and PH1 (Wi-Fi reset/power) high while running. The B01 PCIe path now follows those levels instead of the legacy probe's unverified active-high PH0 enable assumption. PH3/PH4 Bluetooth wake/reset are not changed by PCIe bring-up.
 
+## Firmware loading
+
+`wifibt pfw brcmfmac4356-pcie.bin brcmfmac4356-pcie.txt` requires both files after `pex` and `pchip`. `pall` runs those stages together and leaves the Bluetooth/UART setup alone. PCIe stage failures return a nonzero shell status as well as a log message.
+
+The NVRAM converter follows brcmfmac's printable key/value, inline-comment, NUL-separated entry, default boardrev and aligned length-token format. It accepts a final entry without a newline and rejects empty/oversized data. Switch-specific single-board files are required; router-style multi-device files with `devpath` or `pcie/` prefixes need device selection and are rejected rather than uploaded unchanged.
+
+Files and the combined firmware/NVRAM RAM layout are checked before halting CR4. The loader checks existing firmware-word and NVRAM-token readbacks before release, reports the shared-area handshake, and keeps console reads within chip RAM and the BAR2 aperture. Host format fixtures pass with address/undefined-behavior sanitizers, and the AARCH64 command module builds. Chip firmware startup still requires physical acceptance; these checks do not establish a working Wi-Fi link.
+
 ## Milestones
 
 1. Adapt the shared PCIe bring-up for B01 and obtain a physical link/chip-ID readback. Do not claim a connected network from an enumerated endpoint.

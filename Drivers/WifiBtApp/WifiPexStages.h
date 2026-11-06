@@ -369,65 +369,18 @@ PexChip (
 // ---------------------------------------------------------------------------------------------
 // pfw: firmware download + boot
 // ---------------------------------------------------------------------------------------------
+#include "WifiNvram.h"
+
 STATIC
 BOOLEAN
-PexNvramBuild (
-  IN  CONST UINT8  *Nv,
-  IN  UINTN        NvSz,
-  OUT UINT8        **Out,
-  OUT UINT32       *OutLen        // includes the 4-byte length token
+PexTcmContains (
+  IN UINT32  Address,
+  IN UINT32  Length
   )
 {
-  UINT8    *Clean;
-  UINTN    I;
-  UINTN    O = 0;
-  UINT8    C;
-  BOOLEAN  Comment = FALSE;
-  BOOLEAN  Start   = TRUE;
-  UINT32   Tok;
-
-  Clean = AllocateZeroPool (NvSz + 16);
-  if (Clean == NULL) {
-    return FALSE;
-  }
-  for (I = 0; I < NvSz; I++) {
-    C = Nv[I];
-    if (C == '\r') {
-      continue;
-    }
-    if (Start && C == '#') {
-      Comment = TRUE;
-    }
-    if (C == '\n') {
-      if (!Comment && !Start) {
-        Clean[O++] = 0;
-      }
-      Comment = FALSE;
-      Start   = TRUE;
-      continue;
-    }
-    if (Start && (C == ' ' || C == '\t')) {
-      continue;
-    }
-    Start = FALSE;
-    if (!Comment) {
-      Clean[O++] = C;
-    }
-  }
-  if (!Start && !Comment) {
-    Clean[O++] = 0;                    // last line without newline
-  }
-  Clean[O++] = 0;                      // extra terminator (Linux: roundup(len + 1, 4))
-  O = (O + 3) & ~(UINTN)3;
-  Tok = (UINT32)(O / 4);
-  Tok = ((~Tok & 0xFFFF) << 16) | (Tok & 0xFFFF);
-  Clean[O + 0] = (UINT8)(Tok);
-  Clean[O + 1] = (UINT8)(Tok >> 8);
-  Clean[O + 2] = (UINT8)(Tok >> 16);
-  Clean[O + 3] = (UINT8)(Tok >> 24);
-  *Out    = Clean;
-  *OutLen = (UINT32)O + 4;
-  return TRUE;
+  return Address >= mRamBase && Length <= mRamSize &&
+         Address - mRamBase <= mRamSize - Length &&
+         Address <= mBar2Size && Length <= mBar2Size - Address;
 }
 
 STATIC
@@ -449,43 +402,57 @@ PexFw (
   UINT32   I;
   UINT32   V;
 
-  if (!mPexEnum || mRamSize == 0) {
-    Log (L"pfw: run `pex` and `pchip` first (same boot)");
+  if (!mPexEnum || mRamSize < 4 || (mRamBase & 3) || (mRamSize & 3) ||
+      !PexTcmContains (mRamBase, mRamSize)) {
+    Log (L"pfw: run `pex` and `pchip` first; RAM must fit the BAR2 aperture");
     return FALSE;
   }
-  if (EFI_ERROR (ReadFile (FwName, &Fw, &FwSz)) || FwSz < 4) {
-    return FALSE;
+  if (EFI_ERROR (ReadFile (FwName, &Fw, &FwSz)) || FwSz < 4 || FwSz > mRamSize) {
+    Log (L"pfw: invalid firmware file or RAM size");
+    goto Failed;
   }
-  if (FwSz > mRamSize) {
-    Log (L"pfw: firmware (%d) larger than RAM (%08x)", FwSz, mRamSize);
-    return FALSE;
+  if (NvName == NULL || EFI_ERROR (ReadFile (NvName, &Nv, &NvSz)) ||
+      !PexNvramBuild (Nv, NvSz, &NvB, &NvLen)) {
+    Log (L"pfw: a valid single-board Switch NVRAM file is required");
+    goto Failed;
+  }
+  FreePool (Nv);
+  Nv = NULL;
+  if (NvLen > mRamSize || ((FwSz + 3) & ~(UINTN)3) > mRamSize - NvLen) {
+    Log (L"pfw: firmware (%d) overlaps NVRAM (%d) in RAM (%08x)", FwSz, NvLen, mRamSize);
+    goto Failed;
   }
   Rst = Le32 (Fw);
   Log (L"pfw: firmware %d bytes, first word (reset vector) %08x", FwSz, Rst);
   Log (L"pfw: halting CR4");
+  mSharedAddr = 0;
   CoreReset (mArmWrap, 0x20, 0x20, 0x20);
 
   Log (L"pfw: writing firmware to TCM offset %08x (32-bit stores)", mRamBase);
   TcmWriteBuf (mRamBase, Fw, FwSz);
   V = TcmRd32 (mRamBase);
-  Log (L"pfw: readback word0 = %08x (%s)", V, V == Rst ? L"ok" : L"MISMATCH - BAR2/TCM write path broken");
+  if (V != Rst) {
+    Log (L"pfw: firmware word0 mismatch %08x != %08x; CR4 remains halted", V, Rst);
+    goto Failed;
+  }
   V = TcmRd32 (mRamBase + (UINT32)(FwSz & ~3U) - 4);
-  Log (L"pfw: readback last word = %08x (fw %08x)", V, Le32 (Fw + (FwSz & ~3U) - 4));
+  if (V != Le32 (Fw + (FwSz & ~3U) - 4)) {
+    Log (L"pfw: final firmware word mismatch; CR4 remains halted");
+    goto Failed;
+  }
   FreePool (Fw);
+  Fw = NULL;
 
   TcmWr32 (mRamBase + mRamSize - 4, 0);
-  if (NvName != NULL && !EFI_ERROR (ReadFile (NvName, &Nv, &NvSz))) {
-    if (!PexNvramBuild (Nv, NvSz, &NvB, &NvLen)) {
-      Log (L"pfw: nvram build failed");
-      return FALSE;
-    }
-    Log (L"pfw: nvram %d bytes -> %d (incl. token) at TCM %08x", NvSz, NvLen, mRamBase + mRamSize - NvLen);
-    TcmWriteBuf (mRamBase + mRamSize - NvLen, NvB, NvLen);
-    FreePool (NvB);
-    FreePool (Nv);
-  } else {
-    Log (L"pfw: NO NVRAM - the firmware will probably not start (needs board nvram text)");
+  Log (L"pfw: nvram %d bytes -> %d (incl. token) at TCM %08x", NvSz, NvLen, mRamBase + mRamSize - NvLen);
+  TcmWriteBuf (mRamBase + mRamSize - NvLen, NvB, NvLen);
+  V = TcmRd32 (mRamBase + mRamSize - 4);
+  if (V != Le32 (NvB + NvLen - 4)) {
+    Log (L"pfw: NVRAM token readback mismatch; CR4 remains halted");
+    goto Failed;
   }
+  FreePool (NvB);
+  NvB = NULL;
 
   Mark = TcmRd32 (mRamBase + mRamSize - 4);
   Log (L"pfw: marker at RAM end = %08x (firmware overwrites it with the shared-area pointer)", Mark);
@@ -507,7 +474,7 @@ PexFw (
     Log (L"pfw: try: other nvram file, `ram=`/`size=`, check chip halted state, then `pcon` anyway");
     return FALSE;
   }
-  if (Cur < mRamBase || Cur >= mRamBase + mRamSize) {
+  if ((Cur & 3) || !PexTcmContains (Cur, 80)) {
     Log (L"pfw: marker changed to %08x but is outside RAM [%08x,%08x)", Cur, mRamBase, mRamBase + mRamSize);
     return FALSE;
   }
@@ -518,6 +485,11 @@ PexFw (
        TcmRd32 (Cur + 32), TcmRd32 (Cur + 36), TcmRd32 (Cur + BRCMF_SHARED_HTOD_MB_OFFSET),
        TcmRd32 (Cur + BRCMF_SHARED_DTOH_MB_OFFSET), TcmRd32 (Cur + BRCMF_SHARED_RING_INFO_OFFSET));
   return TRUE;
+Failed:
+  if (Fw != NULL) FreePool (Fw);
+  if (Nv != NULL) FreePool (Nv);
+  if (NvB != NULL) FreePool (NvB);
+  return FALSE;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -539,21 +511,21 @@ PexConsole (
   UINTN   L = 0;
   UINT8   C;
 
-  if (!mPexEnum) {
-    Log (L"pcon: run `pex` first");
+  if (!mPexEnum || mRamSize < 4 || !PexTcmContains (mRamBase, mRamSize)) {
+    Log (L"pcon: run `pex` and `pchip` first");
     return;
   }
   if (mSharedAddr == 0) {
     Log (L"pcon: shared area unknown (pfw did not see the firmware start); trying to locate it at RAM end");
     mSharedAddr = TcmRd32 (mRamBase + mRamSize - 4);
-    if (mSharedAddr < mRamBase || mSharedAddr >= mRamBase + mRamSize) {
+    if ((mSharedAddr & 3) || !PexTcmContains (mSharedAddr, 24)) {
       Log (L"pcon: RAM end word=%08x is not a pointer, firmware console not available", mSharedAddr);
       mSharedAddr = 0;
       return;
     }
   }
   Con = TcmRd32 (mSharedAddr + BRCMF_SHARED_CONSOLE_ADDR_OFFSET);
-  if (Con < mRamBase || Con >= mRamBase + mRamSize) {
+  if ((Con & 3) || !PexTcmContains (Con, 20)) {
     Log (L"pcon: bad console address %08x", Con);
     return;
   }
@@ -561,7 +533,8 @@ PexConsole (
   Size = TcmRd32 (Con + 12);
   Widx = TcmRd32 (Con + 16);
   Log (L"pcon: console struct %08x buf=%08x size=%08x widx=%08x", Con, Buf, Size, Widx);
-  if (Buf < mRamBase || Size == 0 || Size > 0x10000) {
+  if ((Buf & 3) || Size == 0 || Size > 0x10000 ||
+      !PexTcmContains (Buf, (Size + 3) & ~3U)) {
     return;
   }
   if (Widx > Size) {

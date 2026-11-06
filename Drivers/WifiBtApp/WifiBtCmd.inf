@@ -10,6 +10,7 @@
   WifiBt.c
   WifiPcie.h
   WifiPexStages.h
+  WifiNvram.h
   t214/uphy.h
 
 [Packages]

@@ -17,20 +17,21 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | SD / boot | NTFS bounded writes and cold reads passed; Home 23H2 desktop reached | Reliable read/write and cold boot within the selected 80 GiB target |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
-| Backlight | Shared PWM0 control adaptation builds; not yet deployed | Brightness adjustment and display off/on; fan PWM1 stays independent |
-| Audio | 1.0.0.8 bound, codec readback and ADMA/I2S active; owner confirmed silent speakers during Windows Settings playback | Audible stereo speakers, headphones and jack switching; no added boot test tone |
+| Backlight | Paired PWM0 firmware, fan 1.0.0.5 and brightness tool deployed; next-boot activation pending | Brightness adjustment and display off/on; fan PWM1 stays independent |
+| Audio | 1.0.0.8 playback was silent despite active transfers; pad correction and 1.0.0.9 diagnostics deployed, activation pending | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Shared packages integrated; full function not confirmed | Battery/charging telemetry, retained RTC offset, power and volume inputs |
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed | Discovery, pairing, data exchange and usable range |
 | USB | Upstream firmware paths exist; Lite Windows support unfinished | Device enumeration and keyboard/storage operation through the supported host path |
 | Built-in controls / motion | Lite SIO owns SPI4; Erista direct-SPI sensor profile is unsuitable | Lite SIO transport, button/stick input and sensor reports |
-| Wi-Fi | Added to goal; Switchroot describes BCM4356 over PCIe port 1, lane 0 | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
+| Wi-Fi | B01 PHY/clock/radio adaptation and NVRAM loader build; PCIe module remains outside the Home package | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
+| Paging | Fixed-boot SD ACPI description deployed; 512–2048 MB request preserved | Persistent pagefile creation without the startup warning |
 | Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
 | Power lifecycle | Restart has previously hung | Repeatable shutdown/restart and supported display power transitions |
 
 ## Execution order
 
 1. Diagnose the confirmed speaker-silence path against Switchroot codec,
-   I2S, clock and pad setup; finish and package shared backlight control.
+   I2S, clock and pad setup; accept the deployed shared backlight and paging fixes.
 2. Close input, power and existing-driver gaps using physical traces.
 3. Bring up the Wi-Fi PCIe transport, then its firmware protocol and Windows
    networking integration. Keep Bluetooth coexistence and the shared chip's

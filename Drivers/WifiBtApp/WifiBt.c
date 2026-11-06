@@ -466,13 +466,19 @@ ReadFile (
   EFI_STATUS         S;
   UINTN              N;
 
+  *Buf = NULL;
+  *Size = 0;
   S = ShellOpenFileByName (Name, &H, EFI_FILE_MODE_READ, 0);
   if (EFI_ERROR (S)) {
     Log (L"file: cannot open %s (%r)", Name, S);
     return S;
   }
-  ShellGetFileSize (H, &Sz);
-  *Buf = AllocatePool ((UINTN)Sz + 4);
+  S = ShellGetFileSize (H, &Sz);
+  if (EFI_ERROR (S) || Sz > MAX_UINTN - 4) {
+    ShellCloseFile (&H);
+    return EFI_ERROR (S) ? S : EFI_BAD_BUFFER_SIZE;
+  }
+  *Buf = AllocateZeroPool ((UINTN)Sz + 4);
   if (*Buf == NULL) {
     ShellCloseFile (&H);
     return EFI_OUT_OF_RESOURCES;
@@ -480,6 +486,11 @@ ReadFile (
   N = (UINTN)Sz;
   S = ShellReadFile (H, &N, *Buf);
   ShellCloseFile (&H);
+  if (EFI_ERROR (S) || N != (UINTN)Sz) {
+    FreePool (*Buf);
+    *Buf = NULL;
+    return EFI_ERROR (S) ? S : EFI_DEVICE_ERROR;
+  }
   *Size = N;
   Log (L"file: %s %d bytes", Name, N);
   return S;
@@ -1444,7 +1455,7 @@ StepOff (
 
 // ---------------------------------------------------------------------------------------------
 STATIC
-EFI_STATUS
+SHELL_STATUS
 RunWifiBt (
   IN UINTN    Argc,
   IN CHAR16   **Argv
@@ -1459,10 +1470,11 @@ RunWifiBt (
   UINT32        Size = 0;
   UINT32        Arm  = 0x18002000;
   UINT32        Wrap = 0x18102000;
+  SHELL_STATUS  Result = SHELL_SUCCESS;
 
   if (Argc < 2) {
     Print (L"usage: wifibt info|pwr|bt [fw.hcd] [baud=N] [flow=1]|btscan [sec] [baud=N]|pex [rst=0|1] [gen2=1]|pchip [arm= wrap= d11= size= ram=]|pfw fw.bin nvram.txt|pcon|pall fw nvram|poff|wifi (OLD SDIO, wrong for Switch)|wfw|all|off\n");
-    return EFI_SUCCESS;
+    return SHELL_INVALID_PARAMETER;
   }
   Cmd = Argv[1];
   for (I = 2; I < Argc; I++) {
@@ -1522,16 +1534,15 @@ RunWifiBt (
       StepWfw (Pos[0], Pos[1], Ram, Size, Arm, Wrap);
     }
   } else if (StrCmp (Cmd, L"pex") == 0) {
-    if (PexUp ()) {
-      PexEnum ();
-    }
+    if (!PexUp () || !PexEnum ()) Result = SHELL_DEVICE_ERROR;
   } else if (StrCmp (Cmd, L"pchip") == 0) {
-    PexChip ();
+    if (!PexChip ()) Result = SHELL_DEVICE_ERROR;
   } else if (StrCmp (Cmd, L"pfw") == 0) {
-    if (Pos[0] == NULL) {
+    if (Pos[0] == NULL || Pos[1] == NULL) {
       Log (L"pfw: need firmware file (brcmfmac4356-pcie.bin) and nvram (brcmfmac4356-pcie.txt)");
+      Result = SHELL_INVALID_PARAMETER;
     } else {
-      PexFw (Pos[0], Pos[1]);
+      if (!PexFw (Pos[0], Pos[1])) Result = SHELL_DEVICE_ERROR;
     }
   } else if (StrCmp (Cmd, L"pcon") == 0) {
     PexConsole ();
@@ -1539,12 +1550,18 @@ RunWifiBt (
     PexOff ();
   } else if (StrCmp (Cmd, L"pall") == 0) {
     // radio over PCIe in one go: pall fw.bin nvram.txt
-    StepPwr ();
-    if (PexUp () && PexEnum () && PexChip () && Pos[0] != NULL) {
+    if (Pos[0] == NULL || Pos[1] == NULL) {
+      Log (L"pall: need firmware and single-board nvram files");
+      Result = SHELL_INVALID_PARAMETER;
+    } else if (PexUp () && PexEnum () && PexChip ()) {
       if (PexFw (Pos[0], Pos[1])) {
         Ms (500);
+      } else {
+        Result = SHELL_DEVICE_ERROR;
       }
       PexConsole ();
+    } else {
+      Result = SHELL_DEVICE_ERROR;
     }
   } else if (StrCmp (Cmd, L"all") == 0) {
     StepPwr ();
@@ -1556,12 +1573,13 @@ RunWifiBt (
     StepOff ();
   } else {
     Log (L"unknown command %s", Cmd);
+    Result = SHELL_INVALID_PARAMETER;
   }
 
   if (mLog != NULL) {
     ShellCloseFile (&mLog);
   }
-  return EFI_SUCCESS;
+  return Result;
 }
 
 STATIC
