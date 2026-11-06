@@ -285,7 +285,7 @@ BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
   Path = FileDevicePath (Volume, WINDOWS_LOADER);
   if (Path == NULL) return EFI_OUT_OF_RESOURCES;
   Status = EfiBootManagerInitializeLoadOption (&Option, LoadOptionNumberUnassigned,
-      LoadOptionTypeBoot, LOAD_OPTION_ACTIVE, L"Lite Windows 11 Home", Path, NULL, 0);
+      LoadOptionTypeBoot, LOAD_OPTION_ACTIVE, L"Windows 11 Lite", Path, NULL, 0);
   FreePool (Path);
   if (EFI_ERROR (Status)) return Status;
   Print (L"Starting Windows Boot Manager from WINARM\r\n");
@@ -305,7 +305,7 @@ PlatformBootManagerAfterConsole (VOID)
 
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"SWITCH LITE / WINDOWS 11 HOME\r\n");
+  Print (L"SWITCH LITE / WINDOWS 11 LITE\r\n");
   EfiBootManagerConnectAll ();
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
   CheckPowerBeforeWindows ();

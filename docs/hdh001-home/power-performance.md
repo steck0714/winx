@@ -15,7 +15,7 @@ R4 keeps the official NX ATF build contract and changes the final B01 reset prep
 - Retain ATF SCLK stabilization, clear stale recovery/RCM flags and continue through the existing PMC reset path.
 - For shutdown, use the MAX77620 driver's interrupt-latch reads and read-modify-write policy: clear SFT_RST_WK, then set SFT_RST while preserving the remaining configuration bits.
 
-The existing UEFI BootROM setup remains compatible. R4 refreshes the table at the final reset action and sets the Switchroot Hekate-menu reason. It replaces only `switchroot/woa-lite-home/bl31.bin`; the entry remains **Lite Windows 11 Home**.
+The existing UEFI BootROM setup remains compatible. R4 refreshes the table at the final reset action and sets the Switchroot Hekate-menu reason. It replaces only `switchroot/woa-lite-home/bl31.bin`; the entry remains **Windows 11 Lite**.
 
 R4 was built and deployed with a readback match. The owner reached Windows and tested restart: it still leaves a black screen with the fan running. R4 shutdown also fails with the fan running; the owner reports a recognizable Windows sound after the screen goes black. Matching Switchroot's sequence did not resolve the observed restart failure; there is still no direct evidence that Windows reaches the final PSCI handler. Further late-shutdown/firmware-boundary diagnosis remains open while Wi-Fi development continues.
 

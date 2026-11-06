@@ -1,6 +1,6 @@
-# HDH-001 Windows 11 Home
+# HDH-001 Windows 11 Lite
 
-This branch integrates the tested Switch Lite SD path, an NTFS desktop boot path, and GPIO, I²C3 and Hoag FTM4 touch support. Select **Lite Windows 11 Home** in Hekate.
+This branch integrates the tested Switch Lite SD path, an NTFS desktop boot path, and GPIO, I²C3 and Hoag FTM4 touch support. Select **Windows 11 Lite** in Hekate.
 
 On 2026-11-05, one HDH-001 booted Simplified Chinese Windows 11 ARM64 Home 23H2 (22631.2861) from an 80 GiB NTFS WINARM volume. The owner could tap the Windows Setup error dialog. Setup phase 4 and windeploy subsequently completed successfully. The planned reboot before OOBE left the screen dark; manual startup subsequently reached the OOBE network-selection page. The BasicDisplay rollback later reached the desktop; the desktop three-circle touch check is still unconfirmed.
 
@@ -48,11 +48,11 @@ These last state changes are specific to this interrupted installation. Logs in 
 
 Add `-D SWITCH_LITE_POWER=1` to the Lite touch build to expose I2C5 and the MAX77620 power-button device, ACPI SWOA0601. PmicDxe already enables and initializes I2C5. The existing tegra210i2c and switchpwrbtn drivers provide the bus and VHF System Power Down report. Hekate also reads the Hoag power button through MAX77620 ONOFFSTAT on I2C5. [Hekate button source](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/utils/btn.c)
 
-The power-enabled firmware and ARM64/KMDF 1.15 power-button driver compile. Real button input and the Windows power action remain untested on this Lite. The Hekate entry continues to be **Lite Windows 11 Home**.
+The power-enabled firmware and ARM64/KMDF 1.15 power-button driver compile. Real button input and the Windows power action remain untested on this Lite. The Hekate entry continues to be **Windows 11 Lite**.
 
 ## Fan and clock configuration
 
-The combined Lite build adds `-D SWITCH_LITE_POWER=1 -D SWITCH_LITE_FAN=1 -D SWITCH_FAN_DUTY=76 -D SWITCH_LITE_RESET=1 -D SWITCH_LITE_PERFORMANCE=1` to the base Home flags. Use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) as `bootloader/ini/woa-lite-home.ini`; the entry name remains **Lite Windows 11 Home**.
+The combined Lite build adds `-D SWITCH_LITE_POWER=1 -D SWITCH_LITE_FAN=1 -D SWITCH_FAN_DUTY=76 -D SWITCH_LITE_RESET=1 -D SWITCH_LITE_PERFORMANCE=1` to the base Home flags. Use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) as `bootloader/ini/woa-lite-home.ini`; the entry name remains **Windows 11 Lite**.
 
 `cpu_oc=1996800` requests 1996.8 MHz CPU. `ram_oc=2100000` prepares the 2100 MHz memory timing in Hekate and requests it through BPMP in firmware. Setting `cpu_oc=0` and `ram_oc=1600000` restores the normal boot profile on the next launch. Fan control is automatic; GPU overclocking is not implemented.
 
@@ -82,7 +82,7 @@ The volume keys reuse the upstream ACPI button mapping. Hekate configures PX6/PX
 
 `LiteTouch/build-drivers.sh` now also builds the battery and RTC packages; the battery link requires the ARM64 WDK `battc.lib` in WDK_EXTRA_LIB. Keep the shared sources under `WindowsDrivers/drivers/SwitchBattery` and `SwitchRtc`. Place signed INF/SYS/catalog files in the matching subdirectories beside [Install-LiteSystem.cmd](Install-LiteSystem.cmd). Use `Install-LiteSystem.cmd offline W:\` from ARM64 maintenance WinPE, or `Install-LiteSystem.cmd online` from an elevated prompt in the existing Home installation. GPIO and I²C must already be installed. Replace W: with WINARM's actual drive letter. The current script stages fan, power-button, battery, RTC, and audio drivers without changing Windows setup state. It does not install a display miniport or landscape helper. Bluetooth is optional when its directory and firmware patch are supplied.
 
-The Hekate entry remains **Lite Windows 11 Home**. Firmware and ARM64/KMDF builds pass. Signed SYS/catalog verification and PnPUtil staging of both packages passed in ARM64 WinPE 22621.1. Battery readings, RTC persistence, and physical volume-key input still await testing on this Lite.
+The Hekate entry remains **Windows 11 Lite**. Firmware and ARM64/KMDF builds pass. Signed SYS/catalog verification and PnPUtil staging of both packages passed in ARM64 WinPE 22621.1. Battery readings, RTC persistence, and physical volume-key input still await testing on this Lite.
 
 Board references: [Switchroot Lite power tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [Lite button pinmux](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-pinmux.dtsi), and [Hekate button inputs](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/soc/hw_init.c).
 

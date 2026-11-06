@@ -76,7 +76,7 @@ chip discovery, firmware handshake and passive scan in that order. It reports
 the last stage on screen and stops Wi-Fi. UEFI's boot disk is read-only, so R2
 does not attempt to create a log file. Photograph the final result. The Home
 boot manager displays it for 30 seconds and requests shutdown without starting
-Windows. The entry remains **Lite Windows 11 Home**.
+Windows. The entry remains **Windows 11 Lite**.
 
 R2 was deployed and its three files were read back from WINARM. Physical radio
 results were still pending at that stage. The offline copy adds only the three
@@ -139,7 +139,7 @@ The probe reported endpoint reset and DMA release before exit. Network names,
 BSSIDs and device calibration are not copied into this public record.
 
 The temporary `wifi_check=1` line has been removed from the returned card,
-restoring normal **Lite Windows 11 Home** launch. No Windows Wi-Fi adapter has
+restoring normal **Windows 11 Lite** launch. No Windows Wi-Fi adapter has
 been installed. Association/key management, packet transmit/receive and the
 Windows network interface remain the next implementation work.
 

@@ -7,7 +7,7 @@ build or package installation is not hardware acceptance.
 
 Shared drivers remain in their upstream directories. Only SoC-dependent code
 belongs under `t214`. Source, build notes and review descriptions are English.
-The sole Hekate Windows entry is **Lite Windows 11 Home**. Existing FAT32,
+The sole Hekate Windows entry is **Windows 11 Lite**. Existing FAT32,
 Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 ## Current work and acceptance

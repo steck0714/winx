@@ -14,10 +14,10 @@ Stage 1 reads the chip ID; Stage 2 resets the controller and waits for its ready
 
 ## Windows Home
 
-See the [Stage 6 source notes](../docs/hdh001-home/README.md) for the current integration. The Home package contains **SD** and **Windows-Drivers** directories. Merge the contents of SD into the card root to add **Lite Windows 11 Home** in Hekate. It boots the existing Stage 6 installation and is restricted to this device's original WINARM volume. Place Windows-Drivers somewhere accessible to an administrator or the maintenance environment.
+See the [Stage 6 source notes](../docs/hdh001-home/README.md) for the current integration. The Home package contains **SD** and **Windows-Drivers** directories. Merge the contents of SD into the card root to add **Windows 11 Lite** in Hekate. It boots the existing Stage 6 installation and is restricted to this device's original WINARM volume. Place Windows-Drivers somewhere accessible to an administrator or the maintenance environment.
 
 - To add the drivers offline, identify WINARM's drive letter in ARM64 maintenance WinPE, open Windows-Drivers, and run `Install-LiteTouch.cmd offline W:\`, replacing W: with the actual letter. The script checks that the target is an offline Windows installation and already trusts the Stage 6 test certificate.
-- From a usable Home installation, run `Install-LiteTouch.cmd online` as administrator, then boot **Lite Windows 11 Home**. Run `touch-check.exe` after installation; the Stage 6 desktop copy is named `LiteTouchCheck.exe`. The package includes the matching public test certificate.
+- From a usable Home installation, run `Install-LiteTouch.cmd online` as administrator, then boot **Windows 11 Lite**. Run `touch-check.exe` after installation; the Stage 6 desktop copy is named `LiteTouchCheck.exe`. The package includes the matching public test certificate.
 - During initial deployment, the same three INF packages can be injected into the offline volume after Stage 6's DISM operation. The historical R1 diagnostic package and Home use separate boot paths.
 
 ## Validation

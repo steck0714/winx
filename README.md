@@ -1,6 +1,8 @@
 # WinX · Switch Lite Windows ARM64
 
-This branch integrates Windows 11 ARM64 Home boot, bounded microSD writes, GPIO, I²C3, and FTM4 touch for HDH-001. The Hekate entry is **Lite Windows 11 Home**. A physical Lite has booted Home 23H2 (22631.2861) and accepted setup touch input; its saved SYSTEM hive records completed setup flags. The BasicDisplay rollback subsequently reached the desktop.
+The owner has now replaced the installation with a trimmed Windows 11 Pro 23H2 (22631.2861) image. Its launch label is **Windows 11 Lite**. Offline inspection found the Bluetooth services, BTHPORT/BTHMINI stack, pairing UI, switchbt 1.0.0.13 and the BCM4356A3 patch file still present; WLAN service, WifiCx and NetAdapterCx are also present. Earlier hardware results below refer to the Home installation; the trimmed installation still needs its first hardware boot and Bluetooth pairing check. No external Windows repair source was used.
+
+This branch integrates Windows 11 ARM64 boot, bounded microSD writes, GPIO, I²C3, and FTM4 touch for HDH-001. The Hekate entry is **Windows 11 Lite**. A physical Lite has booted Home 23H2 (22631.2861) and accepted setup touch input; its saved SYSTEM hive records completed setup flags. The BasicDisplay rollback subsequently reached the desktop.
 
 The first media run went black during display-device restart. The owner chose to withdraw CPU-rendered display rotation. The current Home profile uses Microsoft Basic Display and the original orientation; WinX display and the automatic landscape helper are removed from the Home update. The proposed PE display trial was cancelled. BasicDisplay still provides no GPU rendering acceleration.
 

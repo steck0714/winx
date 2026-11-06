@@ -8,7 +8,7 @@ corresponding SoC directory. No firmware binary or board calibration is included
 
 The companion firmware's R6 pre-Windows probe completed passive scanning on a
 physical HDH-001 (six records, channels 1/9/36). It reset the Wi-Fi device and
-released DMA before powering off. The normal `Lite Windows 11 Home` entry has
+released DMA before powering off. The normal `Windows 11 Lite` entry has
 been restored. That test does **not** install a Windows network adapter.
 
 `core/msgbuf_data.c` implements the packet-side msgbuf-v5 protocol required by
