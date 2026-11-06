@@ -1699,20 +1699,21 @@ WifiProbeMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
   (VOID)SystemTable;
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  Print (L"WIFI PCIE / FIRMWARE / PASSIVE SCAN CHECK R2\r\n");
   Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded);
   if (EFI_ERROR (Status)) return Status;
   Status = gBS->HandleProtocol (Loaded->DeviceHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
   if (EFI_ERROR (Status)) return Status;
   Status = Fs->OpenVolume (Fs, &Root);
   if (EFI_ERROR (Status)) return Status;
-  Status = Root->Open (Root, &mProbeRoot, L"\\switchroot\\woa-lite-home\\wifi", EFI_FILE_MODE_READ, 0);
+  Status = Root->Open (Root, &mProbeRoot, L"\\SwitchWOA\\WifiProbe", EFI_FILE_MODE_READ, 0);
   Root->Close (Root);
-  if (EFI_ERROR (Status)) return Status;
-  Status = mProbeRoot->Open (mProbeRoot, (EFI_FILE_PROTOCOL **)&mLog, L"wifi-probe.log",
-                           EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
-  if (EFI_ERROR (Status)) { mLog = NULL; goto Done; }
-  FileHandleSetPosition ((EFI_FILE_PROTOCOL *)mLog, MAX_UINT64);
-  Log (L"WIFI PCIE / FIRMWARE / PASSIVE SCAN CHECK R1");
+  if (EFI_ERROR (Status)) {
+    Print (L"WINARM \\SwitchWOA\\WifiProbe: %r\r\n", Status);
+    return Status;
+  }
+  // Home exposes a read-only WINARM disk view. Keep results on screen rather
+  // than requesting writes through that boot-only Block I/O protocol.
   Log (L"Windows has not started. Bluetooth reset and UART are preserved.");
   Stage = 1;
   if (!PexUp ()) goto Done;

@@ -59,25 +59,32 @@ shell command explicitly initializes ShellLib before using its file helpers.
 The Home boot manager starts the application only when its Hekate environment
 contains `wifi_check=1`; a normal configuration never runs the PCIe probe.
 
-The local FAT package is:
+WifiCheck R1 returned `Not Found` before probing hardware. Home's SD Block I/O
+publishes only the selected read-only WINARM view, so the application placed
+on FAT was not visible. R2 keeps that bounded disk view and loads these files
+from WINARM instead:
 
 ```text
-switchroot/woa-lite-home/wifi/WifiProbe.efi
-switchroot/woa-lite-home/wifi/firmware.bin   # the owner's A3 PCIe image
-switchroot/woa-lite-home/wifi/nvram.txt     # matching A3 board data
+\SwitchWOA\WifiProbe\WifiProbe.efi
+\SwitchWOA\WifiProbe\firmware.bin   # the owner's A3 PCIe image
+\SwitchWOA\WifiProbe\nvram.txt     # matching A3 board data
 ```
 
 A matching `firmware.clm_blob` is optional. The current A3 package does not add
 the unrelated generic Cypress CLM. The probe runs controller/link, endpoint,
-chip discovery, firmware handshake and passive scan in that order. It appends
-`wifi-probe.log` in the same folder, reports the last stage and stops Wi-Fi.
-The Home boot manager displays the result for 30 seconds and requests shutdown
-without starting Windows. The entry remains **Lite Windows 11 Home**.
+chip discovery, firmware handshake and passive scan in that order. It reports
+the last stage on screen and stops Wi-Fi. UEFI's boot disk is read-only, so R2
+does not attempt to create a log file. Photograph the final result. The Home
+boot manager displays it for 30 seconds and requests shutdown without starting
+Windows. The entry remains **Lite Windows 11 Home**.
 
-WifiCheck R1 has been built and deployed for physical acceptance. Windows files,
-partitions and BL31 are unchanged. Remove `wifi_check=1` after collecting the
-result to restore normal Windows launch. A completed scan is not a Windows
-network connection; physical PCIe/firmware/scan results are still pending.
+R2 is deployed and its three files were read back from WINARM. Physical radio
+results are pending. The offline copy adds only the three
+files above; Windows registry, drivers, boot store, partitions and BL31 are
+unchanged. The FAT update replaces Home BL33. Remove `wifi_check=1` after
+collecting the result to restore normal Windows launch. A completed scan is
+not a Windows network connection; physical PCIe/firmware/scan results remain
+pending.
 
 ## Build and focused checks
 
@@ -97,7 +104,7 @@ cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-rec
 
 The msgbuf model covers IOCTL/event interleaving, index wrap/full conditions, malformed replies, timeouts, passive-scan parameters, CLM chunking and reset-before-DMA-release. The actual Ubuntu firmware/NVRAM pair also passes the loader format/layout check. The shell module, automatic probe and Home firmware compile for AARCH64. These checks do not test physical PCIe link training, DMA, radio operation or Windows networking.
 
-For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/WifiBtApp/WifiProbe.inf`; the DSC supplies its `WIFI_AUTO_PROBE` and DMA configuration. Copy the resulting application to FAT rather than enabling the shell module in the normal Home firmware.
+For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/WifiBtApp/WifiProbe.inf`; the DSC supplies its `WIFI_AUTO_PROBE` and DMA configuration. Copy the resulting application and matching firmware/NVRAM to WINARM; the read-only Home disk view does not expose FAT. The shell module need not be included in normal Home firmware.
 
 ## Milestones
 

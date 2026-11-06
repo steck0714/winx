@@ -7,6 +7,7 @@
 #include <winarm-target.h>
 
 #define WINDOWS_LOADER L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
+STATIC BOOLEAN IsWindowsPartition (EFI_HANDLE Handle);
 
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
 /* The Hekate BL33 environment is reserved by the performance profile.
@@ -52,7 +53,7 @@ CheckPowerBeforeWindows (VOID)
 STATIC VOID
 CheckWifiBeforeWindows (VOID)
 {
-  STATIC CHAR16 ProbePath[] = L"\\switchroot\\woa-lite-home\\wifi\\WifiProbe.efi";
+  STATIC CHAR16 ProbePath[] = L"\\SwitchWOA\\WifiProbe\\WifiProbe.efi";
   EFI_HANDLE *Volumes = NULL, Image;
   UINTN Count, I;
   EFI_STATUS Status;
@@ -62,11 +63,17 @@ CheckWifiBeforeWindows (VOID)
   if (!EFI_ERROR (Status)) {
     Status = EFI_NOT_FOUND;
     for (I = 0; I < Count; I++) {
-      EFI_DEVICE_PATH_PROTOCOL *Path = FileDevicePath (Volumes[I], ProbePath);
+      EFI_DEVICE_PATH_PROTOCOL *Path;
+      if (!IsWindowsPartition (Volumes[I])) continue;
+      Print (L"Loading Wi-Fi probe from WINARM\r\n");
+      Path = FileDevicePath (Volumes[I], ProbePath);
       if (Path == NULL) { Status = EFI_OUT_OF_RESOURCES; break; }
       Status = gBS->LoadImage (FALSE, gImageHandle, Path, NULL, 0, &Image);
       FreePool (Path);
-      if (EFI_ERROR (Status)) continue;
+      if (EFI_ERROR (Status)) {
+        Print (L"LoadImage %s: %r\r\n", ProbePath, Status);
+        break;
+      }
       Status = gBS->StartImage (Image, NULL, NULL);
       gBS->UnloadImage (Image);
       break;
@@ -74,7 +81,7 @@ CheckWifiBeforeWindows (VOID)
     FreePool (Volumes);
   }
   Print (L"Wi-Fi check returned: %r\r\n", Status);
-  Print (L"Log: switchroot/woa-lite-home/wifi/wifi-probe.log\r\n");
+  Print (L"Photograph the last stage/result. The boot disk is read-only.\r\n");
   Print (L"Powering off in 30 seconds.\r\n");
   for (I = 30; I > 0; I--) gBS->Stall (1000000);
   gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
