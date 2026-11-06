@@ -59,7 +59,7 @@ NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_WORKITEM_CONFIG Config;
     NTSTATUS Status;
-    if (!H || !Callbacks || !Callbacks->DispatchData || !Callbacks->NotifyData ||
+    if (!H || !Callbacks || !Callbacks->CreateAdapter || !Callbacks->DispatchData || !Callbacks->NotifyData ||
         !Callbacks->CancelDataAfterReset || !Callbacks->Event || !Callbacks->ScheduleRecovery)
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(H, sizeof(*H));
@@ -71,8 +71,10 @@ NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
     WDF_WORKITEM_CONFIG_INIT(&Config, InitializeWorker);
     Config.AutomaticSerialization = FALSE;
     Status = WdfWorkItemCreate(&Config, &Attributes, &H->InitializeWork);
-    if (NT_SUCCESS(Status))
-        SwifiInitializeContext(H->InitializeWork)->Hardware = H;
+    if (!NT_SUCCESS(Status)) return Status;
+    SwifiInitializeContext(H->InitializeWork)->Hardware = H;
+    Status = SwifiWdiCreate(Device, &H->Control, &H->FirmwareInfo, Callbacks->CreateAdapter, &H->Wdi);
+    if (!NT_SUCCESS(Status)) SwifiHardwareDelete(H);
     return Status;
 }
 
@@ -163,13 +165,16 @@ NTSTATUS SwifiHardwareOnline(SWIFI_HARDWARE *H)
     Status = SwifiControlStart(&H->Control);
     if (NT_SUCCESS(Status))
         Status = SwifiFirmwareQueryInfo(&H->Control, &H->FirmwareInfo);
-    if (!NT_SUCCESS(Status))
-        SwifiHardwareRequestStop(H);
+    if (NT_SUCCESS(Status))
+        Status = SwifiPublishRadioCaps(H->Device, &H->RadioCaps, &H->FirmwareInfo);
+    if (NT_SUCCESS(Status)) SwifiWdiStart(H->Wdi);
+    else SwifiHardwareRequestStop(H);
     return Status;
 }
 
 VOID SwifiHardwareRequestStop(SWIFI_HARDWARE *H)
 {
+    SwifiWdiRequestStop(H->Wdi);
     if (H->ControlCreated)
         SwifiControlRequestStop(&H->Control);
 }
@@ -179,6 +184,7 @@ NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
     NTSTATUS Status = STATUS_SUCCESS;
     KIRQL Irql;
     SwifiHardwareRequestStop(H);
+    SwifiWdiQuiesce(H->Wdi);
     RtlZeroMemory(&H->FirmwareInfo, sizeof(H->FirmwareInfo));
     if (H->InitializeWork) WdfWorkItemFlush(H->InitializeWork);
     if (H->Transport.Interrupt)

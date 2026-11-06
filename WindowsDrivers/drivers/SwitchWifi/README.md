@@ -33,9 +33,9 @@ periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
 These components are host-tested and compile to an ARM64 KMDF static library. There is
 currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-WiFiCx device registration, device lifetime binding, WiFiCx request dispatch,
-connection/key management and NetAdapterCx packet queues still need integration and hardware
-acceptance. Do not add an empty network device or mark this driver as deployed.
+The shared device-creation helper initializes WiFiCx and the request worker handles the
+software radio task. DriverEntry, the station adapter, scanning/association, key
+management and NetAdapterCx packet queues still need integration and hardware acceptance. Do not add an empty network device or mark this driver as deployed.
 
 Skipping the network page during OOBE only allows first setup to continue offline;
 it does not create or disable the missing Wi-Fi driver.
@@ -214,10 +214,8 @@ staged in resident memory before the submission lock; the DPC copies replies
 into resident storage, and the passive caller copies bounded results outward.
 Firmware status and original response length are retained.
 
-The WiFiCx SendCommand callback can run at DISPATCH_LEVEL, so the future WiFiCx
-request dispatcher must queue passive work before calling Execute. This module
-provides the firmware execution layer, not that WIFIREQUEST dispatcher or a
-network adapter. Its event and mailbox work items have automatic serialization
+The WiFiCx SendCommand callback can run at DISPATCH_LEVEL. The WIFIREQUEST
+worker in `windows/requests.c` queues to PASSIVE_LEVEL before calling Execute. Its event and mailbox work items have automatic serialization
 disabled and use protocol-lock-protected queue ownership. Upper event callbacks
 run without the protocol lock, may issue a subsequent command, and must copy
 borrowed data before returning. Only then is the event DMA buffer reposted.
@@ -259,8 +257,32 @@ On exit the owner cancels commands, joins interrupt and passive work, then
 halts the endpoint before releasing DMA buffers. If the normal stop fails,
 the board fallback holds the Wi-Fi port in reset and checks for link-down.
 A successful fallback requires a fresh firmware boot for the next session.
-These components cross-compile for ARM64. WDF callback registration, WiFiCx
-capability publication, association and packet queues still need integration.
+After control startup, `windows/capabilities.c` calls the WiFiCx device, band
+and PHY capability setters. It supplies the firmware’s sorted legal channel
+list and reports center frequencies in MHz. The BCM4356 silicon supports up
+to two streams and 20/40/80 MHz on 5 GHz. The 2.4 GHz band uses at most 40 MHz.
+The HT and VHT rate tables encode short and long guard intervals in WDI units
+of 500 kbit/s. Entries carry independent transmit and receive flags. The rate
+fixtures cover the 2x1 case, invalid 20 MHz MCS9 combinations and the maximum
+867 Mbit/s class PHY rate. These are capability tables. Throughput has yet to
+be measured on Windows.
+
+The WDF device owner must call `NetDeviceInitConfig` followed by
+`WifiDeviceInitConfig` before `WdfDeviceCreate`. `SwifiHardwareCreate` then
+registers `WifiDeviceInitialize` with the owner's station-adapter factory and
+creates a passive command worker. The worker parses `WDI_TASK_SET_RADIO_STATE`
+with the WDK WiFiCx TLV library and the OS's negotiated WDI version. It saves
+the task header before completing M3, updates only the firmware's software
+radio-disable bit, queries the actual radio states and sends the radio status
+and task completion to Windows. Stop wakes pending firmware commands and joins
+this worker before clearing the radio state. The other WDI commands and the
+station packet queues still need binding.
+
+The static library includes the radio path and the allocation hooks used by
+`WificxTLVGenParse.lib`. No card deployment or Windows radio toggle is claimed.
+[WiFiCx command handling](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),
+[WiFiCx radio task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-set-radio-state),
+[BCM4356 radio capabilities](https://www.infineon.com/part/CYW4356).
 
 ## Build and test
 

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: ISC */
 #include "firmware.h"
+#include "../core/phy_rates.h"
 
 #define WLC_GET_VERSION 1u
 #define WLC_GET_RADIO 37u
@@ -190,9 +191,11 @@ static NTSTATUS QueryInfo(SWIFI_WIN_CONTROL *Control, SWIFI_FIRMWARE_INFO *Info)
         if (!Value || Value > SWIFI_MAX_CHANNELS ||
             !(Info->Bands & (Value <= 14 ? SWIFI_BAND_2GHZ : SWIFI_BAND_5GHZ)))
             return STATUS_DEVICE_PROTOCOL_ERROR;
-        for (J = 0; J < Info->ChannelCount; ++J)
-            if (Info->Channels[J] == Value) break;
-        if (J == Info->ChannelCount) Info->Channels[Info->ChannelCount++] = (UCHAR)Value;
+        for (J = 0; J < Info->ChannelCount && Info->Channels[J] < Value; ++J) {}
+        if (J < Info->ChannelCount && Info->Channels[J] == Value) continue;
+        RtlMoveMemory(&Info->Channels[J + 1], &Info->Channels[J], Info->ChannelCount - J);
+        Info->Channels[J] = (UCHAR)Value;
+        ++Info->ChannelCount;
     }
     Value = 0;
     Status = OptionalU32(Control, "nmode", &Value);
@@ -208,18 +211,28 @@ static NTSTATUS QueryInfo(SWIFI_WIN_CONTROL *Control, SWIFI_FIRMWARE_INFO *Info)
         Status = GetBandwidth(Control, Info);
         if (!NT_SUCCESS(Status)) return Status;
     }
-    Value = 1;
-    Status = OptionalU32(Control, "rxchain", &Value);
-    if (!NT_SUCCESS(Status)) return Status;
+    Value = 0;
+    Status = SwifiFirmwareGetU32(Control, 0, "rxchain", &Value);
+    if (Status == STATUS_NOT_SUPPORTED || Status == STATUS_NOT_FOUND) Value = 1;
+    else if (!NT_SUCCESS(Status)) return Status;
     for (; Value; Value &= Value - 1) ++Info->RxStreams;
-    Value = 1;
+    Value = 0;
+    Status = SwifiFirmwareGetU32(Control, 0, "txchain", &Value);
+    if (Status == STATUS_NOT_SUPPORTED || Status == STATUS_NOT_FOUND) Value = 1;
+    else if (!NT_SUCCESS(Status)) return Status;
+    for (; Value; Value &= Value - 1) ++Info->TxStreams;
     if (Info->Vht) {
+        Value = 0; /* Zero selects automatic use of the enabled TX chains. */
         Status = OptionalU32(Control, "txstreams", &Value);
         if (!NT_SUCCESS(Status)) return Status;
+        if (Value && Value < Info->TxStreams) Info->TxStreams = (UCHAR)Value;
     }
-    if (!Info->RxStreams || Info->RxStreams > 8 || !Value || Value > 8)
+    if (!Info->RxStreams || !Info->TxStreams)
         return STATUS_DEVICE_PROTOCOL_ERROR;
-    Info->TxStreams = (UCHAR)Value;
+    if (Info->RxStreams > SWIFI_MAX_NSS) Info->RxStreams = SWIFI_MAX_NSS;
+    if (Info->TxStreams > SWIFI_MAX_NSS) Info->TxStreams = SWIFI_MAX_NSS;
+    Info->Bandwidth[0] &= SWIFI_WIDTH20 | SWIFI_WIDTH40;
+    Info->Bandwidth[1] &= SWIFI_WIDTH20 | SWIFI_WIDTH40 | (Info->Vht ? SWIFI_WIDTH80 : 0);
     return STATUS_SUCCESS;
 }
 

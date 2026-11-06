@@ -17,9 +17,10 @@ parser.add_argument("--out", type=Path, required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 args.out.mkdir(parents=True, exist_ok=True)
-sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c", root / "core/msgbuf_control.c"]
+sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c", root / "core/msgbuf_control.c",
+           root / "core/phy_rates.c"]
 common = [args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror"]
-for name in ("data", "ring", "control", "erom", "nvram"):
+for name in ("data", "ring", "control", "erom", "nvram", "rates"):
     test = args.out / f"test-msgbuf-{name}"
     subprocess.run(common + ["-g", "-O1", "-fsanitize=address,undefined",
         "-fno-sanitize-recover=all", *map(str, sources), str(root / f"tests/test_{name}.c"),
@@ -36,15 +37,21 @@ kernel_flags = [str(kernel_cc), "--target=aarch64-pc-windows-msvc", "/c",
     "/DKMDF_VERSION_MAJOR=1", "/DKMDF_VERSION_MINOR=33",
     "/DNTDDI_VERSION=0x0A00000C", "/D_WIN32_WINNT=0x0A00",
     f"/imsvc{args.wdk_include / 'km/crt'}", f"/imsvc{args.wdk_include / 'km'}",
-    f"/imsvc{(args.sdk_include or args.wdk_include) / 'shared'}", f"/imsvc{kmdf}"]
+    f"/imsvc{(args.sdk_include or args.wdk_include) / 'shared'}", f"/imsvc{kmdf}",
+    f"/imsvc{(args.sdk_include or args.wdk_include) / 'shared/netcx/shared/1.0'}",
+    f"/imsvc{args.wdk_include / 'km/wificx/1.0'}",
+    f"/imsvc{args.wdk_include / 'km/wlan/2.0'}",
+    f"/imsvc{args.wdk_include / 'km/netcx/kmdf/adapter/2.2'}"]
 objects = []
 for source in sources + [root / "windows/transport.c", root / "windows/resources.c",
                         root / "windows/chip.c", root / "windows/shared.c",
                         root / "windows/control.c", root / "windows/lifecycle.c",
-                        root / "windows/firmware.c"]:
+                        root / "windows/firmware.c", root / "windows/capabilities.c",
+                        root / "windows/requests.c", root / "windows/tlv_memory.cpp"]:
     obj = args.out / (source.stem + ".obj")
     # On macOS, an absolute /Users/... path otherwise looks like clang-cl /U.
-    subprocess.run(kernel_flags + [f"/Fo{obj}", "--", str(source)], check=True)
+    cxx_flags = ["/GR-"] if source.suffix == ".cpp" else []
+    subprocess.run(kernel_flags + cxx_flags + [f"/Fo{obj}", "--", str(source)], check=True)
     if obj.read_bytes()[:2] != b"\x64\xaa":
         sys.exit(f"The cross-compiled object is not ARM64 COFF: {obj}")
     objects.append(obj)

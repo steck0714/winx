@@ -2,9 +2,10 @@
 #ifndef SWIFI_WINDOWS_LIFECYCLE_H
 #define SWIFI_WINDOWS_LIFECYCLE_H
 
-#include "firmware.h"
+#include "requests.h"
 
 typedef struct SWIFI_HARDWARE_CALLBACKS {
+    PFN_WIFI_DEVICE_CREATE_ADAPTER CreateAdapter;
     /* DISPATCH_LEVEL under Transport.DataLock. Packet/flow completions only. */
     swifi_ring_handler DispatchData;
     /* <=DISPATCH_LEVEL outside the protocol lock. Complete OS packets here. */
@@ -29,6 +30,8 @@ typedef struct SWIFI_HARDWARE {
     SWIFI_WIN_TRANSPORT Transport;
     SWIFI_WIN_CONTROL Control;
     SWIFI_FIRMWARE_INFO FirmwareInfo;
+    SWIFI_RADIO_CAPS *RadioCaps;
+    SWIFI_WDI *Wdi;
     SWIFI_HARDWARE_CALLBACKS Callbacks;
     PVOID Context;
     NTSTATUS InitializeStatus;
@@ -39,7 +42,9 @@ typedef struct SWIFI_HARDWARE {
     BOOLEAN RequiresColdBoot;
 } SWIFI_HARDWARE;
 
-/* DeviceAdd: creates the system-context initialization worker. H is resident
+/* DeviceAdd: call NetDeviceInitConfig then WifiDeviceInitConfig on the
+ * device init before WdfDeviceCreate. This function creates the hardware
+ * worker and binds WifiDeviceInitialize to the station adapter factory. H is resident
  * device-lifetime storage. All lifecycle calls are serialized by the owning
  * PnP/power callbacks, independently of any work item they wait for. */
 _IRQL_requires_(PASSIVE_LEVEL)
@@ -59,8 +64,8 @@ NTSTATUS SwifiHardwarePrepare(SWIFI_HARDWARE *H, WDFCMRESLIST Raw, WDFCMRESLIST 
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiHardwareEnterD0(SWIFI_HARDWARE *H);
 
-/* D0EntryPostInterruptsEnabled: prime events, query firmware identity/radio
- * capabilities. WiFiCx capability publication follows this successful return. */
+/* D0EntryPostInterruptsEnabled: prime events, query the firmware and publish
+ * radio, band and PHY capabilities on the WiFiCx-initialized device. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiHardwareOnline(SWIFI_HARDWARE *H);
 
