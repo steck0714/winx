@@ -262,6 +262,8 @@ PexIoPadsOn (
 // ---------------------------------------------------------------------------------------------
 // PLLE (software enable) + hardware sequencer  (clk_plle_tegra210_enable / tegra210_plle_hw_sequence_start)
 // ---------------------------------------------------------------------------------------------
+#include "t214/uphy.h"
+
 STATIC
 BOOLEAN
 PlleEnable (
@@ -295,7 +297,9 @@ PlleEnable (
   }
   V = Rd (CAR_BASE, PX_CAR_PLLE_SS);
   V &= ~(BIT14 | BIT15 | 0x1FF | (0xFFU << 16) | (0x3FU << 24));
-  V |= 0x21 | (1U << 16) | (0x23U << 24);
+  // Switchroot clk-tegra210b01.c supplies distinct PLLE spread coefficients.
+  V |= PexIsB01 () ? (0x25U | (1U << 16) | (0x20U << 24)) :
+                    (0x21U | (1U << 16) | (0x23U << 24));
   Wr (CAR_BASE, PX_CAR_PLLE_SS, V);
   V &= ~(BIT12 | BIT10);
   Wr (CAR_BASE, PX_CAR_PLLE_SS, V);
@@ -384,6 +388,10 @@ UphyEnable (
     Log (L"uphy: padctl not accessible");
     return FALSE;
   }
+  if (PexIsB01 () && !T214UphyManagementEnable ()) {
+    Log (L"uphy: B01 management clock did not enable");
+    return FALSE;
+  }
   Log (L"uphy: PLL_P0 CTL1=%08x CTL2=%08x CTL4=%08x CTL5=%08x CTL8=%08x PAD_MUX=%08x XUSBIO=%08x",
        Rd (PX_PADCTL, PAD_UPHY_PLL_P0_1), Rd (PX_PADCTL, PAD_UPHY_PLL_P0_2), Rd (PX_PADCTL, PAD_UPHY_PLL_P0_4),
        Rd (PX_PADCTL, PAD_UPHY_PLL_P0_5), Rd (PX_PADCTL, PAD_UPHY_PLL_P0_8), Rd (PX_PADCTL, PAD_USB3_PAD_MUX), Rd (CAR_BASE, PX_CAR_XUSBIO_PLL));
@@ -393,8 +401,14 @@ UphyEnable (
   } else {
     Wr (CAR_BASE, PX_CAR_RST_Y_CLR, PX_Y_UPHY);                                  // release PEX_USB_UPHY reset (id 205)
     Us (10);
-    Rm (PX_PADCTL, PAD_UPHY_PLL_P0_2, 0xFFFFFFU << 4, 0x136U << 4);              // CAL_CTRL
-    Rm (PX_PADCTL, PAD_UPHY_PLL_P0_5, 0xFFU << 16, 0x2AU << 16);                 // DCO_CTRL
+    if (PexIsB01 ()) {
+      // Only lane 0 belongs to this Wi-Fi path; leave USB lane defaults alone.
+      T214PcieLaneDefaults (0);
+      T214UphyPllDefaults ();
+    } else {
+      Rm (PX_PADCTL, PAD_UPHY_PLL_P0_2, 0xFFFFFFU << 4, 0x136U << 4);            // CAL_CTRL
+      Rm (PX_PADCTL, PAD_UPHY_PLL_P0_5, 0xFFU << 16, 0x2AU << 16);               // DCO_CTRL
+    }
     Rm (PX_PADCTL, PAD_UPHY_PLL_P0_1, 0, BIT4);                                  // PWR_OVRD
     Rm (PX_PADCTL, PAD_UPHY_PLL_P0_2, 0, BIT2);                                  // CAL_OVRD
     Rm (PX_PADCTL, PAD_UPHY_PLL_P0_8, 0, BIT15);                                 // RCAL_OVRD
@@ -437,7 +451,7 @@ UphyEnable (
 
   // lane muxing: pcie-0 = function "pcie-x1" (0) in USB3_PAD_MUX[13:12]; release IDDQ for the lanes we use
   Rm (PX_PADCTL, PAD_USB3_PAD_MUX, 3U << 12, 0);
-  for (I = 0; I < 7; I++) {
+  for (I = 0; I < (PexIsB01 () ? 6U : 7U); I++) {
     if (mUphyLanes & (1U << I)) {
       Rm (PX_PADCTL, PAD_USB3_PAD_MUX, 0, 1U << (1 + I));
     }

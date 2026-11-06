@@ -71,7 +71,7 @@ PexUp (
   mPexEnum = FALSE;
   mBpWin   = 0xFFFFFFFF;
 
-  Log (L"pex[1] radio off (WIFI_EN/WIFI_RST low), pinmux, 32 kHz");
+  Log (L"pex[1] hold Wi-Fi reset low, configure pins and 32 kHz");
   // Wi-Fi bring-up must leave the already configured Bluetooth/UART pins alone.
   PinsWifi ();
   Step32k (TRUE);
@@ -147,8 +147,10 @@ PexUp (
   }
   Wr (PEX_PADS, PADS_REFCLK_CFG0, 0x90B890B8);
 
-  Log (L"pex[8] power the Wi-Fi chip: WIFI_EN high, then WIFI_RST -> run level %d", mPexRstRun);
-  GpioH (H0, 1, TRUE);
+  // Vali's boot-default-output-low identifies PH0 as RF_DISABLE, not an
+  // active-high power enable. PH1 is high in the running Linux profile.
+  Log (L"pex[8] Wi-Fi PH0=%d, PH1 reset -> run level %d", PexIsB01 () ? 0 : 1, mPexRstRun);
+  GpioH (H0, PexIsB01 () ? 0 : 1, TRUE);
   Ms (20);
   GpioH (H1, mPexRstRun, TRUE);
   GpioH (H2, 0, FALSE);

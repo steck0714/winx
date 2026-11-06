@@ -8,7 +8,11 @@ The Switchroot B01 board description selects BCM4356 FullMAC on PCIe root port i
 
 The existing upstream `Drivers/WifiBtApp/WifiPcie.h` and `WifiPexStages.h` already implement draft PCIe link, endpoint BAR, backplane/chip and firmware-console stages. They do not implement message-buffer rings, scan/join, EFI networking or a Windows network adapter. Reuse this source rather than starting a parallel Lite implementation.
 
-Switchroot's `tegra210b01_pcie_data` differs from Erista: it does not request the Erista PCIe IO-DPD and MBIST workarounds, and its lane configuration resolves to x4+x1. Power supplies are MAX77620 LDO1/SD3. UPHY and the root-port configuration must be checked against B01 before the draft Erista sequence is run on Lite. Wi-Fi and Bluetooth share the chip and low-power clock. The shared PCIe entry now configures only Wi-Fi pins, leaving the Bluetooth/UART pinmux intact, and skips the Erista IO-DPD workaround on B01. These are source adaptations, not evidence of a working Lite PCIe link; the remaining PHY/clock sequence still needs B01 review and hardware acceptance.
+Switchroot's `tegra210b01_pcie_data` differs from Erista: it does not request the Erista PCIe IO-DPD and MBIST workarounds, and its lane configuration resolves to x4+x1. Power supplies are MAX77620 LDO1/SD3. Wi-Fi and Bluetooth share the chip and low-power clock. The shared PCIe entry configures only Wi-Fi pins, leaving Bluetooth/UART pinmux intact, and skips the Erista IO-DPD workaround on B01.
+
+The SoC-specific `t214/uphy.h` helper enables B01's 102 MHz UPHY management clock through the PLLP HSIO/XUSB branch and the repurposed CAR 0x6D0 divider. It applies Switchroot's lane-0 indirect defaults and four-entry PLL CTL10 table instead of Erista's direct CAL_CTRL/DCO_CTRL values. The shared PLLE routine selects B01's spread coefficients, and lane release respects B01's six-lane layout. An already-running UPHY sequencer keeps its calibration. These are compiled source adaptations, not evidence of a working Lite PCIe link. Rail state, root-port configuration and physical link/chip-ID readback still need acceptance.
+
+Vali's GPIO defaults hold PH0 (RF_DISABLE) low and PH1 (Wi-Fi reset/power) high while running. The B01 PCIe path now follows those levels instead of the legacy probe's unverified active-high PH0 enable assumption. PH3/PH4 Bluetooth wake/reset are not changed by PCIe bring-up.
 
 ## Milestones
 
@@ -22,6 +26,9 @@ The firmware blob, board calibration, MAC address and credentials are not commit
 ## Primary references
 
 - [B01 PCIe wiring and supplies](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi)
+- [Lite GPIO running and suspend levels](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-gpio.dtsi)
 - [Switchroot Tegra PCIe host](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/pci/host/pci-tegra.c)
+- [B01 UPHY management clock and PLLE coefficients](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/clk/tegra/clk-tegra210b01.c)
+- [B01 PCIe PHY defaults and calibration](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/phy/tegra/xusb-tegra210.c)
 - [brcmfmac PCIe transport](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c)
 - [brcmfmac firmware/NVRAM parser](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/firmware.c)

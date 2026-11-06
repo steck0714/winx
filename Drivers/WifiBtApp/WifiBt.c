@@ -81,7 +81,7 @@
 #define GPIO_H_OE       0x11C
 #define GPIO_H_OUT      0x12C
 #define GPIO_H_IN       0x13C
-#define H0              0x01      // WIFI_EN
+#define H0              0x01      // B01 Wi-Fi RF_DISABLE; legacy probe assumes WIFI_EN
 #define H1              0x02      // WIFI_RST
 #define H2              0x04      // WIFI_WAKE_AP (in)
 #define H3              0x08      // AP_WAKE_BT (BT_DEV_WAKE, active low)
