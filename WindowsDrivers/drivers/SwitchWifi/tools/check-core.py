@@ -35,7 +35,7 @@ kernel_flags = ["--target=aarch64-pc-windows-msvc", "-ffreestanding",
     "-isystem", str((args.sdk_include or args.wdk_include) / "shared"),
     "-isystem", str(kmdf)]
 objects = []
-for source in sources + [root / "windows/transport.c"]:
+for source in sources + [root / "windows/transport.c", root / "windows/resources.c"]:
     obj = args.out / (source.stem + ".obj")
     subprocess.run(common + kernel_flags + ["-c", str(source), "-o", str(obj)], check=True)
     if obj.read_bytes()[:2] != b"\x64\xaa":

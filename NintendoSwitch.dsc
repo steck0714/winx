@@ -34,6 +34,19 @@
   DEFINE LITE_BLUETOOTH_FLAGS   =
   DEFINE LITE_BACKLIGHT_FLAGS  =
   DEFINE LITE_BOOT_SD_FLAGS    =
+  DEFINE WIFI_RUNTIME_FLAGS   =
+!ifdef SWITCH_WIFI_RUNTIME
+  DEFINE WIFI_RUNTIME_FLAGS   = -DSWITCH_WIFI_RUNTIME=1
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_WIFI_RUNTIME requires the Hekate Home boot chain"
+  !endif
+  !ifndef SWITCH_LITE_BOOT_SD
+    !error "SWITCH_WIFI_RUNTIME requires the bounded Home boot profile"
+  !endif
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_WIFI_RUNTIME requires the I2C5 power profile"
+  !endif
+!endif
 !ifdef SWITCH_LITE_BOOT_SD
   DEFINE LITE_BOOT_SD_FLAGS    = -DSWITCH_LITE_BOOT_SD=1
   !ifndef SWITCH_LITE_TOUCH
@@ -137,7 +150,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -188,7 +201,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -781,7 +794,7 @@
   }
 !endif
 !ifdef SWITCH_WIFI_PROBE
-  # Standalone automatic PCIe/firmware/passive-scan diagnostic, loaded from FAT.
+  # Standalone automatic PCIe/firmware/passive-scan diagnostic, loaded from WINARM.
   NintendoSwitchPkg/Drivers/WifiBtApp/WifiProbe.inf {
     <LibraryClasses>
       DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
@@ -796,6 +809,24 @@
       gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
     <BuildOptions>
       GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1
+  }
+!endif
+!ifdef SWITCH_WIFI_RUNTIME
+  # Board preparation only. Windows owns firmware download and runtime DMA.
+  NintendoSwitchPkg/Drivers/WifiBtApp/WifiPrepare.inf {
+    <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1 -DWIFI_PREPARE=1
   }
 !endif
 !ifdef SWITCH_PERF

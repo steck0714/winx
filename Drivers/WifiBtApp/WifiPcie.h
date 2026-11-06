@@ -8,7 +8,9 @@
   drivers/clk/tegra/{clk-pll.c,clk-tegra210.c} (PLLE + HW sequencer), drivers/soc/tegra/pmc.c (power gate, IO pad DPD) and
   drivers/net/wireless/broadcom/brcm80211/brcmfmac/{pcie.c,chip.c,firmware.c}.
 
-  DRAFT, UNTESTED.  ALL accesses are naturally aligned 32-bit MMIO.  This file is #included by WifiBt.c (single translation unit) after Log/Rd/Wr/Us/Ms.
+  The B01 PCIe/firmware/passive-scan path passed the physical R6 probe. Windows
+  runtime handoff remains under development. All accesses here are naturally
+  aligned 32-bit MMIO. Included by WifiBt.c after Log/Rd/Wr/Us/Ms.
 **/
 
 // ---------------------------------------------------------------------------------------------

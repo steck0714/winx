@@ -18,7 +18,8 @@
 
   pctl/pscan stop Wi-Fi before releasing their DMA buffers. Reload the chip
   firmware before a subsequent probe. These shell commands do not provide
-  Windows networking. PCIe/radio behavior still requires hardware acceptance.
+  Windows networking. The R6 B01 passive scan passed on hardware; Windows
+  runtime integration still requires acceptance.
   The legacy wifi/wfw SDIO commands are unsuitable for Switch Wi-Fi.
 
   References: Switchroot brcmfmac PCIe/msgbuf, Tegra PCIe/UPHY and B01 board
@@ -1742,4 +1743,8 @@ Done:
   mProbeRoot->Close (mProbeRoot); mProbeRoot = NULL;
   return Pass ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
+#endif
+
+#if defined(WIFI_PREPARE)
+#include "WifiPrepare.h"
 #endif

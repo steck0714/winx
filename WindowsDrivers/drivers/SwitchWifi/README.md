@@ -27,7 +27,7 @@ periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
 These components are host-tested and compile to an ARM64 KMDF static library. There is
 currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-WiFiCx device registration, PCIe/ACPI ownership and firmware/shared-ring setup,
+WiFiCx device registration and firmware/shared-ring setup,
 connection/key management and NetAdapterCx packet queues still need integration and hardware
 acceptance. Do not add an empty network device or mark this driver as deployed.
 
@@ -64,8 +64,10 @@ it does not create or disable the missing Wi-Fi driver.
 The platform must supply a real DMA-capable WDF device, its translated interrupt
 resource, and a fixed PCIe-core register aperture. A mutable BAR0 backplane
 window cannot be shared with the ISR. Use the WDF DMA enabler and its logical
-addresses; the pre-Windows probe's direct-physical/AFI-ASID bypass is not used.
-The ACPI/bus mapping must describe the noncoherent DMA path correctly.
+addresses rather than deriving device addresses from virtual/physical pointers.
+The experimental companion firmware establishes a direct AFI DMA domain before
+Windows (_CCA=0, no Tegra SMMU/IORT remapper in this profile). The Windows
+transport does not change ASIDs and requires 32-bit DMA logical addresses.
 
 `SwifiWinCreateRing` allocates 64-byte-aligned common buffers and validates the
 32-bit DMA range and initial indices. The platform publishes those allocations
@@ -85,6 +87,42 @@ mask the source and cancel/wait for the DPC, then stop/reset the endpoint. Retur
 owned packet buffers only after that reset. Delete ring buffers and transport
 objects during resource release before unmapping BARs. The post-reset deletion
 path does not touch endpoint registers.
+
+## Board preparation and resource binding
+
+The experimental companion build flag `SWITCH_WIFI_RUNTIME=1` adds `WFI0` /
+`ACPI\SWOA0D01`. Home loads `\SwitchWOA\Wifi\WifiPrepare.efi` from its existing
+read-only WINARM view. The application reuses the accepted B01 LDO1, PHY, link,
+BAR and chip-discovery implementation; it leaves CR4 halted, bus mastering off,
+endpoint/AFI interrupts masked and no firmware-owned host DMA allocations.
+Preparation also enables only SPI 98's CPU route in legacy controller bank 3,
+clearing its FIQ-class/forced state while AFI remains masked. GIC control stays
+with Windows; preparation failure restores the inherited route enable/class.
+Only after preparation succeeds does Home set the DSDT readiness byte, repair
+the checksum and expose the device. An absent/failed application leaves WFI0
+hidden and Windows boot continues. The shipped R5/R6 card setup is unchanged;
+this new runtime profile is compiled locally and has not been deployed.
+
+`platform/tegra_resources.h` is shared by the C driver and companion ASL:
+
+| Resource | Base | Length / ID |
+|---|---|---|
+| Root ports, PADS and AFI | `0x01000000` | `0x4000` |
+| Reprogrammable endpoint config window | `0x02000000` | `0x1000` |
+| Outbound memory aperture | `0x13000000` | `0x0D000000` |
+| Legacy INTx / AFI interrupt | GIC SPI 98 | GSI 130, level high |
+
+The configuration aperture is the one programmed by the existing UEFI path;
+Switchroot chooses a different CPU window (`0x11FFF000`) for the same AFI
+translation. This device is a composite platform controller, not a standard
+ECAM root bridge. `windows/resources.c` maps the host/config ranges and only
+validated BAR slices inside the reserved outbound aperture. Its configuration
+access uses Tegra's extended-register encoding for endpoint 1:0.0.
+
+The ISR now acknowledges AFI's host reason and PME status as well as BCM mailbox
+causes. Unexpected AFI errors retain their reason/signature, mask the host and
+schedule recovery without further endpoint MMIO. MSI remains disabled. PME
+acknowledgment does not establish suspend/resume or wake support.
 
 ## Build and test
 
@@ -106,10 +144,16 @@ cover wrap/full boundaries, completion-prefix stripping, arrivals during a
 bounded drain and a device-side model exchanging packets with the packet core.
 They do not simulate KMDF or prove hardware interrupt/cache behavior.
 
-The script compiles the portable core and `windows/transport.c` with WDK/KMDF
+The script compiles the portable core, transport and resource mapping with WDK/KMDF
 1.33 headers, then archives `SwitchWifiTransport.lib` for ARM64. `--kmdf-include`
 can specify separately extracted KMDF headers. This is not a linked, signed or
 installed SYS driver, and the new runtime transport is not hardware-accepted.
+The companion runtime Home firmware and WifiPrepare application also compile
+for AARCH64. ACPICA evaluation returns WFI0 status 0 before preparation and
+0x0F after the readiness-byte patch, with the three ranges and GSI above.
+The full-table interpreter reported four outstanding cache allocations on exit;
+the WFI0 evaluations themselves returned the expected values. No physical
+handoff, Windows interrupt delivery or Windows network connection is claimed.
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),
 [WiFiCx client model](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),

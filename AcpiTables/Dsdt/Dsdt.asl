@@ -16,6 +16,9 @@
 **/
 
 #include "Platform.h"
+#ifdef SWITCH_WIFI_RUNTIME
+#include "../../WindowsDrivers/drivers/SwitchWifi/platform/tegra_resources.h"
+#endif
 
 DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_OEM_REVISION) 
 {
@@ -636,6 +639,31 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#ifdef SWITCH_WIFI_RUNTIME
+        // Composite AFI host + BCM4356 endpoint. Not an ECAM/pci.sys bridge.
+        // SPI 98 / GSI 130 carries legacy INTx and AFI host notifications.
+        // Home only exposes this device after WifiPrepare succeeds; touching
+        // an unpowered host controller from Windows is not permitted.
+        Device (WFI0)
+        {
+            Name (_HID, SWIFI_ACPI_HID)
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+            Name (WSTA, 0x10) // BytePrefix marker patched to 0x0F by Home BDS.
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, SWIFI_HOST_BASE, SWIFI_HOST_LENGTH)
+                Memory32Fixed (ReadWrite, SWIFI_CONFIG_BASE, SWIFI_CONFIG_LENGTH)
+                Memory32Fixed (ReadWrite, SWIFI_APERTURE_BASE, SWIFI_APERTURE_SIZE)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { SWIFI_LEGACY_GSI }
+            })
+            Method (_STA, 0, NotSerialized)
+            {
+                If ((WSTA == 0x0F)) { Return (0x0F) }
+                Return (Zero)
+            }
+        }
 #endif
 #if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_BLUETOOTH)
         // R390 (hayato41200/Windows-for-Switch): Bluetooth for switchbt.sys (ACPI\SWOA0B01).

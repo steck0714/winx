@@ -223,3 +223,47 @@ source builds into `SwitchWifiTransport.lib` for ARM64. This is a linkable sourc
 component, not a SYS/INF or physical Windows acceptance. Device resource binding,
 firmware/shared-buffer setup, WiFiCx registration, authentication and OS queues
 remain required before deploying a Windows adapter.
+
+## Experimental Windows resource handoff
+
+`SWITCH_WIFI_RUNTIME=1` is a separate, opt-in Home build flag requiring the
+Hekate, bounded boot-SD and I2C5 power profiles. It adds the WFI0 composite
+platform device (`ACPI\SWOA0D01`, `_CCA=0`) and builds `WifiPrepare.efi` from the
+same PCIe implementation used by the accepted R6 probe. Home loads it from
+`\SwitchWOA\Wifi\WifiPrepare.efi` on WINARM before Windows Boot Manager.
+It does not run the scan or use a second Hekate entry.
+
+The preparation application enables LDO1, PHY and link, assigns BARs, discovers
+and halts CR4, disables bus mastering and masks endpoint/AFI interrupts. It
+establishes the direct AFI DMA domain used by this non-IORT Windows profile
+while bus mastering is off; no host DMA buffers are left live across boot.
+Only PCIe SPI 98's legacy-controller CPU route is enabled, with IRQ rather than
+FIQ classification and stale forced state cleared. Windows still owns GIC.
+The failure path stops the endpoint and restores acquired supply/domain/route
+settings. Bluetooth reset/UART and the shared SD3 supply are preserved.
+
+WFI0 remains hidden until the application returns success. Home then updates
+its unique DSDT readiness byte and checksum. If preparation fails or the app is
+absent, the device remains hidden and Windows boot continues. The resource
+header is shared with the Windows driver: host/root/AFI registers at
+0x01000000+0x4000, the UEFI config window at 0x02000000+0x1000, outbound memory
+at 0x13000000+0x0D000000, and legacy INTx/AFI GSI 130 (SPI 98). This is not a
+standard ECAM root bridge.
+
+The Windows resource layer maps host/config registers and bounded BAR slices.
+The ISR acknowledges AFI's reason/signature and PME status before handling the
+BCM mailbox; unexpected host errors disable the source and schedule recovery
+without touching a potentially inaccessible endpoint. MSI and selective-suspend
+support are not claimed. Source references:
+[Switchroot SoC resources](https://github.com/CTCaer/l4t-hardware-soc-t210/blob/l4t/l4t-r32.3.1/kernel-dts/tegra210-soc/tegra210-soc-base.dtsi),
+[AFI IRQ handling](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/pci/host/pci-tegra.c),
+[legacy IRQ forwarding](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/irqchip/irq-tegra.c).
+
+The full runtime Home image and preparation app compile for AARCH64. ACPICA
+returns WFI0 status 0 before readiness and 0x0F afterward, plus the expected
+resource buffer and HID. The interpreter reported four outstanding cache
+allocations at exit; WFI0 evaluations returned the expected values. Windows
+source compiles with WDK/KMDF into the ARM64 transport library. These are local
+artifacts only, not deployed or physically accepted. Windows chip-firmware
+initialization, shared-buffer publication, WiFiCx registration, authentication
+and OS queues are still required before a network adapter can be installed.

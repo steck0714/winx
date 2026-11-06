@@ -7,6 +7,10 @@
 #include <Library/TimerLib.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <winarm-target.h>
+#ifdef SWITCH_WIFI_RUNTIME
+#include <Guid/Acpi.h>
+#include <IndustryStandard/Acpi.h>
+#endif
 
 #define WINDOWS_LOADER L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
 STATIC BOOLEAN IsWindowsPartition (EFI_HANDLE Handle);
@@ -205,6 +209,62 @@ CheckBootFile (EFI_FILE_PROTOCOL *Root, CHAR16 *Name, CONST CHAR8 *Magic, UINTN 
 }
 
 STATIC EFI_STATUS
+PrepareWindowsWifi (EFI_HANDLE Volume)
+{
+#ifdef SWITCH_WIFI_RUNTIME
+  EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *Rsdp;
+  EFI_ACPI_DESCRIPTION_HEADER *Xsdt, *Table, *Dsdt = NULL;
+  EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE *Fadt;
+  STATIC CONST UINT8 Pattern[] = {0x08, 'W', 'S', 'T', 'A', 0x0A, 0x10};
+  UINT8 *Ready = NULL, *Aml, Sum = 0;
+  UINTN Entries, I, Matches = 0;
+  EFI_DEVICE_PATH_PROTOCOL *Path;
+  EFI_HANDLE Image;
+  EFI_STATUS Status;
+
+  Status = EfiGetSystemConfigurationTable (&gEfiAcpi20TableGuid, (VOID **)&Rsdp);
+  if (EFI_ERROR (Status) || Rsdp == NULL || Rsdp->XsdtAddress == 0) return EFI_NOT_FOUND;
+  Xsdt = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)Rsdp->XsdtAddress;
+  if (Xsdt->Length < sizeof (*Xsdt)) return EFI_COMPROMISED_DATA;
+  Entries = (Xsdt->Length - sizeof (*Xsdt)) / sizeof (UINT64);
+  for (I = 0; I < Entries && Dsdt == NULL; ++I) {
+    Table = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)ReadUnaligned64 (
+        (UINT64 *)((UINT8 *)Xsdt + sizeof (*Xsdt) + I * 8));
+    if (Table->Signature != EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE) continue;
+    if (Table->Length < sizeof (*Fadt)) return EFI_COMPROMISED_DATA;
+    Fadt = (EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE *)Table;
+    Dsdt = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)(Fadt->XDsdt ? Fadt->XDsdt : Fadt->Dsdt);
+  }
+  if (Dsdt == NULL || Dsdt->Length < sizeof (*Dsdt)) return EFI_NOT_FOUND;
+  Aml = (UINT8 *)Dsdt;
+  for (I = sizeof (*Dsdt); I + sizeof (Pattern) <= Dsdt->Length; ++I) {
+    if (CompareMem (Aml + I, Pattern, sizeof (Pattern)) == 0) {
+      Ready = Aml + I + 6;
+      Matches++;
+    }
+  }
+  if (Matches != 1) return EFI_NOT_FOUND;
+  Path = FileDevicePath (Volume, L"\\SwitchWOA\\Wifi\\WifiPrepare.efi");
+  if (Path == NULL) return EFI_OUT_OF_RESOURCES;
+  Status = gBS->LoadImage (FALSE, gImageHandle, Path, NULL, 0, &Image);
+  FreePool (Path);
+  if (EFI_ERROR (Status)) return Status;
+  Status = gBS->StartImage (Image, NULL, NULL);
+  gBS->UnloadImage (Image);
+  if (EFI_ERROR (Status)) return Status; // WFI0 remains hidden on failure.
+  *Ready = 0x0F;
+  Dsdt->Checksum = 0;
+  for (I = 0; I < Dsdt->Length; ++I) Sum = (UINT8)(Sum + Aml[I]);
+  Dsdt->Checksum = (UINT8)(0 - Sum);
+  MemoryFence ();
+  return EFI_SUCCESS;
+#else
+  (VOID)Volume;
+  return EFI_SUCCESS;
+#endif
+}
+
+STATIC EFI_STATUS
 BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
 {
   EFI_BOOT_MANAGER_LOAD_OPTION Option;
@@ -217,6 +277,10 @@ BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
   if (!EFI_ERROR (Status)) Status = CheckBootFile (Root, L"\\Windows\\System32\\winload.efi", "MZ", 2);
   Root->Close (Root);
   if (EFI_ERROR (Status)) return Status;
+
+  Status = PrepareWindowsWifi (Volume);
+  if (EFI_ERROR (Status))
+    Print (L"Wi-Fi preparation: %r; device hidden, continuing Windows boot.\r\n", Status);
 
   Path = FileDevicePath (Volume, WINDOWS_LOADER);
   if (Path == NULL) return EFI_OUT_OF_RESOURCES;

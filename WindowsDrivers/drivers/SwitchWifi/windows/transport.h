@@ -5,6 +5,7 @@
 #include <ntddk.h>
 #include <wdf.h>
 #include "../core/msgbuf_ring.h"
+#include "resources.h"
 
 typedef struct SWIFI_WIN_INDEX {
     PVOID Address;
@@ -42,6 +43,7 @@ struct SWIFI_WIN_TRANSPORT {
     /* Permanently mapped PCIe core register aperture, not a mutable BAR0
      * backplane window. Must cover offsets 0x48, 0x4c, 0x140 and 0x144. */
     PUCHAR Registers;
+    SWIFI_PCIE_RESOURCES *Bus;
     SWIFI_WIN_RING *H2d;
     USHORT H2dCount;
     SWIFI_WIN_RING *D2h; /* Control, TX status, RX completion (three rings). */
@@ -51,6 +53,9 @@ struct SWIFI_WIN_TRANSPORT {
     volatile LONG Armed;
     volatile LONG Pending;
     volatile LONG Faulted;
+    volatile LONG HostFault;
+    ULONG LastAfiCode;
+    ULONG LastAfiSignature;
     UCHAR NextD2h;
 };
 
@@ -75,7 +80,7 @@ VOID SwifiWinDeleteRingAfterReset(SWIFI_WIN_RING *Ring);
  * during D0Entry before KMDF enables interrupts. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *Transport,
-    PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
+    SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
     USHORT H2dCount, SWIFI_WIN_RING D2h[3], const SWIFI_WIN_CALLBACKS *Callbacks,
     PVOID Context, PCM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt,
     PCM_PARTIAL_RESOURCE_DESCRIPTOR TranslatedInterrupt);
