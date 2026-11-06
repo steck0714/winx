@@ -9,7 +9,7 @@
 #include "../core/station_security.h"
 #include <net/virtualaddress.h>
 
-enum { SwifiNumTx = 24, SwifiNumRx = 32, SwifiNumFifo = 4 };
+enum { SwifiNumTx = 24, SwifiNumRx = 511, SwifiNumFifo = 4 };
 typedef struct SWIFI_QUEUE SWIFI_QUEUE;
 typedef struct SWIFI_TX_RECORD {
     ULONG FragmentEnd;
@@ -23,7 +23,7 @@ typedef struct SWIFI_TX_BUFFER {
 
 typedef struct SWIFI_RX_BUFFER {
     LIST_ENTRY Link;
-    ULONG Epoch, QueueEpoch, KeyEpoch, AcceptedKeyEpoch;
+    ULONG Epoch, KeyEpoch, AcceptedKeyEpoch;
     BOOLEAN KeyInFlight;
     USHORT Offset, Length;
     BOOLEAN Protected, DerivedClear;
@@ -40,7 +40,7 @@ typedef struct SWIFI_STATION_DATA {
     swifi_packet_slot TxIds[SwifiNumTx], RxIds[SwifiNumRx];
     SWIFI_TX_BUFFER Tx[SwifiNumTx];
     SWIFI_RX_BUFFER Rx[SwifiNumRx];
-    LIST_ENTRY ReadyRx;
+    LIST_ENTRY FreeRx, ReadyRx;
     USHORT Sequence;
     UCHAR Address[6], Peer[6];
     BOOLEAN Enabled, Joining, Associated, Secure, Pairwise, Group, FlowFault;
@@ -48,7 +48,8 @@ typedef struct SWIFI_STATION_DATA {
     UCHAR EapolExemption[2]; /* unicast, multicast */
     swifi_eapol_tx KeyTx;
     KEVENT EapolIdle;
-    ULONG Epoch, RxQueueEpoch, KeyEpoch, TxProgress;
+    ULONG Epoch, KeyEpoch, TxProgress, PacketPath;
+    BOOLEAN FirstJoin;
     BOOLEAN MetadataSeen, RssiSeen, BadMetadataSeen, NativeProtectedSeen;
     BOOLEAN SampleValid;
     LONG SampleDbm;
@@ -93,6 +94,7 @@ EVT_NET_ADAPTER_CREATE_TXQUEUE SwifiCreateTxQueue;
 EVT_NET_ADAPTER_CREATE_RXQUEUE SwifiCreateRxQueue;
 EVT_WIFI_DEVICE_CREATE_ADAPTER SwifiCreateAdapter;
 
+VOID SwifiDataPrime(SWIFI_DEVICE *Device);
 NTSTATUS SwifiDataBind(SWIFI_DEVICE *Device);
 VOID SwifiDataNotify(PVOID Context);
 swifi_result SwifiDataDispatch(PVOID Context, const uint8_t *Item, size_t Length);

@@ -507,7 +507,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.5.4.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.5.5.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -597,8 +597,30 @@ contain a management body, the driver checks the supplied beacon.
 records the last selection. Names, offered and accepted are counts. Policy,
 auth and rejected are hexadecimal masks. Rejection bits 0–8 cover the BSSID,
 allow/deny lists, fast transition, band, channel, missing frame, frame profile,
-PMKID and vendor elements. A successful association, DHCP lease and rekey on
-hardware are still pending.
+PMKID and vendor elements. On the physical Lite, 0.5.4.0 selected both candidates in the latest request
+and returned a successful association. WLAN AutoConfig recorded 13 successful
+association events and 10 dynamic-key timeouts (0x00048005). The OS saved the
+profile and attempted automatic connection. No key was installed.
+
+Version 0.5.5.0 fills the private firmware RX ring before bringing up the
+station, up to the advertised credit count and the ring capacity. The pool
+survives Windows packet-queue restarts. A cleared queue discards its ready
+frames; new completions use private DMA buffers. The receiver handles EAPOL
+inside 802.3 LLC/SNAP and retains the Ethernet source of a bridged
+authenticator. Native FromDS still requires the selected AP as transmitter.
+
+The hexadecimal `path` field records the first observation of each step:
+
+| Mask | Observation |
+| --- | --- |
+| 1 / 2 / 4 / 8 / 10 | RX credit posted / completion / EAPOL decoded / queued / indicated to Windows |
+| 20 / 40 / 80 | TX EAPOL from Windows / posted / completed successfully |
+| 100 / 200 / 400 / 800 / 1000 | Bad completion / native frame rejected / destination filtered / malformed EAPOL / key policy denied |
+| 2000 / 4000 / 8000 / 10000 | RX queue started / TX queue started / separate authenticator source / private RX free list exhausted |
+
+`credits` is the negotiated RX buffer count. The report contains no frame
+contents. Key exchange, a DHCP lease and traffic through a rekey still need
+hardware results.
 
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),

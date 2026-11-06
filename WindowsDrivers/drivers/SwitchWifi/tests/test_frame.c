@@ -51,6 +51,20 @@ int main(void)
     assert(!swifi_clear_eapol(native,37,sta,ap));
     assert(swifi_clear_eapol(native,38,sta,ap)==20);
     assert(!memcmp(native,sta,6) && !memcmp(native+6,ap,6) && native[12]==0x88 && native[19]==0xcd);
+    const uint8_t authsrc[6] = {2,9,8,7,6,5};
+    /* An AP may bridge an authenticator with a distinct Ethernet source. */
+    memset(native, 0, sizeof(native)); native[0] = 8; native[1] = 2;
+    memcpy(native+4,sta,6); memcpy(native+10,ap,6); memcpy(native+16,authsrc,6);
+    memcpy(native+24,pae,sizeof(pae));
+    native[10] ^= 4; assert(!swifi_clear_eapol(native,38,sta,ap)); native[10] ^= 4;
+    assert(swifi_clear_eapol(native,38,sta,ap)==20 && !memcmp(native+6,authsrc,6));
+    uint8_t llc[64]={0};
+    memcpy(llc,sta,6); memcpy(llc+6,authsrc,6); memcpy(llc+14,pae,sizeof(pae));
+    llc[13]=28; assert(!swifi_ether_eapol(llc,28));
+    llc[13]=8; assert(!swifi_ether_eapol(llc,28));
+    llc[13]=sizeof(pae);
+    assert(swifi_ether_eapol(llc,sizeof(llc))==20);
+    assert(llc[12]==0x88 && llc[13]==0x8e && !memcmp(llc+14,pae+8,6));
     puts("station frame fixtures passed");
     return 0;
 }

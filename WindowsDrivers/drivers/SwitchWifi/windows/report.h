@@ -26,6 +26,7 @@ typedef struct SWIFI_JOIN_SELECTION {
 
 typedef struct SWIFI_REPORT_DATA {
     ULONG Session, Step, FailedStep, HardwareStep;
+    ULONG PacketPath, ReceiveCredits;
     SWIFI_JOIN_SELECTION Selection;
     NTSTATUS HardwareStatus;
     NTSTATUS StepStatus, FailureStatus, ScanStatus, JoinStatus;
@@ -47,6 +48,7 @@ VOID SwifiReportStep(SWIFI_REPORT *R, SWIFI_BOOT_STEP Step, NTSTATUS Status);
 VOID SwifiReportIo(SWIFI_REPORT *R, LONG IrqSeen, LONG RingSeen);
 VOID SwifiReportHardware(SWIFI_REPORT *R, SWIFI_HW_STEP Step, NTSTATUS Status);
 VOID SwifiReportScan(SWIFI_REPORT *R, NTSTATUS Status);
+VOID SwifiReportPacketPath(SWIFI_REPORT *R, ULONG Mask, ULONG ReceiveCredits);
 VOID SwifiReportSelection(SWIFI_REPORT *R, const SWIFI_JOIN_SELECTION *Selection);
 VOID SwifiReportJoin(SWIFI_REPORT *R, NTSTATUS Status);
 VOID SwifiReportFilter(SWIFI_REPORT *R, ULONG Flags, ULONG Count, ULONG Mode, NTSTATUS Status);

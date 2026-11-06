@@ -61,6 +61,7 @@ static NTSTATUS Online(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Previous)
 {
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     UNREFERENCED_PARAMETER(Previous);
+    SwifiDataPrime(D);
     NTSTATUS Status = SwifiHardwareOnline(&D->Hw);
     SwifiReportStep(&D->Report, SwifiRadioOnline, Status);
     if (!NT_SUCCESS(Status)) {

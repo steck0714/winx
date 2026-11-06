@@ -37,7 +37,7 @@ static VOID WriteReport(WDFWORKITEM Work)
         NTSTATUS Status = RtlStringCchPrintfW(Text, RTL_NUMBER_OF(Text),
             L"v=5 session=%u step=%u/%08X failure=%u/%08X scan=%u/%08X join=%u/%08X "
             L"keys=%u add=%u del=%u eth_pre=%u eth_unknown=%u native_clear=%u "
-            L"native_protected=%u meta=%u rssi=%u malformed=%u filter=%X/%u/%u/%08X hw=%u/%08X irq=%u ring=%u select=%X/%X/%u/%u/%u/%X",
+            L"native_protected=%u meta=%u rssi=%u malformed=%u filter=%X/%u/%u/%08X hw=%u/%08X irq=%u ring=%u select=%X/%X/%u/%u/%u/%X path=%X credits=%u",
             D.Session,D.Step,(ULONG)D.StepStatus,D.FailedStep,(ULONG)D.FailureStatus,
             D.Scans,(ULONG)D.ScanStatus,D.Attempts,(ULONG)D.JoinStatus,D.KeyMask,
             D.KeyInstalls,D.KeyRemovals,D.Count[SwifiRxEtherBeforeKey],D.Count[SwifiRxEtherUncertain],
@@ -45,7 +45,7 @@ static VOID WriteReport(WDFWORKITEM Work)
             D.Count[SwifiRxRssiSeen],D.Count[SwifiRxMetaInvalid],
             D.FilterFlags,D.FilterCount,D.FilterMode,(ULONG)D.FilterStatus,D.HardwareStep,(ULONG)D.HardwareStatus,
             D.IrqSeen,D.RingSeen,D.Selection.Policy,D.Selection.Auth,D.Selection.Names,
-            D.Selection.Offered,D.Selection.Accepted,D.Selection.Rejected);
+            D.Selection.Offered,D.Selection.Accepted,D.Selection.Rejected,D.PacketPath,D.ReceiveCredits);
         if (NT_SUCCESS(Status)) {
             UNICODE_STRING Value;
             RtlInitUnicodeString(&Value, Text);
@@ -127,6 +127,16 @@ VOID SwifiReportScan(SWIFI_REPORT *R, NTSTATUS Status)
     R->Data.ScanStatus = Status;
     ScheduleLocked(R);
     KeReleaseSpinLock(&R->Lock,Irql);
+}
+
+VOID SwifiReportPacketPath(SWIFI_REPORT *R, ULONG Mask, ULONG ReceiveCredits)
+{
+    KIRQL Irql;
+    KeAcquireSpinLock(&R->Lock, &Irql);
+    R->Data.PacketPath |= Mask;
+    R->Data.ReceiveCredits = ReceiveCredits;
+    ScheduleLocked(R);
+    KeReleaseSpinLock(&R->Lock, Irql);
 }
 
 VOID SwifiReportSelection(SWIFI_REPORT *R, const SWIFI_JOIN_SELECTION *Selection)

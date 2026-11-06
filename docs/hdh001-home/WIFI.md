@@ -22,7 +22,13 @@ Windows then started the station and the owner saw nearby networks. The hardware
 first recorded 19 scans. After the owner tried to connect, it recorded 70 scans
 and 10 rejected joins (`0xC00000BB`), with zero key installations. Version
 0.5.4.0 updates host candidate selection and records which filter rejects a
-candidate. Windows association and DHCP still need a physical result.
+candidate. On the physical Lite, Windows selected the access point and
+associated. The driver reported `join=15/00000000 select=0/2/1/2/2/0`.
+The saved profile was used automatically. Security events reported a dynamic
+key exchange timeout (0x00048005), and the driver recorded zero key
+installations. Version 0.5.5.0 primes the firmware receive ring and handles
+bridged and length-encapsulated EAPOL. A DHCP lease and working network
+traffic still require a physical connection.
 The trimmed image includes the Windows on-screen keyboard at
 `%SystemRoot%\System32\osk.exe` for entering network credentials.
 [Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
