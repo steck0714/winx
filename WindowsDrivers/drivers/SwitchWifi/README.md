@@ -18,6 +18,12 @@ reset. It uses the same Broadcom wire protocol as Switchroot's brcmfmac. Firmwar
 status and TX status are retained for the OS layer; a completed TX descriptor
 alone is not evidence of successful over-the-air delivery.
 
+`core/msgbuf_control.c` adds serialized asynchronous IOCTLs and eight retained
+event buffers. A command publishes its reply-buffer descriptor and request in
+one ring update; ring-full retries cannot orphan the reply buffer. Matching
+transaction IDs, response IDs and command numbers distinguish completions from
+stale messages. Timeouts stop reuse until endpoint recovery.
+
 `core/msgbuf_ring.c` now connects that packet core to producer/consumer rings.
 `windows/transport.c` provides the KMDF DMA common buffers, TCM or host-memory
 indices, mailbox ISR, bounded DPC dispatch and interrupt quiescence. Each DPC
@@ -27,7 +33,7 @@ periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
 These components are host-tested and compile to an ARM64 KMDF static library. There is
 currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-WiFiCx device registration, device lifetime binding and shared-ring setup,
+WiFiCx device registration, device lifetime binding, command scheduling,
 connection/key management and NetAdapterCx packet queues still need integration and hardware
 acceptance. Do not add an empty network device or mark this driver as deployed.
 
@@ -59,6 +65,25 @@ it does not create or disable the missing Wi-Fi driver.
   `swifi_data_stopped_after_reset`. It returns every remaining packet once;
   calling it does not itself stop DMA.
 
+## Control and event ownership
+
+- The same `DataLock` serializes command, event and packet operations. A command
+  is active until a matching completion or its deadline. A successful request
+  ACK does not complete it or release either DMA buffer.
+- The owner supplies a deadline timer. `swifi_control_timeout` identifies the
+  active request, completes it once and stops new commands/event posts. A late
+  reply cannot authorize reuse; recovery must stop/reset the endpoint first.
+- Command callbacks copy the bounded response before returning. The original
+  firmware length and signed status remain available to the OS translation.
+  Command replies start at byte zero, independently of the event RX offset.
+- Event callbacks may retain a buffer. It is not posted again until the consumer
+  calls `swifi_control_release_event`; a generation-tagged ID rejects duplicate
+  or stale completions. Refill retries preserve all unpublished slots.
+- After reset, command cancellation occurs once and posted event buffers become
+  available. Already delivered events remain retained until their consumers
+  release them. Cancel/join deadline callbacks and drain those consumers before
+  deleting DMA allocations or reinitializing the protocol.
+
 ## Windows transport integration
 
 The platform must supply a real DMA-capable WDF device, its translated interrupt
@@ -70,9 +95,9 @@ Windows (_CCA=0, no Tegra SMMU/IORT remapper in this profile). The Windows
 transport does not change ASIDs and requires 32-bit DMA logical addresses.
 
 `SwifiWinCreateRing` allocates 64-byte-aligned common buffers and validates the
-32-bit DMA range and initial indices. The platform publishes those allocations
-in the firmware's shared descriptor table. Dynamic TX flow rings also use the
-firmware control command. These steps are not performed by the library alone.
+32-bit DMA range and initial indices. `SwifiSharedPrepare` publishes those
+allocations in the firmware's shared descriptor table. Dynamic TX flow rings
+use the firmware control command.
 
 `SwifiWinCreateTransport` creates an ISR plus a separately cancellable KMDF DPC.
 Mark it ready only after firmware and shared buffers are initialized, before
@@ -147,10 +172,37 @@ are rejected while pinned. After interrupt quiescence, stop disables bus
 mastering, halts CR4 and holds D11 reset before permitting DMA teardown. If stop
 fails, the owner must reset the platform endpoint before freeing DMA memory.
 
-This code has compiled, but a Windows device entry point, shared-buffer/control
-session and WiFiCx interface have not yet been bound to it. Windows firmware
-startup has not been physically tested. Firmware binaries, board data and keys
-are not included in the repository or static library.
+This code has compiled, but Windows device callbacks, command scheduling and
+the WiFiCx interface have not yet been bound to it. Windows firmware startup
+has not been physically tested. Firmware binaries, board data and keys are
+not included in the repository or static library.
+
+## Shared firmware session
+
+`windows/shared.c` allocates the five common msgbuf rings, optional host-index
+arrays, scratch/update areas, one command input/reply pair and eight event
+buffers through the WDF DMA enabler. TCM index arrays are range-checked before
+mapping. Both host-memory and TCM slots use a 16-bit counter, including when
+the negotiated stride is four bytes, matching Switchroot's index access.
+
+All allocations and initial indices are checked with bus mastering disabled
+before their HAL logical addresses are published. Pointer/dimension readback
+finishes before DMA can be enabled. A failure after publication retains the
+allocations for reset/cleanup. Host-ready notification follows bus-master
+enable; interrupt arming remains the device owner's next lifecycle step.
+Flow-ring buffers are allocated on demand and submitted with the ordinary
+asynchronous flow-create command, then freed after delete completion or reset.
+
+This shared-session implementation currently supports the fixed v5 completion
+layout with RX prefix zero. It rejects a nonzero prefix rather than truncating
+the 16-byte TX completion. A different layout requires its actual firmware
+descriptor-size contract before use; no alternative layout is hardware-accepted.
+
+Device mailbox reading/clearing is nonblocking in the DPC. The passive send
+helper waits at most one second for a previous host mailbox transaction and
+uses the PCIe-core revision-dependent double SBMBX notification. This supports
+the owner's later deep-sleep/power state machine; it does not itself implement
+Windows suspend/resume. No periodic runtime polling loop is introduced.
 
 ## Build and test
 
@@ -170,13 +222,17 @@ flow lifetime, ring-full rollback, table exhaustion, stale/wrong-ring replies,
 RX offset/length bounds and exactly-once cancellation after reset. Ring tests
 cover wrap/full boundaries, completion-prefix stripping, arrivals during a
 bounded drain and a device-side model exchanging packets with the packet core.
+Control fixtures cover atomic paired submission, ACK/completion distinction,
+stale command/response IDs, truncated responses, timeout/reset cancellation,
+event offsets and retained-buffer backpressure. The Windows shared-session
+allocator and mailbox helpers are cross-compiled, not simulated by these tests.
 Shared EROM/NVRAM fixtures also cover extended/truncated descriptors, board-file
 packing and the RAMS aperture. They do not simulate KMDF or prove hardware
 interrupt/cache behavior.
 
 The script uses `clang-cl /kernel` for the portable core, transport, resource
-mapping and chip loader with WDK/KMDF 1.33, then archives `SwitchWifiTransport.lib`
-for ARM64. `--kmdf-include`
+mapping, chip loader and shared session with WDK/KMDF 1.33, then archives
+`SwitchWifiTransport.lib` for ARM64. `--kmdf-include`
 can specify separately extracted KMDF headers. This is not a linked, signed or
 installed SYS driver, and the new runtime transport is not hardware-accepted.
 The companion runtime Home firmware and WifiPrepare application also compile

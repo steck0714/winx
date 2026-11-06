@@ -27,18 +27,30 @@ swifi_result swifi_ring_init(swifi_ring *r, const swifi_ring_ops *ops,
 
 swifi_result swifi_ring_submit(swifi_ring *r, const uint8_t *item, size_t length)
 {
-    uint32_t peer;
-    uint16_t next;
-    if (!r->host_produces || !item || length != r->item_size)
+    return swifi_ring_submit_batch(r, item, length, 1);
+}
+
+swifi_result swifi_ring_submit_batch(swifi_ring *r, const uint8_t *items,
+    size_t length, uint16_t count)
+{
+    uint32_t peer, free_slots;
+    uint16_t next, i;
+    if (!r || !r->host_produces || !items || !count || count >= r->depth ||
+        length != (size_t)count * r->item_size)
         return SWIFI_INVALID;
     peer = r->ops.read_peer(r->context);
     if (peer >= r->depth)
         return SWIFI_PROTOCOL_ERROR;
     r->ops.barrier(r->context);
-    next = (uint16_t)((r->host_index + 1u) % r->depth);
-    if (next == peer)
+    free_slots = (peer + r->depth - r->host_index - 1u) % r->depth;
+    if (count > free_slots)
         return SWIFI_RETRY;
-    memcpy(r->memory + (size_t)r->host_index * r->item_size, item, length);
+    next = r->host_index;
+    for (i = 0; i < count; ++i) {
+        memcpy(r->memory + (size_t)next * r->item_size,
+            items + (size_t)i * r->item_size, r->item_size);
+        next = (uint16_t)((next + 1u) % r->depth);
+    }
     r->ops.barrier(r->context);
     r->host_index = next;
     r->ops.write_host(r->context, next);

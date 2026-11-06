@@ -9,7 +9,7 @@
 
 typedef struct SWIFI_WIN_INDEX {
     PVOID Address;
-    UCHAR Width; /* 2 or 4 bytes: negotiated host index width or TCM stride. */
+    UCHAR Width; /* 2/4-byte stride; the actual v5 counter is always 16-bit. */
     BOOLEAN Mmio;
 } SWIFI_WIN_INDEX;
 
@@ -89,6 +89,11 @@ NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *Transpor
 _IRQL_requires_(DISPATCH_LEVEL)
 swifi_result SwifiWinSubmit(PVOID Context, uint16_t Ring,
     const uint8_t *Item, size_t Length);
+
+/* swifi_control_ops.submit implementation; one publication and doorbell for
+ * the whole command batch. Caller holds DataLock, like SwifiWinSubmit. */
+_IRQL_requires_(DISPATCH_LEVEL)
+swifi_result SwifiWinSubmitControl(PVOID Context, const uint8_t *Items, uint16_t Count);
 
 /* First phase of D0Exit/recovery. Masks interrupts and waits for all DPCs;
  * next reset/quiesce hardware, cancel owned packets, then release buffers. */

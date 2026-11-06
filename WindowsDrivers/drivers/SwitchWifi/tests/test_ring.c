@@ -9,6 +9,7 @@ typedef struct model_ring {
     uint8_t memory[4 * 48];
     uint16_t peer, host;
     unsigned barriers, last_publish, publications;
+    uint16_t expected_step;
     int overwrite_released;
 } model_ring;
 
@@ -26,7 +27,7 @@ static void write_host(void *context, uint16_t value)
 {
     model_ring *m = context;
     assert(m->barriers > m->last_publish);
-    assert(value == (m->host + 1) % m->ring.depth);
+    assert(value == (m->host + m->expected_step) % m->ring.depth);
     if (m->overwrite_released)
         memset(m->memory + m->host * m->ring.item_size, 0xcc, m->ring.item_size);
     m->host = value;
@@ -38,6 +39,7 @@ static void ring_init(model_ring *m, uint16_t size, int h2d, uint8_t prefix)
 {
     static const swifi_ring_ops ops = {read_peer, write_host, barrier};
     memset(m, 0, sizeof(*m));
+    m->expected_step = 1;
     assert(swifi_ring_init(&m->ring, &ops, m, m->memory, sizeof(m->memory),
         4, size, h2d, prefix) == SWIFI_OK);
 }
@@ -102,6 +104,41 @@ static void test_wrap_full_and_invalid_peer(void)
     assert(m.publications == 4 && m.host == 0);
     m.peer = 0;
     assert(swifi_ring_submit(&m.ring, item, sizeof(item) - 1) == SWIFI_INVALID);
+}
+
+static void test_atomic_batch(void)
+{
+    model_ring m;
+    uint8_t batch[80] = {0}, returned[40], before[sizeof(m.memory)];
+    ring_init(&m, 40, 1, 0);
+    m.expected_step = 2;
+    batch[0] = 11; batch[40] = 9;
+    assert(swifi_ring_submit_batch(&m.ring, batch, sizeof(batch), 2) == SWIFI_OK);
+    assert(m.publications == 1 && m.host == 2);
+    memcpy(before, m.memory, sizeof(before));
+    assert(swifi_ring_submit_batch(&m.ring, batch, sizeof(batch), 2) == SWIFI_RETRY);
+    assert(!memcmp(before, m.memory, sizeof(before)) && m.publications == 1);
+    device_read(&m, returned);
+    assert(returned[0] == 11);
+    assert(swifi_ring_submit_batch(&m.ring, batch, sizeof(batch), 2) == SWIFI_OK);
+    assert(m.publications == 2 && m.host == 0);
+    device_read(&m, returned); assert(returned[0] == 9);
+    device_read(&m, returned); assert(returned[0] == 11);
+    device_read(&m, returned); assert(returned[0] == 9);
+    m.expected_step = 1;
+    assert(swifi_ring_submit(&m.ring, batch, 40) == SWIFI_OK);
+    device_read(&m, returned);
+    m.expected_step = 2;
+    assert(swifi_ring_submit_batch(&m.ring, batch, sizeof(batch), 2) == SWIFI_OK);
+    device_read(&m, returned); device_read(&m, returned);
+    assert(m.host == 3);
+    assert(swifi_ring_submit_batch(&m.ring, batch, sizeof(batch), 2) == SWIFI_OK);
+    assert(m.host == 1); /* Both descriptors were copied across the wrap. */
+    device_read(&m, returned); assert(returned[0] == 11);
+    device_read(&m, returned); assert(returned[0] == 9);
+    assert(swifi_ring_submit_batch(&m.ring, batch, 79, 2) == SWIFI_INVALID);
+    assert(swifi_ring_submit_batch(&m.ring, batch, 0, 0) == SWIFI_INVALID);
+    assert(swifi_ring_submit_batch(&m.ring, batch, 160, 4) == SWIFI_INVALID);
 }
 
 static void test_drain_budget_prefix_and_arrival(void)
@@ -238,8 +275,9 @@ static void test_packet_core_over_real_rings(void)
 int main(void)
 {
     test_wrap_full_and_invalid_peer();
+    test_atomic_batch();
     test_drain_budget_prefix_and_arrival();
     test_packet_core_over_real_rings();
-    puts("msgbuf rings: wrap/full, bounded drain, prefix, rearm arrivals and packet integration passed");
+    puts("msgbuf rings: atomic batch, wrap/full, bounded drain, prefix, rearm arrivals and packet integration passed");
     return 0;
 }

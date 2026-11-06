@@ -190,39 +190,34 @@ The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for t
 - [WiFiCx client initialization](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver)
 - [WiFiCx/NetAdapterCx compatibility](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/building-a-wificx-driver-for-multiple-versions-of-windows)
 
-## Windows packet-path implementation
+## Windows runtime implementation
 
-The canonical driver repository now contains `drivers/SwitchWifi/core/msgbuf_data.c`,
-mirrored in [WindowsDrivers](../../WindowsDrivers/drivers/SwitchWifi/README.md).
-It implements msgbuf-v5 flow-ring creation/deletion, Ethernet packet descriptors,
-RX posting/completion, priority-to-FIFO mapping and buffer ownership across
-completion or reset. It has no UEFI dependency and compiles as an ARM64 Windows
-COFF object. Sanitized native tests cover wire fixtures, queue backpressure,
-stale completions, RX bounds and exactly-once cancellation.
+The canonical `drivers/SwitchWifi` implementation is mirrored in
+[WindowsDrivers](../../WindowsDrivers/drivers/SwitchWifi/README.md). It includes
+msgbuf-v5 flow creation/deletion, Ethernet TX/RX descriptors and packet ownership,
+producer/consumer rings, a serialized command engine and retained event buffers.
+Paired reply-buffer/request publication is atomic; a full ring publishes neither.
+Command completions validate response ID, transaction and command. Deadlines
+complete the request once and retain DMA until recovery; events cannot be
+reposted while a consumer still owns them.
 
-This is not a linked or installed Windows driver. The Windows transport must
-provide DMA synchronization, ring indices, interrupts and reset, then bind the
-packet path and connection/key operations to WiFiCx/NetAdapterCx. No adapter
-was added to the card and no Windows networking acceptance is claimed.
+The KMDF transport uses HAL common buffers, mailbox interrupts and bounded DPC
+work. Index slots have a two- or four-byte stride but always contain a 16-bit
+counter, as in Switchroot. Interrupt masking/rearming closes the arrival race;
+upper-stack notifications run outside the protocol lock. Quiescence joins
+in-flight submissions and cancels/waits for the DPC before endpoint reset and
+DMA deletion. No periodic runtime polling timer is used.
+
+Native ASan/UBSan fixtures exercise wire messages, atomic ring-full/wrap behavior,
+packet ownership, command deadlines and event retention. WDK/KMDF 1.33 builds an
+ARM64 `SwitchWifiTransport.lib` including the Windows resource layer, chip loader
+and shared-session allocator. These are implemented components, not a linked or
+installed SYS/INF. Windows device callbacks, command scheduling, WiFiCx capability
+registration, connection/key management and OS packet queues still need binding
+and physical acceptance. No empty/placeholder network adapter is installed.
 
 The existing OOBE bypass only skips first-setup networking. It does not disable
 WLAN or account for the missing Windows Wi-Fi adapter.
-
-The Windows runtime transport now includes producer/consumer ring handling,
-KMDF common-buffer allocation with HAL logical addresses, 16/32-bit host or TCM
-indices, a mailbox ISR and bounded DPC dispatch. It masks/acknowledges interrupt
-causes, drains at most 32 items per completion ring per DPC, and closes the
-masked-arrival/rearm race. Upper-stack notifications occur outside the protocol
-lock. Stop joins in-flight submissions and cancels/waits for the DPC before the
-caller resets hardware and releases DMA; post-reset object deletion does not
-access endpoint registers. There is no runtime polling timer or UEFI-style
-AFI-ASID bypass.
-
-Sanitized ring/packet integration fixtures pass, and the WDK/KMDF 1.33 runtime
-source builds into `SwitchWifiTransport.lib` for ARM64. This is a linkable source
-component, not a SYS/INF or physical Windows acceptance. Device resource binding,
-firmware/shared-buffer setup, WiFiCx registration, authentication and OS queues
-remain required before deploying a Windows adapter.
 
 ## Experimental Windows resource handoff
 
@@ -264,9 +259,10 @@ returns WFI0 status 0 before readiness and 0x0F afterward, plus the expected
 resource buffer and HID. The interpreter reported four outstanding cache
 allocations at exit; WFI0 evaluations returned the expected values. Windows
 source compiles with WDK/KMDF into the ARM64 transport library. These are local
-artifacts only, not deployed or physically accepted. Windows chip-firmware
-initialization, shared-buffer publication, WiFiCx registration, authentication
-and OS queues are still required before a network adapter can be installed.
+artifacts only, not deployed or physically accepted. The Windows chip loader and
+shared-buffer publisher below are implemented; device lifecycle, command
+scheduling, WiFiCx registration, authentication and OS queues still require
+integration before a network adapter can be installed.
 
 ## Windows chip-firmware loader
 
@@ -290,7 +286,30 @@ assumed. The Windows loader refuses backplane-window changes while runtime acces
 is pinned; only the quiesced stop path releases that constraint.
 
 Windows firmware startup is implemented but not yet hardware-tested. Device
-lifetime binding, shared-buffer/control-session setup and WiFiCx association/data
-integration still need completion before a SYS/INF can be installed. This update
-contains no firmware binary, calibration data or network credentials and has not
-been copied to the card.
+lifetime binding, command scheduling and WiFiCx association/data integration
+still need completion before a SYS/INF can be installed. This update contains
+no firmware binary, calibration data or network credentials and has not been
+copied to the card.
+
+## Windows shared-session allocation
+
+`windows/shared.c` allocates five common rings, optional host-index arrays,
+scratch/update areas, command input/reply buffers and eight event buffers using
+HAL logical addresses. It validates TCM locations and initial indices with bus
+mastering disabled, then publishes pointer/dimension fields and reads them back.
+A post-publication failure retains allocations for endpoint reset. DMA and the
+optional host-ready doorbell are enabled only after successful preparation.
+TX flow allocations remain on demand and use the normal asynchronous create/
+delete protocol. Their lifetimes are independent of the five common descriptors.
+
+The fixed v5 session currently requires RX prefix zero because the 16-byte TX
+completion has no unused prefix space. A different firmware layout needs its
+actual descriptor-size contract before use. The portable control/ring code
+retains offset handling; this narrower shared-session layout is explicit and
+has not yet been hardware-accepted in Windows.
+
+Mailbox flag reading/clearing is nonblocking in the DPC. The passive sender
+waits at most one second for an outstanding host word, then uses PCI config
+SBMBX with the double-notification workaround on core revisions <=13. The
+Windows owner still must bind those helpers to its recovery/power state machine;
+these helpers do not establish suspend/resume or solve system shutdown.

@@ -17,9 +17,9 @@ parser.add_argument("--out", type=Path, required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 args.out.mkdir(parents=True, exist_ok=True)
-sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c"]
+sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c", root / "core/msgbuf_control.c"]
 common = [args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror"]
-for name in ("data", "ring", "erom", "nvram"):
+for name in ("data", "ring", "control", "erom", "nvram"):
     test = args.out / f"test-msgbuf-{name}"
     subprocess.run(common + ["-g", "-O1", "-fsanitize=address,undefined",
         "-fno-sanitize-recover=all", *map(str, sources), str(root / f"tests/test_{name}.c"),
@@ -38,7 +38,8 @@ kernel_flags = [str(kernel_cc), "--target=aarch64-pc-windows-msvc", "/c",
     f"/imsvc{args.wdk_include / 'km/crt'}", f"/imsvc{args.wdk_include / 'km'}",
     f"/imsvc{(args.sdk_include or args.wdk_include) / 'shared'}", f"/imsvc{kmdf}"]
 objects = []
-for source in sources + [root / "windows/transport.c", root / "windows/resources.c", root / "windows/chip.c"]:
+for source in sources + [root / "windows/transport.c", root / "windows/resources.c",
+                        root / "windows/chip.c", root / "windows/shared.c"]:
     obj = args.out / (source.stem + ".obj")
     # On macOS, an absolute /Users/... path otherwise looks like clang-cl /U.
     subprocess.run(kernel_flags + [f"/Fo{obj}", "--", str(source)], check=True)

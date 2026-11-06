@@ -28,9 +28,8 @@ static ULONG SwifiIndexRead(const SWIFI_WIN_INDEX *Index)
          * low 16 bits. Do not overwrite adjacent/reserved firmware bits. */
         return READ_REGISTER_USHORT((PUSHORT)Index->Address);
     }
-    if (Index->Width == 2)
-        return *(volatile USHORT *)Index->Address;
-    return *(volatile ULONG *)Index->Address;
+    /* brcmfmac uses a u16 counter even in a four-byte DMA-index slot. */
+    return *(volatile USHORT *)Index->Address;
 }
 
 static uint32_t SwifiReadPeer(PVOID Context)
@@ -45,10 +44,8 @@ static VOID SwifiWriteHost(PVOID Context, uint16_t Value)
     const SWIFI_WIN_INDEX *Index = &Ring->Host;
     if (Index->Mmio)
         WRITE_REGISTER_USHORT((PUSHORT)Index->Address, Value);
-    else if (Index->Width == 2)
-        *(volatile USHORT *)Index->Address = Value;
     else
-        *(volatile ULONG *)Index->Address = Value;
+        *(volatile USHORT *)Index->Address = Value;
     KeMemoryBarrier();
 }
 
@@ -176,8 +173,8 @@ NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *T,
     return Status;
 }
 
-swifi_result SwifiWinSubmit(PVOID Context, uint16_t Ring,
-    const uint8_t *Item, size_t Length)
+static swifi_result SwifiSubmitBatch(PVOID Context, uint16_t Ring,
+    const uint8_t *Items, size_t Length, uint16_t Count)
 {
     SWIFI_WIN_TRANSPORT *T = Context;
     swifi_result Result;
@@ -185,13 +182,25 @@ swifi_result SwifiWinSubmit(PVOID Context, uint16_t Ring,
         return SWIFI_STOPPED;
     if (Ring >= T->H2dCount || !T->H2d[Ring].Buffer)
         return SWIFI_INVALID;
-    Result = swifi_ring_submit(&T->H2d[Ring].Core, Item, Length);
+    Result = swifi_ring_submit_batch(&T->H2d[Ring].Core, Items, Length, Count);
     if (Result == SWIFI_OK) {
         /* Publication already transferred ownership. Never report RETRY or
          * return the packet on a subsequent link/doorbell failure. */
         WRITE_REGISTER_ULONG((PULONG)(T->Registers + SWIFI_DOORBELL), 1);
     }
     return Result;
+}
+
+swifi_result SwifiWinSubmit(PVOID Context, uint16_t Ring,
+    const uint8_t *Item, size_t Length)
+{
+    return SwifiSubmitBatch(Context, Ring, Item, Length, 1);
+}
+
+swifi_result SwifiWinSubmitControl(PVOID Context, const uint8_t *Items, uint16_t Count)
+{
+    return SwifiSubmitBatch(Context, SWIFI_CONTROL_RING, Items,
+        (size_t)Count * SWIFI_CONTROL_ITEM_SIZE, Count);
 }
 
 static BOOLEAN SwifiIsr(WDFINTERRUPT Interrupt, ULONG MessageId)

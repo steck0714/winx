@@ -39,6 +39,12 @@ swifi_result swifi_ring_init(swifi_ring *ring, const swifi_ring_ops *ops,
 swifi_result swifi_ring_submit(swifi_ring *ring,
     const uint8_t *item, size_t length);
 
+/* Publish contiguous fixed-size items together, including wrap. A failed
+ * reservation publishes nothing and leaves every descriptor untouched. This
+ * pairs an IOCTL response-buffer post with its request without orphaning DMA. */
+swifi_result swifi_ring_submit_batch(swifi_ring *ring,
+    const uint8_t *items, size_t length, uint16_t count);
+
 /* Copy each item before publishing its released slot, so the handler never
  * sees memory that firmware can overwrite. budget bounds DPC execution.
  * Handler may return UNHANDLED for other control message types. */
