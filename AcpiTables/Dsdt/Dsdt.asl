@@ -622,9 +622,12 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 
+#endif
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_BLUETOOTH)
         // R390 (hayato41200/Windows-for-Switch): Bluetooth for switchbt.sys (ACPI\SWOA0B01).
         // BCM4356A3 on UART-D (GIC SPI 90 = GSI 122, level high). UEFI R390 sets the pins,
-        // clocks the UART and powers the chip (PH4).
+        // clocks the UART and powers the chip (PH4). Lite uses the same wiring;
+        // its dedicated entry does not enable the Erista SPI4 sensor path.
         Device (BTH0)
         {
             Name (_HID, "SWOA0B01")

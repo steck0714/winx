@@ -133,6 +133,9 @@ READ_LOCK_STATUS   = TRUE
   # Drivers
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_BLUETOOTH
+  INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteBluetooth.inf
+!endif
 !ifdef SWITCH_LITE_AUDIO
   INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteAudio.inf
 !endif

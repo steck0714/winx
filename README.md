@@ -1,20 +1,19 @@
 # WinX · Switch Lite Windows ARM64
 
-This branch integrates Windows 11 ARM64 Home boot, microSD, GPIO, I²C3, and FTM4 touchscreen support for the Switch Lite (HDH-001). The Hekate entry is **Lite Windows 11 Home**.
+This branch integrates Windows 11 ARM64 Home boot, bounded microSD writes, GPIO, I²C3, and FTM4 touch for HDH-001. The Hekate entry is **Lite Windows 11 Home**. A physical Lite has booted Home 23H2 (22631.2861) and accepted setup touch input; its saved SYSTEM hive records completed setup flags.
 
-As of November 5, 2026, one physical Switch Lite has booted Windows 11 Home 23H2 (22631.2861) from an NTFS volume on microSD and reached the OOBE network setup page. Touch input works on the setup dialogs. The latest saved SYSTEM hive has cleared OOBEInProgress, SystemSetupInProgress, and SetupType; a desktop screenshot and the three-point **TOUCH PASS** result still await hardware confirmation. This branch includes the active-partition marker needed for BCD discovery and documents recovery from the earlier setup failures.
+The first media run went black during display-device restart. The owner chose to withdraw CPU-rendered display rotation. The current Home profile uses Microsoft Basic Display and the original orientation; WinX display and the automatic landscape helper are removed from the Home update. The proposed PE display trial was cancelled. BasicDisplay still provides no GPU rendering acceleration.
 
-The latest profile also integrates the shared fan driver, configurable T214 CPU and memory clocks, and BootROM restart preparation. These additions have been built and deployed; their hardware results are pending.
+The physical fan trace recorded CPU 1996.8 MHz, requested PWM duty 51, 34 C, and no sensor failures. EMC reported no matching 2100 MHz timing and a 204 MHz readback, so the RAM target is not achieved. Audio initialization created a playback endpoint; audible playback remains unconfirmed. Shared battery, RTC, volume buttons, and BootROM restart preparation remain integrated.
 
-The optional system/media profiles add shared battery/RTC, volume buttons, RT5639 speaker/headphone playback, and a display-only miniport with a one-time default-landscape helper. The combined firmware and six driver packages have been deployed to the existing WINARM installation. The ARM64 VM starts the display driver and passes rotation/restore; physical audio, orientation, and clock acceptance remain pending. The first performance run exposed BPMP initialization and fan-floor defects, corrected in the current source.
+An optional Bluetooth profile reuses the upstream UART-D driver and Switch-specific patch. The combined BasicDisplay/audio/Bluetooth update is built and deployed; radio discovery and pairing await the next physical boot. The Erista SPI4 sensor profile stays disabled because Lite SIO owns that bus.
 
-- [Stage 6 builds, driver installation, and first-boot troubleshooting](docs/hdh001-home/README.md)
-- [Windows Boot Manager entry point](Library/PlatformBootManagerLib/LiteHomeBoot.c)
-- [SD miniport and local target configuration generator](WindowsDrivers/drivers/Tegra210Sdhc/)
-- [Touchscreen driver and three-point checker](LiteTouch/README.md)
-- [Fan control and configurable T214 clocks](docs/hdh001-home/README.md#fan-and-clock-configuration)
-- [Battery, RTC, and volume-button integration](docs/hdh001-home/README.md#battery-rtc-and-volume-buttons)
-- [Landscape display](docs/hdh001-home/README.md#display-rotation-and-default-landscape) and [speaker/headphone audio](docs/hdh001-home/README.md#speaker-and-headphone-audio)
+- [Stage 6 builds and first-boot troubleshooting](docs/hdh001-home/README.md)
+- [Windows Boot Manager entry](Library/PlatformBootManagerLib/LiteHomeBoot.c)
+- [Bounded SD miniport](WindowsDrivers/drivers/Tegra210Sdhc/)
+- [Touchscreen and three-point checker](LiteTouch/README.md)
+- [Fan and clock configuration](docs/hdh001-home/README.md#fan-and-clock-configuration)
+- [Audio](docs/hdh001-home/README.md#speaker-and-headphone-audio), [Bluetooth](docs/hdh001-home/README.md#bluetooth-on-hdh-001), and [display rollback](docs/hdh001-home/README.md#display-rollback)
 - [R3 write and cold-read results](docs/hdh001-winarm-r3/README.md)
 
 <img width="1536" height="1024" alt="winx" src="https://github.com/user-attachments/assets/6c031e07-31b2-4030-8395-54d8e745d450" />

@@ -4436,7 +4436,7 @@ EFI_STATUS EFIAPI LiteAudioInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *Syste
   return R395AudioTone (FALSE) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
-STATIC VOID R390BluetoothPowerOn (VOID) {
+STATIC BOOLEAN R390BluetoothPowerOn (VOID) {
   volatile UINT32 *Pin = (volatile UINT32 *)PINMUX_BASE;
   volatile UINT32 *U = (volatile UINT32 *)UARTD_BASE;
   CONST UINT8 Reset[4] = { 0x01, 0x03, 0x0C, 0x00 };
@@ -4504,17 +4504,29 @@ STATIC VOID R390BluetoothPowerOn (VOID) {
   if (Len < 7) {
     Print (L"R390 Bluetooth: UART-D clock %s, BT powered, HCI_Reset NO ANSWER (wake PH5=%u)\r\n",
            Pulsed ? L"started" : L"already on", R366GpioBit (GPIO_PH_OFFSET, GPIO_IN, 5));
-    return;
+    return FALSE;
   }
   R390UartSend (Version, sizeof (Version));
   Len = R390UartEvent (Ev, sizeof (Ev), 500);
   if (Len < 15 || Ev[1] != 0x0EU || Ev[6] != 0x00U) {
     Print (L"R390 Bluetooth: HCI_Reset ok, Read_Local_Version FAIL (len %u)\r\n", (UINT32)Len);
-    return;
+    return FALSE;
   }
   // 04 0E 0C 01 01 10 status hci_ver hci_rev(2) lmp_ver manufacturer(2) lmp_subver(2)
   Print (L"R390 Bluetooth: HCI ok, HCI %02x rev %04x LMP %02x maker %04x subver %04x (maker 000f = Broadcom)\r\n",
          Ev[7], Ev[8] | (Ev[9] << 8), Ev[10], Ev[11] | (Ev[12] << 8), Ev[13] | (Ev[14] << 8));
+  return TRUE;
+}
+
+// HDH-001 uses the same UART-D/PH3/PH4/PH5 Bluetooth wiring as the upstream
+// board. Keep the SIO-owned SPI4 pins and the Erista CPU/USB paths untouched.
+EFI_STATUS EFIAPI LiteBluetoothInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable) {
+  if ((MmioRead32 (0x70000804) & 0xFFF0) != 0x2120) return EFI_UNSUPPORTED;
+  clock_enable_i2c (I2C_5);
+  i2c_init (I2C_5);
+  // The shared setup enables PMIC GPIO4's 32 kHz clock and leaves UART-D at
+  // 115200. The Windows driver owns patchram, the address and the 3 Mbaud switch.
+  return R390BluetoothPowerOn () ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 
 // Raise VDD_CPU first, park CCLK on PLLP (408 MHz), reprogram and relock

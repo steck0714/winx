@@ -1,30 +1,15 @@
-# WinX display-only driver
+# WinX display-only sources
 
-This is the shared Microsoft KMDOD sample with WinX's four-way rotation support. It owns the existing UEFI POST framebuffer and copies pixels in software. It does not implement GPU rendering or 3D acceleration. Microsoft sample sources retain their MIT license.
+This is the existing WinX adaptation of Microsoft's KMDOD sample (MIT). It uses CPU framebuffer blits and exposes rotation, including 90/180/270 degrees. It does not implement GPU rendering acceleration. The original source layout and Microsoft license are retained.
 
-## HDH-001 profile
+## Build
 
-Build the companion firmware with `SWITCH_LITE_DISPLAY=1`. It exposes ACPI WINX0001 using Hekate's framebuffer reservation. The new `Sample/winxdisplay-lite.inf` profile binds that device; ROOT\WINXDISP is also available for VM development. Use the ACPI device on the physical Lite.
+`../build-arm64.sh` cross-builds the shared sources using ARM64 WDK headers, `displib.lib`, and the upstream native-driver linker settings. The optional `Sample/winxdisplay-lite.inf` profile matches ACPI WINX0001 and ROOT\WINXDISP. The sign-in helper source remains at `../landscape.c`; it is not installed by the current Lite Home package.
 
-From the firmware repository root, set WDK_INCLUDE, WDK_LIB, WDK_EXTRA_LIB, CLANG_CL, and LLD_LINK, then run:
+The ARM64 Windows VM started version 0.1.0.1, rotated 800x600 to 600x800 and restored it. This established VM integration only.
 
-```sh
-sh winx-display/build-arm64.sh /path/to/driver-output
-sh winx-display/build-landscape.sh /path/to/app-output
-```
+## Lite integration withdrawn
 
-The second command also needs MINGW_SYSROOT and LLVM_DLLTOOL. Copy the Lite INF as `winxdisplay.inf`, generate `winxdisplay.cat` from the final signed INF/SYS package, and sign the catalog with the certificate trusted by the target. The target must use test signing for these development packages.
+The physical Lite went black during display-device restart. The owner then chose to withdraw CPU-rendered rotation, and the proposed PE trial was cancelled. The active Home profile omits SWITCH_LITE_DISPLAY, removes this driver and the landscape autorun, and retains Microsoft Basic Display with the native framebuffer orientation. The upstream sources remain available for reference; the current installer does not enable them.
 
-The kernel build follows the upstream ARM64 native-driver linker flags: resident normal sections, discardable INIT, and no TERMINAL_SERVER_AWARE flag. The original `Sample/winxdisplay.inf` remains the general upstream profile.
-
-## Default orientation
-
-Install `LiteLandscape.exe` in ProgramData\SwitchLite and register it at sign-in. For a 720x1280 primary display, it requests 1280x720 with DMDO_90 through ChangeDisplaySettingsEx and saves the setting. A successful first run records DefaultLandscapeApplied under HKCU\Software\SwitchLite\Display. Later runs preserve the user's selection. Already-landscape displays are left in place.
-
-The existing portrait touch coordinates are retained; Windows applies display rotation to input. The native boot framebuffer remains portrait. Physical orientation and touch alignment still require Lite testing.
-
-## Validation
-
-The ARM64 driver and helper build. `display-smoke.c` is a file-only VM integration check that reports the current display mode, rotates it, and restores it. Successful staging or compilation alone does not establish that the miniport started or that physical rotation works.
-
-The ARM64 WinPE VM reports the WinX miniport as Started. Its display API changed 800x600 to 600x800 and restored it successfully. The physical Lite panel, default 1280x720 orientation, and touch alignment remain pending.
+The earlier notes required a working plain WinPE/BasicDisplay baseline before experimenting with the display driver. That baseline had worked on Lite, but the new driver itself did not receive physical-panel acceptance.
