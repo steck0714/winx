@@ -6,7 +6,7 @@
 #include <Library/I2cLib.h>
 #include <Library/TimerLib.h>
 #include <Protocol/SimpleFileSystem.h>
-#include <winarm-target.h>
+#include <LiteSdTarget.h>
 #ifdef SWITCH_WIFI_RUNTIME
 #include <Guid/Acpi.h>
 #include <IndustryStandard/Acpi.h>

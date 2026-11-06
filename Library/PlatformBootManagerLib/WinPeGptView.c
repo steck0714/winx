@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "WinPeGptView.h"
-#include "winarm-target.h"
+#include <LiteSdTarget.h>
 #include <IndustryStandard/Mbr.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>

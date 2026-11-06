@@ -19,7 +19,6 @@ From the checkout root, using a new output directory:
 ```sh
 target=docs/hdh001-winarm-r3/generated
 python3 WindowsDrivers/drivers/Tegra210Sdhc/winarm/configure-target.py /path/to/saved-card.img "$target"
-cp "$target/winarm-target.h" Library/PlatformBootManagerLib/
 cp "$target/winarm-target.h" WindowsDrivers/drivers/Tegra210Sdhc/src/
 ```
 

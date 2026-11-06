@@ -14,7 +14,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | NTFS bounded writes and cold reads passed; Home 23H2 desktop reached | Reliable read/write and cold boot within the selected 80 GiB target |
+| SD / boot | NTFS bounded writes and cold reads passed on Home. Trimmed Pro reproduced 0x7B with a two-volume miniport and one-volume BasicDisplay firmware. Matching two-volume firmware is deployed for a board test. | Reliable read/write and cold boot within the selected 80 GiB target |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight | Owner confirmed that the deployed brightness buttons work; display off/on remains untested | Brightness adjustment and display off/on; fan PWM1 stays independent |

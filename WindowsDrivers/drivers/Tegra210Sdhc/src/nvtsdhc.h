@@ -28,6 +28,10 @@ Revision History:
 #pragma once
 #endif
 
+#ifndef NV_T210_LITE_WINARM_WRITE
+#define NV_T210_LITE_WINARM_WRITE 0
+#endif
+
 #pragma warning(disable:4214)   // bit field types other than int
 #pragma warning(disable:4201)   // nameless struct/union
 #pragma warning(disable:4115)   // named type definition in parentheses
@@ -1378,12 +1382,14 @@ typedef struct _SDHC_EXTENSION {
     //
 
     BOOLEAN CrashdumpMode;
+#if NV_T210_LITE_WINARM_WRITE
     volatile LONG TargetFacts;
     ULONG NextReadLba;
     ULONG IssuedWriteLba;
     USHORT IssuedWriteCount;
     UCHAR IssuedWriteIndex;
     BOOLEAN AppPrefixAccepted;
+#endif
       
 } SDHC_EXTENSION, *PSDHC_EXTENSION;
 

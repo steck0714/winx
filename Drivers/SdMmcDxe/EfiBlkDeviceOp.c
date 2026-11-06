@@ -20,7 +20,7 @@
 #include "Include/SdMmc.h"
 #include "Include/HostOp.h"
 #include "Include/EfiProto.h"
-#include <winarm-target.h>
+#include <LiteSdTarget.h>
 
 STATIC BIO_INSTANCE mBioTemplate = {
     BIO_INSTANCE_SIGNATURE,
@@ -170,8 +170,8 @@ fail:
     return 0;
 }
 
-// Validate the physical disk before publishing a single-partition, read-only MBR
-// view. Windows sees this same signature and offset through its native SD driver.
+// Publish the exact MBR returned by the matching Windows SD miniport. The
+// stored card layout is used only to validate the configured data volumes.
 EFI_STATUS
 LitePrepareWindowsDisk (BIO_INSTANCE *Instance)
 {
@@ -199,6 +199,18 @@ LitePrepareWindowsDisk (BIO_INSTANCE *Instance)
     if (EFI_ERROR (gBS->CalculateCrc32 (Header, HeaderBytes, &ActualCrc)) || ActualCrc != HeaderCrc ||
         EFI_ERROR (gBS->CalculateCrc32 (Entries, 11 * 128, &ActualCrc)) || ActualCrc != LiteU32 (Header + 88))
         goto Exit;
+#ifdef FAT32_FIRST
+    // The projected FAT32 entry must also be a GPT Basic Data extent, like
+    // WINARM in slot 11. Its filesystem driver handles the FAT boot sector.
+    UINTN FatMatches = 0;
+    for (UINTN Index = 0; Index < 10; ++Index) {
+        CONST UINT8 *Entry = Entries + Index * 128;
+        if (CompareMem (Entry, Entries + 10 * 128, 16) == 0 &&
+            LiteU64 (Entry + 32) == FAT32_FIRST &&
+            LiteU64 (Entry + 40) == (UINT64)FAT32_FIRST + FAT32_COUNT - 1) ++FatMatches;
+    }
+    if (FatMatches != 1) goto Exit;
+#endif
     CopyMem (Instance->WindowsMbr, Data, 512);
     if (!MmcReadInternal (Instance, (UINT64)WINARM_FIRST * 512, (UINT32 *)Data, 512)) {
         Status = EFI_DEVICE_ERROR;
@@ -230,19 +242,40 @@ MMCHSReadBlocks (
         return EFI_INVALID_PARAMETER;
 
     EFI_LBA End = Lba + Blocks;
-    EFI_LBA First = MAX (Lba, (EFI_LBA)WINARM_FIRST);
-    EFI_LBA Last = MIN (End, (EFI_LBA)WINARM_FIRST + WINARM_COUNT);
-    if (First != Lba || Last != End) {
-        ZeroMem (Buffer, BufferSize);
-        if (Lba == 0) CopyMem (Buffer, Instance->WindowsMbr, 512);
+    STATIC CONST struct { EFI_LBA First; EFI_LBA End; } Volumes[] = {
+        { WINARM_FIRST, (EFI_LBA)WINARM_FIRST + WINARM_COUNT },
+#ifdef FAT32_FIRST
+        { FAT32_FIRST, (EFI_LBA)FAT32_FIRST + FAT32_COUNT },
+#endif
+    };
+    UINT8 *Out = Buffer;
+    if (Lba == 0) {
+        CopyMem (Out, Instance->WindowsMbr, 512);
+        ++Lba;
+        Out += 512;
     }
-    if (First >= Last) return EFI_SUCCESS;
-    UINT8 *Out = (UINT8 *)Buffer + (UINTN)(First - Lba) * 512;
-    while (First < Last) {
-        UINT32 Count = (UINT32)MIN (Last - First, 2048ULL);
-        if (!MmcReadInternal (Instance, First * 512, (UINT32 *)Out, Count * 512)) return EFI_DEVICE_ERROR;
+    while (Lba < End) {
+        EFI_LBA Next = End;
+        BOOLEAN Visible = FALSE;
+        for (UINTN Index = 0; Index < ARRAY_SIZE (Volumes); ++Index) {
+            if (Lba < Volumes[Index].First) {
+                Next = MIN (Next, Volumes[Index].First);
+            } else if (Lba < Volumes[Index].End) {
+                Next = MIN (Next, Volumes[Index].End);
+                Visible = TRUE;
+                break;
+            }
+        }
+        UINTN Count = (UINTN)(Next - Lba);
+        if (Visible) {
+            Count = MIN (Count, 2048U);
+            if (!MmcReadInternal (Instance, Lba * 512, (UINT32 *)Out, (UINT32)Count * 512))
+                return EFI_DEVICE_ERROR;
+        } else {
+            ZeroMem (Out, Count * 512);
+        }
         Out += Count * 512;
-        First += Count;
+        Lba += Count;
     }
     return EFI_SUCCESS;
 }

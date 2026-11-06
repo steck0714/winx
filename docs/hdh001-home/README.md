@@ -15,7 +15,6 @@ Use the EDK2 and devkitA64 build environment from the [WinPE source recipe](../h
    ```sh
    target=docs/hdh001-home/generated
    python3 WindowsDrivers/drivers/Tegra210Sdhc/winarm/configure-target.py /path/to/saved-card.img "$target"
-   cp "$target/winarm-target.h" Include/
    cp "$target/winarm-target.h" WindowsDrivers/drivers/Tegra210Sdhc/src/
    ```
 
@@ -23,11 +22,17 @@ Use the EDK2 and devkitA64 build environment from the [WinPE source recipe](../h
 
 3. Build RELEASE AARCH64 with `-D SWITCH_HEKATE=1 -D SWITCH_FB_ROTATE=2 -D SWITCH_EXCFB=1 -D SWITCH_ACPI_SD_NVTSDHC=1 -D SWITCH_LITE_TOUCH=1`. Pack BL33 using `Tools/make-bl33.py` and the corresponding FV map. Put BL31 and BL33 in `switchroot/woa-lite-home/`, then copy [woa-lite-home.ini](woa-lite-home.ini) to `bootloader/ini/`.
 
-The SD firmware verifies the physical MBR, GPT and NTFS identities, then exposes an in-memory MBR view containing the configured WINARM partition. The firmware and nvtsdhc 0.3.2.5 both mark this presented partition active. The stored partition tables are used to identify the card.
+The firmware includes the local target directly from the miniport source
+directory. The active first MBR entry selects the 80 GiB WINARM partition.
+For a two-volume target, the second entry exposes the existing FAT32 data
+partition. UEFI validates its extent against the on-card GPT, reads both
+volumes, and returns zeros for the intervening sectors. Boot Manager is
+selected by the WINARM signature, offset, size and slot. UEFI handles all
+writes as write-protected.
 
 ## Windows drivers
 
-Build the SD miniport with [build-miniport.sh](../hdh001-lab/build-miniport.sh). Build the GPIO, I²C and touch packages with [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh). Sign the final SYS files, generate catalogs from the final INF/SYS pairs with MakeCat, and sign the catalogs with your development certificate. The installed image needs that certificate in Root and TrustedPublisher and a BCD loader entry with test signing enabled.
+Build the SD miniport with the `winarm` profile (the default) and package it with `winarm/nvtsdhc.inf`. Both drivers must use the same generated header. [SD build script](../hdh001-lab/build-miniport.sh). Build the GPIO, I²C and touch packages with [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh). Sign the final SYS files, generate catalogs from the final INF/SYS pairs with MakeCat, and sign the catalogs with your development certificate. The installed image needs that certificate in Root and TrustedPublisher and a BCD loader entry with test signing enabled.
 
 On an offline ARM64 Windows image, install all four INF packages through DISM. Keep nvtsdhc, sdbus and sdstor as boot-start services. The SD INF selects ACPI NVDA0101, and the touch profile exposes SWOA0101, SWOA0201 and SWOA0502.
 
@@ -96,7 +101,7 @@ The correction is built and deployed. The next physical trace reached CPU 1996.8
 
 ## Display rollback
 
-The owner retried the WinX display profile together with the two-volume SD driver (0.3.2.6). Windows showed a blue screen after the boot spinner. The trimmed image had crash dumps and bugcheck logging disabled. No stop code was recovered. To isolate the display path, only BL33 was switched back to the BasicDisplay profile. The SD driver and Bluetooth retry were retained. The physical boot result is pending.
+The trimmed Pro installation showed `INACCESSIBLE_BOOT_DEVICE` (0x7B) after the Windows spinner with BasicDisplay and nvtsdhc 0.3.2.6. Its previous UEFI target exposed only WINARM, while the native SD driver exposed WINARM and FAT32. The BCD store, boot-start SD service and C: mapping matched the backup from before the two-volume update. The revised BasicDisplay firmware now uses the miniport's two-volume target. Its complete projected MBR matched the miniport byte for byte in a host test. Only BL33 was updated on the SD card. A desktop boot and FAT32 access in Windows await a board result.
 
 The WinX/Microsoft KMDOD experiment supplies software framebuffer blits and rotation, not GPU rendering acceleration. Its ARM64 VM rotation check passed, but the first Lite media boot went black at display-device restart. The owner subsequently chose to drop the extra CPU rotation work and cancelled the proposed physical PE trial.
 
