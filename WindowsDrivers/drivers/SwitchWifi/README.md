@@ -31,11 +31,13 @@ handles at most 32 entries per completion ring, rotating which ring goes first;
 more work queues another DPC. Runtime traffic uses hardware interrupts, not a
 periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
-The ARM64 `switchwifi.sys` targets the opt-in WFI0 device. Windows PE 22621.2861 loaded version 0.4.2.0 on a software-enumerated test node and reached hardware preparation. Its WiFiCx station
-creates NetAdapterCx transmit and receive queues and handles radio, scan and
-abort commands. A 22621.1 ARM64 Windows PE VM added the signed package to its
-driver store. The board still uses its BasicDisplay boot profile. Windows
-scans, association and IP traffic on HDH-001 still require hardware acceptance.
+The ARM64 `switchwifi.sys` targets the opt-in WFI0 device. Windows PE
+22621.2861 bound the signed 0.5.0.0 package to an ACPI-enumerated instance,
+ran its isolation method and registered its interrupt. The fixture supplies an
+interrupt and omits Tegra MMIO, so preparation stops at the memory check.
+The station implements NetAdapterCx packet queues, radio, scan/abort, open and
+WPA2-Personal association, and CCMP key operations. The physical Lite retains
+its BasicDisplay boot profile. Windows networking on that board awaits testing.
 Skipping networking during OOBE only affects first setup.
 
 ## Packet ownership contract
@@ -139,7 +141,19 @@ Switchroot chooses a different CPU window (`0x11FFF000`) for the same AFI
 translation. This device is a composite platform controller, not a standard
 ECAM root bridge. `windows/resources.c` maps the host/config ranges and only
 validated BAR slices inside the reserved outbound aperture. Its configuration
-access uses Tegra's extended-register encoding for endpoint 1:0.0.
+access uses Tegra's extended-register encoding for endpoint 1:0.0. The driver
+matches bus addresses from the raw PnP list, then maps CPU addresses from the
+corresponding translated list. BAR addresses are offsets within this aperture.
+
+During hardware preparation, KMDF receives its own raw and translated interrupt
+descriptors directly from the resource lists. The driver binds the register and
+ring pointers later, while both the host and chip interrupts are masked. Before
+starting the chip it selects legacy INTx, disables any enabled MSI/MSI-X
+capability and checks the PCI command and control bits by reading them back.
+The Home preparation application enables memory decoding with bus mastering
+off. DMA starts only after the ring addresses are installed.
+[KMDF interrupt descriptors](https://github.com/microsoft/Windows-Driver-Frameworks/blob/main/src/framework/shared/irphandlers/pnp/interruptobject.cpp),
+[Switchroot Tegra PCIe host](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/pci/host/pci-tegra.c).
 
 The ISR now acknowledges AFI's host reason and PME status as well as BCM mailbox
 causes. Unexpected AFI errors retain their reason/signature, mask the host and
@@ -432,6 +446,13 @@ wide reception, requested all-multicast and no requested group addresses, respec
 on first observations, state changes and teardown. The report contains counters and status codes. Device addresses, network names, payloads and keys stay private. Windows association, DHCP and group rekey still need a board
 result.
 
+Version 5 adds `hw=stage/NTSTATUS` for isolation (1), interrupt registration
+(2), memory windows (3), DMA adapter (4), endpoint discovery (5), legacy INTx
+selection (6), BCM firmware (7), shared rings (8), and control path (9).
+`irq=1` records an interrupt claimed by the hardware ISR during the current
+D0 session. `ring=1` records at least one consumed device-to-host entry.
+Software rearming alone leaves `irq` at zero.
+
 ## Build and test
 
 With LLVM clang and extracted/installed WDK headers:
@@ -472,7 +493,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.4.2.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.5.0.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -502,8 +523,8 @@ With the signed 0.4.2.0 package, Windows selected `switchwifi` and invoked
 device preparation. The actual driver report contained
 `step=2/C0000010 failure=2/C0000010`. The root node rejected the first
 Switch-specific ACPI request (`WIRS`), producing the expected PnP problem 10.
-The hardware-key report persisted through failed device startup. The INF
-initializes the value to `v=4 pending` only if absent. That initial value
+The hardware-key report persisted through failed device startup. The 0.4.2.0 INF
+initialized the value to `v=4 pending` only if absent. That initial value
 alone does not indicate that the driver ran.
 
 To reproduce this boundary in a disposable ARM64 guest with the inbox Net
@@ -512,6 +533,18 @@ setup class and test signing, stage the signed package with PnPUtil and run
 Read `SwitchWifiReport` from the created `ROOT\NET` instance. On the
 physical Lite, Windows enumerates the real ACPI instance and the next stages
 exercise the Tegra resources and BCM firmware.
+
+### ACPI interrupt fixture (0.5.0.0)
+
+An isolated Windows PE 22621.2861 guest enumerated `ACPI\SWOA0D01\0` from an
+SSDT with the board's `WIRS` method, backed by guest memory. Its resources
+include the production level/high, exclusive GSI 130 interrupt and omit the
+three PCIe memory ranges. The generic Net setup class was available before
+enumeration. Updating the enumerated device selected the signed package.
+Windows ran `WIRS`, registered the interrupt and reported
+`hw=3/C0000182 irq=0 ring=0` when it checked for those memory ranges.
+The fixture exercises resource registration. Only a real Lite can exercise
+the endpoint, deliver a hardware interrupt and return traffic through the rings.
 
 The validated pre-Windows probe scanned on the Lite. Windows still needs to
 enumerate WFI0, show its own scan results, connect to a WPA2 network, get

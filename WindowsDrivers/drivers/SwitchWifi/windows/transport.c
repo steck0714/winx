@@ -122,37 +122,40 @@ VOID SwifiWinDeleteRingAfterReset(SWIFI_WIN_RING *Ring)
 }
 
 NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *T,
-    PKSPIN_LOCK DataLock, SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
-    USHORT H2dCount, SWIFI_WIN_RING D2h[3], const SWIFI_WIN_CALLBACKS *Callbacks,
-    PVOID Context, PCM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt,
-    PCM_PARTIAL_RESOURCE_DESCRIPTOR TranslatedInterrupt)
+    PKSPIN_LOCK DataLock, SWIFI_PCIE_RESOURCES *Bus, const SWIFI_WIN_CALLBACKS *Callbacks,
+    PVOID Context, WDFCMRESLIST Raw, WDFCMRESLIST Translated)
 {
     WDF_INTERRUPT_CONFIG Config;
     WDF_DPC_CONFIG DpcConfig;
     WDF_OBJECT_ATTRIBUTES Attributes;
-    NTSTATUS Status;
-    if (!DataLock || !Bus || !Bus->Host || !Registers || RegisterLength < 0x148 ||
-        !H2d || H2dCount < 2 || !D2h ||
-        !Callbacks || !Callbacks->Dispatch || !Callbacks->Mailbox ||
-        !Callbacks->Notify || !Callbacks->ScheduleRecovery ||
-        !RawInterrupt || !TranslatedInterrupt ||
-        RawInterrupt->Type != CmResourceTypeInterrupt ||
-        TranslatedInterrupt->Type != CmResourceTypeInterrupt)
-        return STATUS_INVALID_PARAMETER;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt = NULL, TranslatedInterrupt = NULL;
+    ULONG Count = WdfCmResourceListGetCount(Translated);
+    if (!DataLock || !Bus || !Callbacks || !Callbacks->Dispatch || !Callbacks->Mailbox ||
+        !Callbacks->Notify || !Callbacks->ScheduleRecovery) return STATUS_INVALID_PARAMETER;
+    if (WdfCmResourceListGetCount(Raw) != Count) return STATUS_DEVICE_CONFIGURATION_ERROR;
+    for (ULONG I = 0; I < Count; ++I) {
+        PCM_PARTIAL_RESOURCE_DESCRIPTOR R = WdfCmResourceListGetDescriptor(Raw, I);
+        PCM_PARTIAL_RESOURCE_DESCRIPTOR X = WdfCmResourceListGetDescriptor(Translated, I);
+        if (!R || !X || R->Type != X->Type) return STATUS_DEVICE_CONFIGURATION_ERROR;
+        if (X->Type != CmResourceTypeInterrupt) continue;
+        if (RawInterrupt || ((X->Flags | R->Flags) &
+            (CM_RESOURCE_INTERRUPT_MESSAGE | CM_RESOURCE_INTERRUPT_LATCHED)))
+            return STATUS_DEVICE_CONFIGURATION_ERROR;
+        /* KMDF locates its own resource object from these exact pointers. */
+        RawInterrupt = R;
+        TranslatedInterrupt = X;
+    }
+    if (!RawInterrupt) return STATUS_DEVICE_CONFIGURATION_ERROR;
     RtlZeroMemory(T, sizeof(*T));
     T->DataLock = DataLock;
-    T->Registers = Registers;
     T->Bus = Bus;
-    T->H2d = H2d;
-    T->H2dCount = H2dCount;
-    T->D2h = D2h;
     T->Callbacks = *Callbacks;
     T->Context = Context;
     WDF_DPC_CONFIG_INIT(&DpcConfig, SwifiDpc);
     DpcConfig.AutomaticSerialization = FALSE;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWIFI_INTERRUPT_CONTEXT);
     Attributes.ParentObject = Device;
-    Status = WdfDpcCreate(&DpcConfig, &Attributes, &T->Dpc);
+    NTSTATUS Status = WdfDpcCreate(&DpcConfig, &Attributes, &T->Dpc);
     if (!NT_SUCCESS(Status))
         return Status;
     SwifiInterruptContext(T->Dpc)->Transport = T;
@@ -203,11 +206,9 @@ swifi_result SwifiWinSubmitControl(PVOID Context, const uint8_t *Items, uint16_t
         (size_t)Count * SWIFI_CONTROL_ITEM_SIZE, Count);
 }
 
-static BOOLEAN SwifiIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
+static BOOLEAN ServiceInterrupt(SWIFI_WIN_TRANSPORT *T)
 {
-    SWIFI_WIN_TRANSPORT *T = SwifiInterruptContext(Interrupt)->Transport;
     ULONG Status, HostCode, Signature;
-    UNREFERENCED_PARAMETER(MessageId);
     if (!T->Armed)
         return FALSE;
     HostCode = SwifiAfiAcknowledge(T->Bus, &Signature);
@@ -241,6 +242,15 @@ static BOOLEAN SwifiIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
     return TRUE;
 }
 
+static BOOLEAN SwifiIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
+{
+    SWIFI_WIN_TRANSPORT *T = SwifiInterruptContext(Interrupt)->Transport;
+    UNREFERENCED_PARAMETER(MessageId);
+    if (!ServiceInterrupt(T)) return FALSE;
+    T->SawInterrupt = 1;
+    return TRUE;
+}
+
 static VOID SwifiDpc(WDFDPC Dpc)
 {
     SWIFI_WIN_TRANSPORT *T = SwifiInterruptContext(Dpc)->Transport;
@@ -261,11 +271,12 @@ static VOID SwifiDpc(WDFDPC Dpc)
     if (Result == SWIFI_OK && (Pending & SWIFI_MAIL_CAUSES))
         Result = T->Callbacks.Mailbox(T->Context);
     for (Step = 0; Result == SWIFI_OK && Step < 3; ++Step) {
-        uint16_t Processed;
+        uint16_t Processed = 0;
         int RingMore;
         Index = (UCHAR)((T->NextD2h + Step) % 3);
         Result = swifi_ring_drain(&T->D2h[Index].Core, SWIFI_DPC_PER_RING,
             T->Callbacks.Dispatch, T->Context, &Processed, &RingMore);
+        if (Processed) T->SawRing = 1;
         if (RingMore)
             More = TRUE;
     }
@@ -293,7 +304,7 @@ static VOID SwifiDpc(WDFDPC Dpc)
             WRITE_REGISTER_ULONG((PULONG)(T->Registers + SWIFI_MAILBOX_MASK), SWIFI_IRQ_MASK);
             SwifiAfiInterruptMask(T->Bus, TRUE);
             /* Close the masked-arrival/rearm race while holding ISR lock. */
-            SwifiIsr(Interrupt, 0);
+            ServiceInterrupt(T);
         }
     }
     WdfInterruptReleaseLock(Interrupt);
@@ -310,7 +321,7 @@ static NTSTATUS SwifiEnable(WDFINTERRUPT Interrupt, WDFDEVICE Device)
     InterlockedExchange(&T->Armed, 1);
     WRITE_REGISTER_ULONG((PULONG)(T->Registers + SWIFI_MAILBOX_MASK), SWIFI_IRQ_MASK);
     SwifiAfiInterruptMask(T->Bus, TRUE);
-    SwifiIsr(Interrupt, 0);
+    ServiceInterrupt(T);
     return STATUS_SUCCESS;
 }
 
@@ -329,14 +340,18 @@ static NTSTATUS SwifiDisable(WDFINTERRUPT Interrupt, WDFDEVICE Device)
 VOID SwifiWinQuiesceInterrupts(SWIFI_WIN_TRANSPORT *T)
 {
     KIRQL OldIrql;
-    WdfInterruptAcquireLock(T->Interrupt);
     InterlockedExchange(&T->Ready, 0);
-    if (InterlockedExchange(&T->Armed, 0)) {
-        SwifiAfiInterruptMask(T->Bus, FALSE);
-        if (!T->HostFault)
-            WRITE_REGISTER_ULONG((PULONG)(T->Registers + SWIFI_MAILBOX_MASK), 0);
+    /* PnP serializes this call with interrupt enable/disable. A failed
+     * Prepare or a second Release may have no connected WDM interrupt. */
+    if (T->Armed) {
+        WdfInterruptAcquireLock(T->Interrupt);
+        if (InterlockedExchange(&T->Armed, 0)) {
+            SwifiAfiInterruptMask(T->Bus, FALSE);
+            if (!T->HostFault)
+                WRITE_REGISTER_ULONG((PULONG)(T->Registers + SWIFI_MAILBOX_MASK), 0);
+        }
+        WdfInterruptReleaseLock(T->Interrupt);
     }
-    WdfInterruptReleaseLock(T->Interrupt);
     /* A TX callback may have passed Ready just before it was cleared. Join
      * that in-flight submission before the owner resets/frees DMA. Never
      * hold the ISR lock while waiting for the lower-IRQL protocol lock. */

@@ -15,6 +15,7 @@ VOID SwifiPnpFailure(PVOID Context, NTSTATUS Reason)
 {
     SWIFI_DEVICE *D = Context;
     if (!InterlockedExchange(&D->Failing, 1)) {
+        SwifiReportIo(&D->Report, D->Hw.Transport.SawInterrupt, D->Hw.Transport.SawRing);
         SwifiReportStep(&D->Report, SwifiRuntimeFailure, Reason);
         SwifiDataRequestStop(D);
         WdfDeviceSetFailed(D->Hw.Device, WdfDeviceFailedNoRestart);
@@ -107,7 +108,7 @@ static NTSTATUS DeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
     D->Data.Hardware = &D->Hw;
     SwifiReportOpen(Device, &D->Report);
     Status = SwifiFilterCreate(Device, D);
-    if (NT_SUCCESS(Status)) Status = SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D);
+    if (NT_SUCCESS(Status)) Status = SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D, &D->Report);
     SwifiReportStep(&D->Report, SwifiDeviceAdd, Status);
     if (!NT_SUCCESS(Status)) SwifiReportFlush(&D->Report);
     return Status;

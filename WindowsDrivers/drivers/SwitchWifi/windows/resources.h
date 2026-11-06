@@ -11,8 +11,6 @@ typedef struct SWIFI_PCIE_RESOURCES {
     PUCHAR Config;
     PHYSICAL_ADDRESS Aperture;
     ULONG ApertureLength;
-    CM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt;
-    CM_PARTIAL_RESOURCE_DESCRIPTOR TranslatedInterrupt;
 } SWIFI_PCIE_RESOURCES;
 
 /* The WFI0 composite device owns the host and one BCM4356 endpoint. This
@@ -31,6 +29,8 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 ULONG SwifiConfigRead(SWIFI_PCIE_RESOURCES *Bus, USHORT Offset);
 _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID SwifiConfigWrite(SWIFI_PCIE_RESOURCES *Bus, USHORT Offset, ULONG Value);
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS SwifiSelectLegacyInterrupt(SWIFI_PCIE_RESOURCES *Bus);
 
 /* Map a validated BAR slice only, not the whole 208 MiB outbound aperture. */
 _IRQL_requires_(PASSIVE_LEVEL)

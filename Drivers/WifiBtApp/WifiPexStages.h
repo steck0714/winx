@@ -288,9 +288,13 @@ PexEnum (
     Log (L"enum: BAR or bridge memory-window readback mismatch");
     return FALSE;
   }
-  // Restore the existing endpoint command policy after BAR assignment.
-  // MsgInitialize separately quiesces bus mastering while publishing rings.
-  PexCfgWr (1, 0, 0, 4, Cmd | 6U);
+  // Enumeration only needs memory decoding. MsgInitialize or the Windows
+  // driver grants bus mastering after its own DMA addresses are published.
+  PexCfgWr (1, 0, 0, 4, (Cmd | 2U) & ~4U);
+  if ((PexCfgRd (1, 0, 0, 4) & 6U) != 2U) {
+    Log (L"enum: endpoint did not accept memory decoding with DMA stopped");
+    return FALSE;
+  }
   Log (L"enum: bridge memory base/limit=%08x, covering BAR2 through %08x",
        BridgeWindow, A2 + S2 - 1U);
   Log (L"enum: BAR0=%08x BAR2=%08x cmd=%08x", PexCfgRd (1, 0, 0, 0x10), PexCfgRd (1, 0, 0, 0x18), PexCfgRd (1, 0, 0, 4));

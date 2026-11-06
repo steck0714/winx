@@ -2,6 +2,7 @@
 /* Tegra AFI configuration translation follows Switchroot pci-tegra.c and
  * the pre-Windows WifiPcie.h implementation. */
 #include "resources.h"
+#include "../core/pci_intx.h"
 #include <acpiioct.h>
 
 NTSTATUS SwifiMapResources(SWIFI_PCIE_RESOURCES *Bus,
@@ -20,35 +21,28 @@ NTSTATUS SwifiMapResources(SWIFI_PCIE_RESOURCES *Bus,
         ULONG Bit;
         if (!R || !T || R->Type != T->Type)
             return STATUS_DEVICE_CONFIGURATION_ERROR;
-        if (T->Type == CmResourceTypeMemory) {
-            if (T->u.Memory.Start.QuadPart == SWIFI_HOST_BASE &&
-                T->u.Memory.Length == SWIFI_HOST_LENGTH) {
-                Bit = 1; Host = T->u.Memory.Start;
-            } else if (T->u.Memory.Start.QuadPart == SWIFI_CONFIG_BASE &&
-                T->u.Memory.Length == SWIFI_CONFIG_LENGTH) {
-                Bit = 2; Config = T->u.Memory.Start;
-            } else if (T->u.Memory.Start.QuadPart == SWIFI_APERTURE_BASE &&
-                T->u.Memory.Length == SWIFI_APERTURE_SIZE) {
-                Bit = 4; Bus->Aperture = T->u.Memory.Start;
-                Bus->ApertureLength = T->u.Memory.Length;
-            } else {
-                return STATUS_DEVICE_CONFIGURATION_ERROR;
-            }
-        } else if (T->Type == CmResourceTypeInterrupt) {
-            if (T->Flags & (CM_RESOURCE_INTERRUPT_MESSAGE | CM_RESOURCE_INTERRUPT_LATCHED))
-                return STATUS_DEVICE_CONFIGURATION_ERROR;
-            Bit = 8;
-            Bus->RawInterrupt = *R;
-            Bus->TranslatedInterrupt = *T;
+        if (R->Type != CmResourceTypeMemory) continue;
+        if (R->u.Memory.Length != T->u.Memory.Length || !T->u.Memory.Length ||
+            T->u.Memory.Start.QuadPart < 0 ||
+            T->u.Memory.Start.QuadPart > MAXLONGLONG - (T->u.Memory.Length - 1))
+            return STATUS_DEVICE_CONFIGURATION_ERROR;
+        /* Match the board's bus addresses in the raw list. Only the
+         * translated CPU addresses supplied by PnP may be mapped. */
+        if (R->u.Memory.Start.QuadPart == SWIFI_HOST_BASE && R->u.Memory.Length == SWIFI_HOST_LENGTH) {
+            Bit = 1; Host = T->u.Memory.Start;
+        } else if (R->u.Memory.Start.QuadPart == SWIFI_CONFIG_BASE && R->u.Memory.Length == SWIFI_CONFIG_LENGTH) {
+            Bit = 2; Config = T->u.Memory.Start;
+        } else if (R->u.Memory.Start.QuadPart == SWIFI_APERTURE_BASE && R->u.Memory.Length == SWIFI_APERTURE_SIZE) {
+            Bit = 4; Bus->Aperture = T->u.Memory.Start;
+            Bus->ApertureLength = T->u.Memory.Length;
         } else {
-            /* Connection/resource-private descriptors are not register ranges. */
-            continue;
+            return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
         if (Found & Bit)
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         Found |= Bit;
     }
-    if (Found != 15)
+    if (Found != 7)
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     Bus->Host = MmMapIoSpaceEx(Host, SWIFI_HOST_LENGTH, PAGE_READWRITE | PAGE_NOCACHE);
     if (!Bus->Host)
@@ -94,18 +88,40 @@ VOID SwifiConfigWrite(SWIFI_PCIE_RESOURCES *Bus, USHORT Offset, ULONG Value)
     WRITE_REGISTER_ULONG((PULONG)(Bus->Config + SwifiSelectConfig(Bus, Offset)), Value);
 }
 
+static uint32_t ReadEndpoint(void *Context, uint16_t Offset)
+{
+    return SwifiConfigRead(Context, Offset);
+}
+
+static void WriteEndpoint(void *Context, uint16_t Offset, uint32_t Value)
+{
+    SwifiConfigWrite(Context, Offset, Value);
+}
+
+NTSTATUS SwifiSelectLegacyInterrupt(SWIFI_PCIE_RESOURCES *Bus)
+{
+    const swifi_pci_config Io = {Bus, ReadEndpoint, WriteEndpoint};
+    switch (swifi_select_intx(&Io)) {
+    case SWIFI_INTX_OK: return STATUS_SUCCESS;
+    case SWIFI_INTX_NO_DEVICE: return STATUS_DEVICE_DOES_NOT_EXIST;
+    case SWIFI_INTX_NO_PIN: return STATUS_NOT_SUPPORTED;
+    case SWIFI_INTX_BUS_MASTER: return STATUS_INVALID_DEVICE_STATE;
+    default: return STATUS_DEVICE_PROTOCOL_ERROR;
+    }
+}
+
 NTSTATUS SwifiMapBar(SWIFI_PCIE_RESOURCES *Bus, ULONG Address, ULONG Length,
     PUCHAR *Mapping)
 {
     PHYSICAL_ADDRESS Physical;
     ULONGLONG Offset;
     *Mapping = NULL;
-    if (!Length || Address < (ULONGLONG)Bus->Aperture.QuadPart)
+    if (!Length || Address < SWIFI_APERTURE_BASE)
         return STATUS_CONFLICTING_ADDRESSES;
-    Offset = Address - (ULONGLONG)Bus->Aperture.QuadPart;
+    Offset = Address - SWIFI_APERTURE_BASE;
     if (Offset >= Bus->ApertureLength || Length > Bus->ApertureLength - Offset)
         return STATUS_CONFLICTING_ADDRESSES;
-    Physical.QuadPart = Address;
+    Physical.QuadPart = Bus->Aperture.QuadPart + (LONGLONG)Offset;
     *Mapping = MmMapIoSpaceEx(Physical, Length, PAGE_READWRITE | PAGE_NOCACHE);
     return *Mapping ? STATUS_SUCCESS : STATUS_INSUFFICIENT_RESOURCES;
 }

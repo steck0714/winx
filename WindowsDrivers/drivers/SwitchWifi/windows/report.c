@@ -35,15 +35,16 @@ static VOID WriteReport(WDFWORKITEM Work)
         KeReleaseSpinLock(&R->Lock,Irql);
         WCHAR Text[512];
         NTSTATUS Status = RtlStringCchPrintfW(Text, RTL_NUMBER_OF(Text),
-            L"v=4 session=%u step=%u/%08X failure=%u/%08X scan=%u/%08X join=%u/%08X "
+            L"v=5 session=%u step=%u/%08X failure=%u/%08X scan=%u/%08X join=%u/%08X "
             L"keys=%u add=%u del=%u eth_pre=%u eth_unknown=%u native_clear=%u "
-            L"native_protected=%u meta=%u rssi=%u malformed=%u filter=%X/%u/%u/%08X",
+            L"native_protected=%u meta=%u rssi=%u malformed=%u filter=%X/%u/%u/%08X hw=%u/%08X irq=%u ring=%u",
             D.Session,D.Step,(ULONG)D.StepStatus,D.FailedStep,(ULONG)D.FailureStatus,
             D.Scans,(ULONG)D.ScanStatus,D.Attempts,(ULONG)D.JoinStatus,D.KeyMask,
             D.KeyInstalls,D.KeyRemovals,D.Count[SwifiRxEtherBeforeKey],D.Count[SwifiRxEtherUncertain],
             D.Count[SwifiRxNativeClear],D.Count[SwifiRxNativeProtected],D.Count[SwifiRxMetaSeen],
             D.Count[SwifiRxRssiSeen],D.Count[SwifiRxMetaInvalid],
-            D.FilterFlags,D.FilterCount,D.FilterMode,(ULONG)D.FilterStatus);
+            D.FilterFlags,D.FilterCount,D.FilterMode,(ULONG)D.FilterStatus,D.HardwareStep,(ULONG)D.HardwareStatus,
+            D.IrqSeen,D.RingSeen);
         if (NT_SUCCESS(Status)) {
             UNICODE_STRING Value;
             RtlInitUnicodeString(&Value, Text);
@@ -93,6 +94,28 @@ VOID SwifiReportStep(SWIFI_REPORT *R, SWIFI_BOOT_STEP Step, NTSTATUS Status)
     }
     ScheduleLocked(R);
     KeReleaseSpinLock(&R->Lock,Irql);
+}
+
+VOID SwifiReportIo(SWIFI_REPORT *R, LONG IrqSeen, LONG RingSeen)
+{
+    KIRQL Irql;
+    KeAcquireSpinLock(&R->Lock, &Irql);
+    if (R->Data.IrqSeen != (ULONG)IrqSeen || R->Data.RingSeen != (ULONG)RingSeen) {
+        R->Data.IrqSeen = (ULONG)IrqSeen;
+        R->Data.RingSeen = (ULONG)RingSeen;
+        ScheduleLocked(R);
+    }
+    KeReleaseSpinLock(&R->Lock, Irql);
+}
+
+VOID SwifiReportHardware(SWIFI_REPORT *R, SWIFI_HW_STEP Step, NTSTATUS Status)
+{
+    KIRQL Irql;
+    KeAcquireSpinLock(&R->Lock, &Irql);
+    R->Data.HardwareStep = Step;
+    R->Data.HardwareStatus = Status;
+    ScheduleLocked(R);
+    KeReleaseSpinLock(&R->Lock, Irql);
 }
 
 VOID SwifiReportScan(SWIFI_REPORT *R, NTSTATUS Status)

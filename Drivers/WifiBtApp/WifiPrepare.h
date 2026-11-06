@@ -9,7 +9,7 @@ EFI_STATUS EFIAPI
 WifiPrepareMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 {
   T214_PCIE_SUPPLY Supply;
-  UINT32 Command, AfiAsid = 0, LicClass = 0, LicEnabled = 0;
+  UINT32 AfiAsid = 0, LicClass = 0, LicEnabled = 0;
   BOOLEAN AfiChanged = FALSE, LicChanged = FALSE, Started = FALSE;
   (VOID)ImageHandle;
   (VOID)SystemTable;
@@ -20,10 +20,7 @@ WifiPrepareMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Started = TRUE;
   if (!PexUp () || !PexEnum ()) goto Failed;
 
-  // No old bus-master activity may cross the firmware/Windows boundary.
-  Command = PexCfgRd (1, 0, 0, 4) & 0xFFFFU;
-  PexCfgWr (1, 0, 0, 4, Command & ~4U);
-  if (PexCfgRd (1, 0, 0, 4) & 4U) goto Failed;
+  // PexEnum left memory decoding on and verified that endpoint DMA is off.
   if (!PexChip () || !BpWr32 (mPcieCore + 0x4C, 0)) goto Failed;
 
   // This platform has no Windows Tegra SMMU/IORT driver. Establish a direct

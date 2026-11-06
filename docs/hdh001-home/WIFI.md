@@ -1,10 +1,11 @@
 # HDH-001 Wi-Fi bring-up
 
-An HDH-001 completed a pre-Windows scan. The Windows station driver now builds
-as `switchwifi.sys` and its signed package staged in ARM64 Windows PE 22621.1.
-Version 0.4.2 implements open and WPA2-Personal association, CCMP keys,
-disconnect, peer link measurements, broadcast/multicast filtering and PnP
-status reporting in Windows. Physical Windows networking on the Lite remains pending.
+An HDH-001 completed a pre-Windows scan. The signed Windows driver implements
+open/WPA2-Personal association, CCMP keys, disconnect and receive filtering.
+Version 0.5.0.0 bound to an ACPI-enumerated device in ARM64 Windows PE
+22621.2861. The guest executed the isolation method and registered the board
+interrupt. Windows scanning, association and IP traffic still need a physical
+HDH-001 run.
 
 ## Verified source facts
 
@@ -174,7 +175,7 @@ For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/
 3. Extend the implemented polled control/event transport with packet rings, interrupts and association/key commands. Linux cfg80211 and network callbacks need Windows equivalents; a Linux module cannot be used as a Windows SYS file.
 4. Add a Windows ARM64 Wi-Fi adapter interface with scan, authentication/association and packet transmit/receive. Validate DHCP, sustained traffic, disconnect/reconnect and Bluetooth coexistence.
 
-The firmware blob, board calibration, MAC address and credentials are not committed. The PCIe radio path runs only in the explicit pre-Windows diagnostic; no Windows Wi-Fi driver is installed yet.
+Board firmware and calibration are supplied privately. The physical Lite has exercised the pre-Windows scan. Its installed Windows profile is currently reserved for the separate BasicDisplay boot test.
 
 The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. The driver publishes firmware capabilities, dispatches scans and implements packet queues. Version 0.2 adds directed association, CCMP keys and disconnect.
 
@@ -368,3 +369,13 @@ driver load with problem 39 and `0xC0000018`. The link now applies the
 Switch drivers' kernel section protections. The device-key diagnostic is
 flushed on failed preparation. The current hardware acceptance item is the
 real WFI0 node followed by a Windows scan, association, IP traffic and rekey.
+
+Under the opt-in runtime profile, `WifiPrepare.efi` enables PCI memory decoding
+and leaves endpoint bus mastering off until the OS publishes its DMA rings.
+Windows matches the raw board memory ranges, maps their translated addresses
+and registers its KMDF interrupt with the original resource-list descriptors.
+The 0.5.0.0 ACPI fixture exposed only GSI 130 and returned
+`hw=3/C0000182 irq=0 ring=0` at the expected missing-memory check. The
+pre-Windows physical scan uses polling. Hardware interrupt delivery and ring
+completions in Windows must be observed on the board.
+[Driver report and fixture](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).

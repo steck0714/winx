@@ -18,9 +18,9 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 args.out.mkdir(parents=True, exist_ok=True)
 sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c", root / "core/msgbuf_control.c",
-           root / "core/phy_rates.c", root / "core/rx_metadata.c", root / "core/receive_filter.c", root / "core/station_frame.c", root / "core/station_security.c"]
+           root / "core/phy_rates.c", root / "core/rx_metadata.c", root / "core/receive_filter.c", root / "core/pci_intx.c", root / "core/station_frame.c", root / "core/station_security.c"]
 common = [args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror"]
-for name in ("data", "ring", "control", "erom", "nvram", "rates", "escan", "frame", "security", "metadata", "filter"):
+for name in ("data", "ring", "control", "erom", "nvram", "rates", "escan", "frame", "security", "metadata", "filter", "intx"):
     test = args.out / f"test-msgbuf-{name}"
     subprocess.run(common + ["-g", "-O1", "-fsanitize=address,undefined",
         "-fno-sanitize-recover=all", *map(str, sources), str(root / f"tests/test_{name}.c"),

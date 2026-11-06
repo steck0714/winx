@@ -3,6 +3,7 @@
 #define SWIFI_WINDOWS_LIFECYCLE_H
 
 #include "requests.h"
+#include "report.h"
 
 typedef struct SWIFI_HARDWARE_CALLBACKS {
     PFN_WIFI_DEVICE_CREATE_ADAPTER CreateAdapter;
@@ -34,6 +35,7 @@ typedef struct SWIFI_HARDWARE {
     SWIFI_RADIO_CAPS *RadioCaps;
     SWIFI_WDI *Wdi;
     SWIFI_HARDWARE_CALLBACKS Callbacks;
+    SWIFI_REPORT *Report;
     PVOID Context;
     NTSTATUS InitializeStatus;
     NTSTATUS LastStopStatus;
@@ -50,7 +52,7 @@ typedef struct SWIFI_HARDWARE {
  * PnP/power callbacks, independently of any work item they wait for. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
-    const SWIFI_HARDWARE_CALLBACKS *Callbacks, PVOID Context);
+    const SWIFI_HARDWARE_CALLBACKS *Callbacks, PVOID Context, SWIFI_REPORT *Report);
 
 /* Call directly from EvtDevicePrepareHardware (not a worker): interrupt-object
  * creation uses that KMDF phase and the actual assigned resource descriptors.

@@ -54,6 +54,7 @@ struct SWIFI_WIN_TRANSPORT {
     volatile LONG Pending;
     volatile LONG Faulted;
     volatile LONG HostFault;
+    volatile LONG SawInterrupt, SawRing; /* Per D0; software rearm probes are excluded. */
     ULONG LastAfiCode;
     ULONG LastAfiSignature;
     UCHAR NextD2h;
@@ -73,17 +74,12 @@ NTSTATUS SwifiWinCreateRing(WDFDMAENABLER Dma, SWIFI_WIN_RING *Ring,
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID SwifiWinDeleteRingAfterReset(SWIFI_WIN_RING *Ring);
 
-/* Call in PrepareHardware with the actual translated interrupt resources.
- * H2d[0..1] are common rings, [2..] are allocated TX flow rings. Initialize
- * optional flow rings before submitting their create command under DataLock.
- * Set Ready only after firmware/shared descriptors and callbacks are ready,
- * during D0Entry before KMDF enables interrupts. */
+/* Register the assigned interrupt during PrepareHardware, before touching
+ * the endpoint. Bind registers and rings before D0Entry marks it ready. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *Transport,
-    PKSPIN_LOCK DataLock, SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
-    USHORT H2dCount, SWIFI_WIN_RING D2h[3], const SWIFI_WIN_CALLBACKS *Callbacks,
-    PVOID Context, PCM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt,
-    PCM_PARTIAL_RESOURCE_DESCRIPTOR TranslatedInterrupt);
+    PKSPIN_LOCK DataLock, SWIFI_PCIE_RESOURCES *Bus, const SWIFI_WIN_CALLBACKS *Callbacks,
+    PVOID Context, WDFCMRESLIST Raw, WDFCMRESLIST Translated);
 
 /* swifi_data_ops.submit implementation; caller holds DataLock. */
 _IRQL_requires_(DISPATCH_LEVEL)

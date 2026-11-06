@@ -54,18 +54,19 @@ static VOID FirmwareEvent(PVOID Context, const swifi_event_completion *Event)
 }
 
 NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
-    const SWIFI_HARDWARE_CALLBACKS *Callbacks, PVOID Context)
+    const SWIFI_HARDWARE_CALLBACKS *Callbacks, PVOID Context, SWIFI_REPORT *Report)
 {
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_WORKITEM_CONFIG Config;
     NTSTATUS Status;
-    if (!H || !Callbacks || !Callbacks->CreateAdapter || !Callbacks->DispatchData || !Callbacks->NotifyData ||
+    if (!H || !Report || !Callbacks || !Callbacks->CreateAdapter || !Callbacks->DispatchData || !Callbacks->NotifyData ||
         !Callbacks->CancelDataAfterReset || !Callbacks->ReleaseDataAfterReset || !Callbacks->ScheduleRecovery)
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(H, sizeof(*H));
     KeInitializeSpinLock(&H->ProtocolLock);
     H->Device = Device;
     H->Callbacks = *Callbacks;
+    H->Report = Report;
     H->Context = Context;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWIFI_INITIALIZE_CONTEXT);
     Attributes.ParentObject = Device;
@@ -84,12 +85,31 @@ static VOID InitializeWorker(WDFWORKITEM Work)
 {
     SWIFI_HARDWARE *H = SwifiInitializeContext(Work)->Hardware;
     NTSTATUS Status = STATUS_SUCCESS;
-    if (!H->Chip.Bar0)
+    if (!H->Chip.Bar0) {
         Status = SwifiChipMapAndDiscover(&H->Chip, &H->Bus);
-    if (NT_SUCCESS(Status))
+        SwifiReportHardware(H->Report, SwifiHwEndpoint, Status);
+    }
+    if (NT_SUCCESS(Status)) {
+        Status = SwifiSelectLegacyInterrupt(&H->Bus);
+        SwifiReportHardware(H->Report, SwifiHwIntx, Status);
+    }
+    if (NT_SUCCESS(Status)) {
         Status = SwifiChipLoadFirmware(&H->Chip, FirmwarePath, NvramPath);
-    if (NT_SUCCESS(Status))
+        SwifiReportHardware(H->Report, SwifiHwFirmware, Status);
+    }
+    if (NT_SUCCESS(Status)) {
         Status = SwifiSharedPrepare(&H->Shared, &H->Chip, H->Dma);
+        if (NT_SUCCESS(Status)) {
+            SWIFI_WIN_TRANSPORT *T = &H->Transport;
+            T->Registers = SwifiChipRuntimeRegisters(&H->Chip);
+            T->H2d = H->Shared.H2d;
+            T->H2dCount = H->Shared.MaxSubmit;
+            T->D2h = H->Shared.D2h;
+            if (!T->Registers || H->Chip.Bar0Length < 0x148 || !T->H2d || T->H2dCount < 2)
+                Status = STATUS_DEVICE_PROTOCOL_ERROR;
+        }
+        SwifiReportHardware(H->Report, SwifiHwRings, Status);
+    }
     H->InitializeStatus = Status;
 }
 
@@ -113,23 +133,26 @@ NTSTATUS SwifiHardwarePrepare(SWIFI_HARDWARE *H, WDFCMRESLIST Raw, WDFCMRESLIST 
     /* Refuse bus mastering against an old firmware lacking the last-resort
      * controller reset. The non-mutating check runs while PCIEX is released. */
     Status = SwifiPlatformIsolation(H->Device, FALSE);
+    SwifiReportHardware(H->Report, SwifiHwIsolation, Status);
+    if (!NT_SUCCESS(Status)) return Status;
+    Status = SwifiWinCreateTransport(H->Device, &H->Transport, &H->ProtocolLock, &H->Bus,
+        &TransportCallbacks, H, Raw, Translated);
+    SwifiReportHardware(H->Report, SwifiHwInterrupt, Status);
     if (!NT_SUCCESS(Status)) return Status;
     Status = SwifiMapResources(&H->Bus, Raw, Translated);
-    if (!NT_SUCCESS(Status)) return Status;
+    SwifiReportHardware(H->Report, SwifiHwMemory, Status);
+    if (!NT_SUCCESS(Status)) goto Failed;
     Status = SwifiWinCreateDma(H->Device, &H->Dma);
+    SwifiReportHardware(H->Report, SwifiHwDma, Status);
     if (!NT_SUCCESS(Status)) goto Failed;
     Status = InitializeSession(H);
     if (!NT_SUCCESS(Status)) goto Failed;
-    /* This call remains in the PrepareHardware callback, not InitializeWork. */
-    Status = SwifiWinCreateTransport(H->Device, &H->Transport, &H->ProtocolLock, &H->Bus,
-        SwifiChipRuntimeRegisters(&H->Chip), H->Chip.Bar0Length,
-        H->Shared.H2d, H->Shared.MaxSubmit, H->Shared.D2h, &TransportCallbacks, H,
-        &H->Bus.RawInterrupt, &H->Bus.TranslatedInterrupt);
-    if (!NT_SUCCESS(Status)) goto Failed;
     Status = SwifiControlCreate(H->Device, &H->Control, &H->Transport, &ControlCallbacks, H);
-    if (!NT_SUCCESS(Status)) goto Failed;
-    H->ControlCreated = TRUE;
-    Status = SwifiControlBind(&H->Control, &H->Shared);
+    if (NT_SUCCESS(Status)) {
+        H->ControlCreated = TRUE;
+        Status = SwifiControlBind(&H->Control, &H->Shared);
+    }
+    SwifiReportHardware(H->Report, SwifiHwControl, Status);
     if (!NT_SUCCESS(Status)) goto Failed;
     H->Prepared = TRUE;
     return STATUS_SUCCESS;
@@ -147,15 +170,13 @@ NTSTATUS SwifiHardwareEnterD0(SWIFI_HARDWARE *H)
     if (!H->Shared.Prepared) {
         Status = InitializeSession(H);
         if (!NT_SUCCESS(Status)) return Status;
-        T->Registers = SwifiChipRuntimeRegisters(&H->Chip);
-        T->H2d = H->Shared.H2d;
-        T->H2dCount = H->Shared.MaxSubmit;
-        T->D2h = H->Shared.D2h;
         Status = SwifiControlBind(&H->Control, &H->Shared);
         if (!NT_SUCCESS(Status)) return Status;
     }
     T->Pending = T->Faulted = T->HostFault = 0;
     T->LastAfiCode = T->LastAfiSignature = 0;
+    T->SawInterrupt = T->SawRing = 0;
+    SwifiReportIo(H->Report, 0, 0);
     T->NextD2h = 0;
     InterlockedExchange(&T->Ready, 1);
     Status = SwifiSharedEnableDma(&H->Shared);
@@ -173,6 +194,7 @@ NTSTATUS SwifiHardwareOnline(SWIFI_HARDWARE *H)
         Status = SwifiFirmwareQueryInfo(&H->Control, &H->FirmwareInfo);
     if (NT_SUCCESS(Status))
         Status = SwifiPublishRadioCaps(H->Device, &H->RadioCaps, &H->FirmwareInfo);
+    SwifiReportIo(H->Report, H->Transport.SawInterrupt, H->Transport.SawRing);
     if (NT_SUCCESS(Status)) SwifiWdiStart(H->Wdi);
     else SwifiHardwareRequestStop(H);
     return Status;
@@ -193,8 +215,10 @@ NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
     SwifiWdiQuiesce(H->Wdi);
     RtlZeroMemory(&H->FirmwareInfo, sizeof(H->FirmwareInfo));
     if (H->InitializeWork) WdfWorkItemFlush(H->InitializeWork);
-    if (H->Transport.Interrupt)
+    if (H->Transport.Interrupt) {
         SwifiWinQuiesceInterrupts(&H->Transport);
+        SwifiReportIo(H->Report, H->Transport.SawInterrupt, H->Transport.SawRing);
+    }
     if (H->ControlCreated)
         SwifiControlQuiesce(&H->Control);
     if (H->Chip.Bar0 && H->Chip.Stage != SwifiChipStopped) {
@@ -227,6 +251,7 @@ NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
     SwifiWdiAfterReset(H->Wdi);
     SwifiSharedDeleteAfterReset(&H->Shared);
     if (H->Transport.Interrupt) {
+        H->Transport.Registers = NULL;
         H->Transport.H2d = NULL;
         H->Transport.H2dCount = 0;
         H->Transport.D2h = NULL;
