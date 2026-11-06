@@ -1,4 +1,8 @@
-# HDH-001 Wi-Fi bring-up
+# HDH-001 Wi-Fi
+
+Windows driver 0.5.5 automatically reconnected to a saved WPA2-Personal network on the physical Lite. Windows obtained an IPv4 DHCP lease and default gateway, and the owner confirmed Internet access. [Windows driver and diagnostics](../../WindowsDrivers/drivers/SwitchWifi/README.md)
+
+## Bring-up history
 
 An HDH-001 completed a pre-Windows scan. The signed Windows driver implements
 open/WPA2-Personal association, CCMP keys, disconnect and receive filtering.
@@ -376,8 +380,7 @@ Windows link indications use the measured rates for the associated peer.
 The device's `SwitchWifiReport` value records initialization, scans, joins,
 acknowledged key slots and observed frame types. See the
 [status fields and read command](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).
-An isolated ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package as `oem0.inf`. The existing 22631.2861 ARM64 installation media includes WiFiCx, NetAdapterCx and the WLAN service. Acceptance on the physical Windows
-adapter later passed WPA2, DHCP and Internet access in version 0.5.5. Group rekey remains unmeasured.
+An isolated ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package as `oem0.inf`. The existing 22631.2861 ARM64 installation media includes WiFiCx, NetAdapterCx and the WLAN service. Driver 0.5.5 later passed WPA2 association, DHCP and Internet access on the physical Lite. Group rekey remains unmeasured.
 
 The station now registers the four ordinary data filters with NetAdapterCx
 before adapter startup and handles WDI filter/list changes on the station port.

@@ -86,9 +86,11 @@ static VOID LiteObserveRead(PSDHC_EXTENSION slot, PSDPORT_COMMAND cmd)
     } else if (lba == WINARM_FIRST) {
         bit = LiteNtfs;
         matches = (BOOLEAN)LiteIsBootSector(cmd->DataBuffer);
+#ifdef FAT32_FIRST
     } else if (lba == FAT32_FIRST) {
         bit = LiteFatBoot;
         matches = (BOOLEAN)LiteIsFatBootSector(cmd->DataBuffer);
+#endif
     } else {
         return;
     }
@@ -97,6 +99,12 @@ static VOID LiteObserveRead(PSDHC_EXTENSION slot, PSDPORT_COMMAND cmd)
     } else {
         InterlockedAnd(&slot->TargetFacts, ~bit);
     }
+}
+
+static BOOLEAN LiteBlocksInExtent(ULONG lba, ULONG count, ULONG first, ULONG length)
+{
+    return count != 0 && lba >= first && lba - first < length &&
+           count <= length - (lba - first);
 }
 
 static BOOLEAN LiteAllowRequest(PSDHC_EXTENSION slot, PSDPORT_REQUEST request)
@@ -113,10 +121,17 @@ static BOOLEAN LiteAllowRequest(PSDHC_EXTENSION slot, PSDPORT_REQUEST request)
     if (cmd->Index == 24 || cmd->Index == 25) {
         ULONG lba = cmd->Argument;
         ULONG count = cmd->BlockCount;
-        BOOLEAN ntfs = (BOOLEAN)LiteInsideExtent(lba, count, WINARM_FIRST, WINARM_COUNT);
-        BOOLEAN fat = (BOOLEAN)LiteInsideExtent(lba, count, FAT32_FIRST, FAT32_COUNT);
-        LONG required = ntfs ? LiteWriteFacts : LiteFatWriteFacts;
-        if ((!ntfs && !fat) || (slot->TargetFacts & required) != required || slot->CrashdumpMode || slot->AppPrefixAccepted ||
+        LONG required;
+        if (LiteBlocksInExtent(lba, count, WINARM_FIRST, WINARM_COUNT)) {
+            required = LiteWriteFacts;
+#ifdef FAT32_FIRST
+        } else if (LiteBlocksInExtent(lba, count, FAT32_FIRST, FAT32_COUNT)) {
+            required = LiteFatWriteFacts;
+#endif
+        } else {
+            return FALSE;
+        }
+        if ((slot->TargetFacts & required) != required || slot->CrashdumpMode || slot->AppPrefixAccepted ||
             cmd->Class == SdCommandClassApp || cmd->TransferDirection != SdTransferDirectionWrite ||
             cmd->TransferMethod != SdTransferMethodPio || cmd->BlockSize != 512 ||
             count == 0 || (cmd->Index == 24 && count != 1) ||

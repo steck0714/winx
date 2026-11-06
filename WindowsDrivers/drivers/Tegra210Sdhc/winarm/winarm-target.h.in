@@ -3,8 +3,7 @@
 #define LITE_WINARM_TARGET_H
 #define WINARM_FIRST @WINARM_FIRST@u
 #define WINARM_COUNT  @WINARM_COUNT@u
-#define FAT32_FIRST @FAT32_FIRST@u
-#define FAT32_COUNT @FAT32_COUNT@u
+@FAT32_EXTENT@
 #define WINARM_SERIAL @WINARM_SERIAL@ULL
 #define LITE_CARD_BYTES @LITE_CARD_BYTES@ULL
 #define WINARM_MBR_SIGNATURE @WINARM_MBR_SIGNATURE@u
@@ -57,13 +56,7 @@ static inline int LiteIsBootSector(const unsigned char *p)
            LiteU64(p + 72) == WINARM_SERIAL;
 }
 
-static inline int LiteInsideExtent(unsigned int lba, unsigned int count,
-                                   unsigned int first, unsigned int length)
-{
-    return count != 0 && lba >= first && lba - first < length &&
-           count <= length - (lba - first);
-}
-
+#ifdef FAT32_FIRST
 static inline int LiteIsFatBootSector(const unsigned char *p)
 {
     unsigned int sectors = LiteU32(p + 32);
@@ -74,9 +67,10 @@ static inline int LiteIsFatBootSector(const unsigned char *p)
            LiteBytesEqual(p + 82, (const unsigned char *)"FAT32   ", 8) &&
            p[510] == 0x55 && p[511] == 0xaa;
 }
+#endif
 
-/* Present active WINARM first and the existing FAT32 volume second. Only the
- * returned read buffer changes; physical MBR/GPT sectors stay protected. */
+/* Project WINARM as the active first entry. Both BL33 and the miniport use
+ * this function. The physical MBR stays on the card. */
 static inline int LiteSelectWindowsPartition(unsigned char *sector)
 {
     static const unsigned char original[70] = {
@@ -84,15 +78,17 @@ static inline int LiteSelectWindowsPartition(unsigned char *sector)
     };
     if (sector[510] != 0x55 || sector[511] != 0xaa ||
         !LiteBytesEqual(sector + 440, original, sizeof(original))) return 0;
-    unsigned char fat[16];
-    for (unsigned int i = 0; i < 16; ++i) fat[i] = sector[446 + i];
     for (unsigned int i = 0; i < 16; ++i) {
+#ifdef FAT32_FIRST
+        sector[462 + i] = sector[446 + i];
+#else
+        sector[462 + i] = 0;
+#endif
         sector[446 + i] = sector[494 + i];
-        sector[462 + i] = fat[i];
     }
+    sector[446] = 0x80;
+    sector[462] = 0;
     for (unsigned int i = 478; i < 510; ++i) sector[i] = 0;
-    sector[446] = 0x80; // Present WINARM as the active system partition.
-    sector[462] = 0;    // FAT32 is a data volume, not a second system partition.
     return 1;
 }
 #endif

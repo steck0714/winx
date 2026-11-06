@@ -1,10 +1,10 @@
 # Switch Wi-Fi
 
-Windows Wi-Fi driver development for the BCM4356 PCIe device. Shared protocol
-code lives here; any SoC-specific Windows platform code will stay under the
-corresponding SoC directory. No firmware binary or board calibration is included.
+Windows ARM64 driver for the BCM4356A3 PCIe radio on Switch Lite (HDH-001).
 
-## Current status
+**Version 0.5.5** automatically reconnected to a saved WPA2-Personal network, obtained an IPv4 lease and default gateway via DHCP, and reached the Internet on Windows 11 23H2. Sustained throughput and group rekey still need measurement. Supply the board firmware and calibration separately. [Runtime diagnostics](#on-device-status)
+
+## Implementation and earlier bring-up
 
 The companion firmware's R6 pre-Windows probe completed passive scanning on a
 physical HDH-001 (six records, channels 1/9/36). It reset the Wi-Fi device and

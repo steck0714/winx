@@ -22,17 +22,15 @@ Use the EDK2 and devkitA64 build environment from the [WinPE source recipe](../h
 
 3. Build RELEASE AARCH64 with `-D SWITCH_HEKATE=1 -D SWITCH_FB_ROTATE=2 -D SWITCH_EXCFB=1 -D SWITCH_ACPI_SD_NVTSDHC=1 -D SWITCH_LITE_TOUCH=1`. Pack BL33 using `Tools/make-bl33.py` and the corresponding FV map. Put BL31 and BL33 in `switchroot/woa-lite-home/`, then copy [woa-lite-home.ini](woa-lite-home.ini) to `bootloader/ini/`.
 
-The firmware includes the local target directly from the miniport source
-directory. The active first MBR entry selects the 80 GiB WINARM partition.
-For a two-volume target, the second entry exposes the existing FAT32 data
-partition. UEFI validates its extent against the on-card GPT, reads both
-volumes, and returns zeros for the intervening sectors. Boot Manager is
-selected by the WINARM signature, offset, size and slot. UEFI handles all
-writes as write-protected.
+The command above generates the default **WINARM-only** profile. Windows sees the 80 GiB NTFS system partition as the sole active MBR entry. Hekate uses the original FAT32 partition for its boot files.
+
+To expose FAT32 as a second Windows volume, generate a new target with `--expose-fat32`. This is an experimental option. On the same hardware and card the owner reported substantially smoother desktop interaction after switching back to WINARM only. Both profiles leave the physical partition table intact.
+
+Use the **same generated header** for BL33 and the Windows SD miniport. The firmware includes it directly from the miniport source directory. Deploy the two matching components together. Different partition views caused stop 0x7B on this Lite.
 
 ## Windows drivers
 
-Build the SD miniport with the `winarm` profile (the default) and package it with `winarm/nvtsdhc.inf`. Both drivers must use the same generated header. [SD build script](../hdh001-lab/build-miniport.sh). Build the GPIO, I²C and touch packages with [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh). Sign the final SYS files, generate catalogs from the final INF/SYS pairs with MakeCat, and sign the catalogs with your development certificate. The installed image needs that certificate in Root and TrustedPublisher and a BCD loader entry with test signing enabled.
+Build the SD miniport with the `winarm` profile (the default) and package it with `winarm/nvtsdhc.inf`. [SD build script](../hdh001-lab/build-miniport.sh). Build the GPIO, I²C and touch packages with [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh). Sign the final SYS files, generate catalogs from the final INF/SYS pairs with MakeCat, and sign the catalogs with your development certificate. The installed image needs that certificate in Root and TrustedPublisher and a BCD loader entry with test signing enabled.
 
 On an offline ARM64 Windows image, install all four INF packages through DISM. Keep nvtsdhc, sdbus and sdstor as boot-start services. The SD INF selects ACPI NVDA0101, and the touch profile exposes SWOA0101, SWOA0201 and SWOA0502.
 

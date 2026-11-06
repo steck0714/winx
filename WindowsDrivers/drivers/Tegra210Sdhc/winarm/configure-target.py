@@ -32,7 +32,7 @@ def c_bytes(data, columns, separator):
     return ",\n        ".join(rows)
 
 
-def identity(image):
+def identity(image, expose_fat32=False):
     info = os.fstat(image.fileno())
     require(stat.S_ISREG(info.st_mode), "expected a saved regular image file")
     size = info.st_size
@@ -42,10 +42,6 @@ def identity(image):
     types = mbr[450:510:16]
     require(mbr[510:] == b"\x55\xaa" and types[-1] == 7 and 0xee in types[:3],
             "expected a hybrid MBR with the NTFS partition in slot 4")
-    require(types[0] in (0x0b, 0x0c), "expected FAT32 in MBR slot 1")
-    fat_start, fat_length = struct.unpack_from("<II", mbr, 446 + 8)
-    require(fat_start > 4 and fat_length > 0 and fat_start + fat_length <= size // SECTOR,
-            "invalid FAT32 extent")
     require(gpt[:8] == b"EFI PART", "missing primary GPT")
     header_size, check = struct.unpack_from("<II", gpt, 12)
     require(92 <= header_size <= SECTOR, "invalid GPT header length")
@@ -69,9 +65,14 @@ def identity(image):
             length == WINARM_SECTORS, "expected a dedicated 80 GiB partition addressable by SDXC")
     require(struct.unpack_from("<II", mbr, 494 + 8) == (start, length),
             "MBR and GPT disagree about the WINARM extent")
-    require(fat_start + fat_length <= start or fat_start > end,
-            "FAT32 and WINARM overlap")
-    fat_matches = 0
+    fat_defines = ""
+    if expose_fat32:
+        require(types[0] in (0x0b, 0x0c), "expected FAT32 in MBR slot 1")
+        fat_start, fat_length = struct.unpack_from("<II", mbr, 446 + 8)
+        require(first_usable <= fat_start and fat_length > 0 and
+                fat_start + fat_length - 1 <= last_usable, "invalid FAT32 extent")
+        require(fat_start + fat_length <= start or fat_start > end, "FAT32 and WINARM overlap")
+        fat_matches = 0
     for offset in range(0, 10 * stride, stride):
         other = entries[offset:offset + stride]
         if other[:16] == bytes(16):
@@ -79,13 +80,17 @@ def identity(image):
         lo, hi = struct.unpack_from("<QQ", other, 32)
         require(first_usable <= lo <= hi <= last_usable and (hi < start or lo > end),
                 "another GPT entry is invalid or overlaps WINARM")
+        if not expose_fat32:
+            continue
         if (lo, hi - lo + 1) == (fat_start, fat_length):
             require(other[:16] == BASIC_DATA, "the FAT32 GPT entry must be Microsoft Basic Data")
             fat_matches += 1
         else:
             require(hi < fat_start or lo >= fat_start + fat_length,
                     "another GPT entry overlaps FAT32")
-    require(fat_matches == 1, "MBR and GPT disagree about the FAT32 extent")
+    if expose_fat32:
+        require(fat_matches == 1, "MBR and GPT disagree about the FAT32 extent")
+        fat_defines = f"#define FAT32_FIRST {fat_start}u\n#define FAT32_COUNT {fat_length}u"
     for slot in range(3):
         if types[slot] in (0, 0xee):
             continue
@@ -101,7 +106,7 @@ def identity(image):
     require(serial != 0, "missing NTFS serial")
     return {
         "WINARM_FIRST": str(start), "WINARM_COUNT": str(length),
-        "FAT32_FIRST": str(fat_start), "FAT32_COUNT": str(fat_length),
+        "FAT32_EXTENT": fat_defines,
         "WINARM_SERIAL": f"0x{serial:016x}", "LITE_CARD_BYTES": str(size),
         "NTFS_SERIAL_HEX": f"{serial:016x}",
         "WINARM_MBR_SIGNATURE": f"0x{struct.unpack_from('<I', mbr, 440)[0]:08x}",
@@ -115,12 +120,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path, help="complete saved disk image")
     parser.add_argument("output", type=Path, help="new directory for both private build inputs")
+    parser.add_argument("--expose-fat32", action="store_true",
+                        help="also present FAT32 to Windows (experimental, can cause desktop lag)")
     args = parser.parse_args()
     templates = Path(__file__).resolve().parent
     try:
         require(args.image.is_file(), "pass a regular image file")
         with args.image.open("rb") as image:
-            fields = identity(image)
+            fields = identity(image, args.expose_fat32)
         require(not args.output.exists(), "choose a new output directory")
         with tempfile.TemporaryDirectory(dir=args.output.parent) as temp:
             ready = Path(temp) / "target"

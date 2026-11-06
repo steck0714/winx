@@ -14,7 +14,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | NTFS bounded writes and cold reads passed on Home. Trimmed Pro reproduced 0x7B with a two-volume miniport and one-volume BasicDisplay firmware. The trimmed Pro desktop booted with matching firmware and the owner confirmed FAT32 visibility. | Reliable read/write and cold boot within the selected 80 GiB target |
+| SD / boot | WINARM-only is the default. Bounded NTFS writes and cold reads passed. Both profiles booted on the same Lite. The owner reported a much smoother desktop after hiding FAT32. | Diagnose the UI lag in the optional dual-volume profile. Keep BL33 and the miniport on the same layout. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight | Owner confirmed that the deployed brightness buttons work; display off/on remains untested | Brightness adjustment and display off/on; fan PWM1 stays independent |
@@ -23,7 +23,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed on Home. The owner confirmed working Bluetooth on trimmed Pro with 1.0.0.13. | Discovery, pairing, data exchange and usable range |
 | USB | Switchroot on this Lite started XUSB 51.06 and registered both USB root hubs. The Windows image has USBXHCI, UCX and USBHUB3, but the current Lite firmware exposes neither host controller to Windows. | Device enumeration and keyboard/storage operation through the supported host path |
 | Built-in controls / motion | Opt-in UART-C ACPI profile and ARM64 SIO driver built; protocol fixtures pass | Verify buttons, both sticks and accelerometer on the Lite |
-| Wi-Fi | Physical UEFI scan returned six records. On trimmed Pro 0.5.2.0 enumerated WFI0, loaded the chip firmware and processed IRQ/ring completions. Station startup failed with C0200211. After the context fix, 0.5.3.0 started the Windows station and the owner saw nearby networks. A later report counted 70 scans and 10 joins rejected before key installation. 0.5.4.0 associated but WPA2 key exchange timed out. With 0.5.5.0 the owner confirmed Internet access using the saved WPA2 profile. | DHCP lease and default gateway confirmed. Verify sustained traffic across a group rekey |
+| Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display | Trimmed Pro reaches the desktop with BasicDisplay. The owner confirmed landscape. | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
 | Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |

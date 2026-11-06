@@ -34,16 +34,13 @@ with the development build. The default ADMA configuration was outside that test
 
 ## Restricted WINARM writes on HDH-001
 
-For the experimental WINARM build, set `NV_T210_LITE_WINARM_WRITE=1`. It shares the Lite PIO, clock and voltage setup, and restricts block writes to the configured 80 GiB NTFS partition and existing FAT32 data partition. This profile requires a per-card header. The generator reads a saved whole-card image and checks the MBR, primary GPT and NTFS layout. The tested layout uses hybrid MBR slot 4 and GPT slot 11. Keep the generated card identifiers local. Version 0.3.2.6 projects WINARM as the active first MBR entry and FAT32 as the second data entry, without writing the physical partition table. FAT32 writes require its matching extent and FAT32 boot-sector facts; WINARM retains its NTFS identity checks. Writes to partition tables, Linux, Android and emuMMC stay rejected.
+Build with `NV_T210_LITE_WINARM_WRITE=1`. The default card profile presents the 80 GiB NTFS partition `WINARM` as the sole, active MBR entry. Windows accepts block writes only inside that partition after checking its identity. Hekate still reads the physical FAT32 volume.
 
-Build the companion UEFI with the same generated header used for this
-miniport. The firmware boot manager and storage driver must agree on all
-512 bytes of the projected MBR. A one-entry firmware view and this two-entry
-driver had different MBR checksums on the card that reproduced stop 0x7B.
-UEFI reads both configured data ranges and presents WINARM as the first,
-active partition. The Windows miniport separately checks the relevant boot
-sector before admitting writes to each data volume.
-[Windows disk signature fields](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-_disk_signature).
+To also mount FAT32 in Windows, pass `--expose-fat32` to the generator. This experimental profile projects FAT32 as the second MBR entry and permits writes there only after validating its extent and boot sector. On the same Lite, showing FAT32 caused noticeable desktop lag. Hiding it made the interface much smoother. The cause still needs investigation.
+
+The generator reads a saved whole-card image and validates its hybrid MBR, primary GPT and NTFS boot sector. The tested layout places WINARM in MBR slot 4 and GPT slot 11. Both profiles protect the physical partition tables and other partitions from writes. Keep the generated identifiers private.
+
+Build BL33 and the SD miniport from **the same generated header**, and deploy them as a pair. Mixing a one-volume firmware with a two-volume miniport caused `INACCESSIBLE_BOOT_DEVICE` (0x7B). The card comparison used miniport 0.3.2.5 (WINARM only) and 0.3.2.6 (WINARM + FAT32). Source version 0.3.2.7 supports both profiles.
 
 From the repository root in PowerShell:
 
