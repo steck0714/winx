@@ -40,8 +40,8 @@ struct SWIFI_WIN_TRANSPORT {
     WDFINTERRUPT Interrupt;
     WDFDPC Dpc;
     KSPIN_LOCK DataLock;
-    /* Permanently mapped PCIe core register aperture, not a mutable BAR0
-     * backplane window. Must cover offsets 0x48, 0x4c, 0x140 and 0x144. */
+    /* BAR0 pinned to the PCIe core before enabling interrupts. No window
+     * changes until quiescence. Covers offsets 0x48, 0x4c, 0x140 and 0x144. */
     PUCHAR Registers;
     SWIFI_PCIE_RESOURCES *Bus;
     SWIFI_WIN_RING *H2d;

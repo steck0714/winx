@@ -19,25 +19,29 @@ root = Path(__file__).resolve().parents[1]
 args.out.mkdir(parents=True, exist_ok=True)
 sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c"]
 common = [args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror"]
-for name in ("data", "ring"):
+for name in ("data", "ring", "erom", "nvram"):
     test = args.out / f"test-msgbuf-{name}"
     subprocess.run(common + ["-g", "-O1", "-fsanitize=address,undefined",
         "-fno-sanitize-recover=all", *map(str, sources), str(root / f"tests/test_{name}.c"),
         "-o", str(test)], check=True)
     subprocess.run([str(test)], check=True)
 kmdf = args.kmdf_include or args.wdk_include.parent / "wdf/kmdf/1.33"
-kernel_flags = ["--target=aarch64-pc-windows-msvc", "-ffreestanding",
-    "-fno-builtin", "-fms-extensions", "-O2", "-D_ARM64_", "-D_WIN64",
-    "-D_KERNEL_MODE", "-DKMDF_VERSION_MAJOR=1", "-DKMDF_VERSION_MINOR=33",
-    "-DNTDDI_VERSION=0x0A00000C", "-D_WIN32_WINNT=0x0A00",
-    "-isystem", str(args.wdk_include / "km/crt"),
-    "-isystem", str(args.wdk_include / "km"),
-    "-isystem", str((args.sdk_include or args.wdk_include) / "shared"),
-    "-isystem", str(kmdf)]
+kernel_cc = Path(args.cc).with_name("clang-cl" + Path(args.cc).suffix)
+kernel_flags = [str(kernel_cc), "--target=aarch64-pc-windows-msvc", "/c",
+    "/kernel", "/GS-", "/Zl", "/O2", "/W4", "/WX",
+    "-Wno-unused-parameter", "-Wno-microsoft-anon-tag", "-Wno-ignored-pragma-intrinsic",
+    "-Wno-pragma-pack", "-Wno-invalid-token-paste", "-Wno-unknown-pragmas",
+    "-Wno-ignored-attributes", "-Wno-nonportable-include-path",
+    "/D_ARM64_", "/D_WIN64", "/D_KERNEL_MODE",
+    "/DKMDF_VERSION_MAJOR=1", "/DKMDF_VERSION_MINOR=33",
+    "/DNTDDI_VERSION=0x0A00000C", "/D_WIN32_WINNT=0x0A00",
+    f"/imsvc{args.wdk_include / 'km/crt'}", f"/imsvc{args.wdk_include / 'km'}",
+    f"/imsvc{(args.sdk_include or args.wdk_include) / 'shared'}", f"/imsvc{kmdf}"]
 objects = []
-for source in sources + [root / "windows/transport.c", root / "windows/resources.c"]:
+for source in sources + [root / "windows/transport.c", root / "windows/resources.c", root / "windows/chip.c"]:
     obj = args.out / (source.stem + ".obj")
-    subprocess.run(common + kernel_flags + ["-c", str(source), "-o", str(obj)], check=True)
+    # On macOS, an absolute /Users/... path otherwise looks like clang-cl /U.
+    subprocess.run(kernel_flags + [f"/Fo{obj}", "--", str(source)], check=True)
     if obj.read_bytes()[:2] != b"\x64\xaa":
         sys.exit(f"The cross-compiled object is not ARM64 COFF: {obj}")
     objects.append(obj)

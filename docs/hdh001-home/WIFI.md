@@ -267,3 +267,30 @@ source compiles with WDK/KMDF into the ARM64 transport library. These are local
 artifacts only, not deployed or physically accepted. Windows chip-firmware
 initialization, shared-buffer publication, WiFiCx registration, authentication
 and OS queues are still required before a network adapter can be installed.
+
+## Windows chip-firmware loader
+
+The Windows library now includes `windows/chip.c`: prepared-link and endpoint
+checks, BAR sizing/mapping with decoding and bus mastering disabled, AI core/TCM
+discovery, private firmware/NVRAM loading, bounded aligned TCM writes, CR4 startup
+and the v5 shared-area handshake. Bus mastering remains disabled until the
+runtime owner has published host DMA allocations. Stop after interrupt quiescence
+disables bus mastering, halts CR4 and holds D11 reset; failure requires platform
+endpoint reset before freeing DMA buffers.
+
+The EROM/NVRAM implementations were moved unchanged into the shared
+`WindowsDrivers/drivers/SwitchWifi/core` files. Existing UEFI header names now
+include those files. Native format fixtures pass, and both the automatic UEFI
+probe and runtime Home/preparation builds still compile. The Windows library
+build now uses `clang-cl /kernel`, matching the existing driver build convention.
+
+Runtime register access pins BAR0's backplane window to the PCIe core, following
+brcmfmac's `brcmf_pcie_select_core` sequence. No independent BAR0+0x2000 alias is
+assumed. The Windows loader refuses backplane-window changes while runtime access
+is pinned; only the quiesced stop path releases that constraint.
+
+Windows firmware startup is implemented but not yet hardware-tested. Device
+lifetime binding, shared-buffer/control-session setup and WiFiCx association/data
+integration still need completion before a SYS/INF can be installed. This update
+contains no firmware binary, calibration data or network credentials and has not
+been copied to the card.

@@ -27,7 +27,7 @@ periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
 These components are host-tested and compile to an ARM64 KMDF static library. There is
 currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-WiFiCx device registration and firmware/shared-ring setup,
+WiFiCx device registration, device lifetime binding and shared-ring setup,
 connection/key management and NetAdapterCx packet queues still need integration and hardware
 acceptance. Do not add an empty network device or mark this driver as deployed.
 
@@ -62,8 +62,8 @@ it does not create or disable the missing Wi-Fi driver.
 ## Windows transport integration
 
 The platform must supply a real DMA-capable WDF device, its translated interrupt
-resource, and a fixed PCIe-core register aperture. A mutable BAR0 backplane
-window cannot be shared with the ISR. Use the WDF DMA enabler and its logical
+resource, and BAR0 pinned to the PCIe core before interrupts start. No backplane
+window changes are allowed until interrupt quiescence. Use the WDF DMA enabler and its logical
 addresses rather than deriving device addresses from virtual/physical pointers.
 The experimental companion firmware establishes a direct AFI DMA domain before
 Windows (_CCA=0, no Tegra SMMU/IORT remapper in this profile). The Windows
@@ -124,6 +124,34 @@ causes. Unexpected AFI errors retain their reason/signature, mask the host and
 schedule recovery without further endpoint MMIO. MSI remains disabled. PME
 acknowledgment does not establish suspend/resume or wake support.
 
+## Windows chip and firmware initialization
+
+`windows/chip.c` maps/discovers the prepared BCM4356 endpoint, reads BAR sizes
+with memory decoding/bus mastering disabled, rejects overlapping/out-of-range
+BARs and identifies CR4/D11/PCIe cores from AI EROM. The EROM and NVRAM parsers
+now live once in `core/WifiErom.h` and `core/WifiNvram.h`; the companion UEFI
+includes those exact files through its existing header names. Their parser
+behavior and the accepted R6 firmware format are unchanged.
+
+The loader reads the privately supplied firmware and matching board file in a
+system worker at PASSIVE_LEVEL, honors the optional RAMS size, writes aligned
+TCM words and the NVRAM token, releases CR4 and waits up to five seconds for the
+shared-area handshake. It accepts shared protocol v5 and retains the negotiated
+RAM, RX and ring-info fields for the runtime session. Bus mastering remains
+disabled until the caller publishes synchronized host DMA allocations.
+
+At the end of startup the loader pins BAR0 to the PCIe core, as brcmfmac does;
+`SwifiChipRuntimeRegisters` returns that base. It does not assume that an unused
+BAR0+0x2000 constant provides an independent register alias. Backplane accesses
+are rejected while pinned. After interrupt quiescence, stop disables bus
+mastering, halts CR4 and holds D11 reset before permitting DMA teardown. If stop
+fails, the owner must reset the platform endpoint before freeing DMA memory.
+
+This code has compiled, but a Windows device entry point, shared-buffer/control
+session and WiFiCx interface have not yet been bound to it. Windows firmware
+startup has not been physically tested. Firmware binaries, board data and keys
+are not included in the repository or static library.
+
 ## Build and test
 
 With LLVM clang and extracted/installed WDK headers:
@@ -142,10 +170,13 @@ flow lifetime, ring-full rollback, table exhaustion, stale/wrong-ring replies,
 RX offset/length bounds and exactly-once cancellation after reset. Ring tests
 cover wrap/full boundaries, completion-prefix stripping, arrivals during a
 bounded drain and a device-side model exchanging packets with the packet core.
-They do not simulate KMDF or prove hardware interrupt/cache behavior.
+Shared EROM/NVRAM fixtures also cover extended/truncated descriptors, board-file
+packing and the RAMS aperture. They do not simulate KMDF or prove hardware
+interrupt/cache behavior.
 
-The script compiles the portable core, transport and resource mapping with WDK/KMDF
-1.33 headers, then archives `SwitchWifiTransport.lib` for ARM64. `--kmdf-include`
+The script uses `clang-cl /kernel` for the portable core, transport, resource
+mapping and chip loader with WDK/KMDF 1.33, then archives `SwitchWifiTransport.lib`
+for ARM64. `--kmdf-include`
 can specify separately extracted KMDF headers. This is not a linked, signed or
 installed SYS driver, and the new runtime transport is not hardware-accepted.
 The companion runtime Home firmware and WifiPrepare application also compile
