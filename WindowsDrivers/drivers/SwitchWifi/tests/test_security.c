@@ -4,8 +4,58 @@
 #include <stdio.h>
 #include <string.h>
 
+static void test_tx_across_key_write(void)
+{
+    swifi_eapol_tx tx = {0};
+    assert(swifi_eapol_idle(&tx));
+
+    /* A previous EAPOL is in the firmware and the next one is waiting for
+     * a flow ring. Both belong to the old key. Later packets stay queued. */
+    tx.pending = 1;
+    assert(swifi_eapol_admit(&tx, SWIFI_TX_EAPOL));
+    tx.changing = 1;
+    assert(!swifi_eapol_idle(&tx));
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_UNCLASSIFIED));
+    assert(tx.head == SWIFI_TX_EAPOL);
+    assert(swifi_eapol_admit(&tx, SWIFI_TX_EAPOL));
+    ++tx.pending;
+    tx.head = SWIFI_TX_DATA; /* NetAdapterCx advanced to a new packet. */
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_EAPOL));
+    --tx.pending;
+    assert(!swifi_eapol_idle(&tx));
+    --tx.pending;
+    assert(swifi_eapol_idle(&tx));
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_EAPOL)); /* Between drain and WSEC_KEY. */
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_DATA));
+    assert(swifi_eapol_idle(&tx));
+
+    tx.changing = 0;
+    assert(swifi_eapol_admit(&tx, SWIFI_TX_EAPOL));
+    tx.head = SWIFI_TX_DATA;
+
+    /* A full DMA pool left the previous head unclassified. When it proves
+     * to be ordinary data, hold it for the new key and release the wait. */
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_UNCLASSIFIED));
+    tx.changing = 1;
+    assert(!swifi_eapol_idle(&tx));
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_DATA));
+    assert(swifi_eapol_idle(&tx));
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_UNCLASSIFIED));
+    assert(swifi_eapol_idle(&tx));
+    tx.changing = 0;
+    assert(swifi_eapol_admit(&tx, SWIFI_TX_DATA));
+
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_UNCLASSIFIED));
+    tx.changing = 1;
+    assert(swifi_eapol_admit(&tx, SWIFI_TX_EAPOL));
+    tx.head = SWIFI_TX_DATA; /* The old head was cancelled before publication. */
+    assert(swifi_eapol_idle(&tx));
+    assert(!swifi_eapol_admit(&tx, SWIFI_TX_EAPOL));
+}
+
 int main(void)
 {
+    test_tx_across_key_write();
     const uint8_t ssid[] = {'t',0,'s'}, peer[] = {2,4,6,8,10,12};
     uint8_t beacon[96] = {0}, rsn[SWIFI_RSN_MAX], pmkid[16] = {0xfe}, wire[SWIFI_KEY_LEN];
     swifi_bss_profile profile;

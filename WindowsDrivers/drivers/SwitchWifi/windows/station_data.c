@@ -15,8 +15,10 @@ static swifi_result Submit(void *Context, uint16_t Ring, const uint8_t *Item, si
 
 static VOID UpdateEapolEvent(SWIFI_STATION_DATA *D)
 {
-    if (D->EapolPending || D->HeadEapol) KeClearEvent(&D->EapolIdle);
-    else KeSetEvent(&D->EapolIdle, IO_NO_INCREMENT, FALSE);
+    if (!D->Enabled || !D->Associated || swifi_eapol_idle(&D->KeyTx))
+        KeSetEvent(&D->EapolIdle, IO_NO_INCREMENT, FALSE);
+    else
+        KeClearEvent(&D->EapolIdle);
 }
 
 static BOOLEAN IsEapol(const UCHAR *Frame)
@@ -24,23 +26,45 @@ static BOOLEAN IsEapol(const UCHAR *Frame)
     return Frame[12] == 0x88 && Frame[13] == 0x8e;
 }
 
-NTSTATUS SwifiDataDrainEapol(SWIFI_DEVICE *Device)
+NTSTATUS SwifiDataBeginKeyUpdate(SWIFI_DEVICE *Device)
 {
+    SWIFI_STATION_DATA *D = &Device->Data;
+    KIRQL Irql;
     LARGE_INTEGER Timeout;
+    KeAcquireSpinLock(&Device->Hw.ProtocolLock, &Irql);
+    if (!D->Enabled || !D->Associated || !D->Secure) {
+        KeReleaseSpinLock(&Device->Hw.ProtocolLock, Irql);
+        return STATUS_DEVICE_NOT_READY;
+    }
+    /* Join serializes key batches. Fence new TX before sampling the drain
+     * event, and keep the fence until both the keys and peer state are live. */
+    D->KeyTx.changing = TRUE;
+    ++D->KeyEpoch;
+    UpdateEapolEvent(D);
+    KeReleaseSpinLock(&Device->Hw.ProtocolLock, Irql);
+
     Timeout.QuadPart = -10 * 1000 * 1000; /* One second, as in brcmfmac. */
-    NTSTATUS Status = KeWaitForSingleObject(&Device->Data.EapolIdle, Executive, KernelMode, FALSE, &Timeout);
-    return Status == STATUS_TIMEOUT ? STATUS_IO_TIMEOUT : Status;
+    NTSTATUS Status = KeWaitForSingleObject(&D->EapolIdle, Executive, KernelMode, FALSE, &Timeout);
+    if (Status != STATUS_SUCCESS) return Status == STATUS_TIMEOUT ? STATUS_IO_TIMEOUT : Status;
+    KeAcquireSpinLock(&Device->Hw.ProtocolLock, &Irql);
+    if (!D->Enabled || !D->Associated || !D->KeyTx.changing || !swifi_eapol_idle(&D->KeyTx))
+        Status = STATUS_DEVICE_NOT_READY;
+    KeReleaseSpinLock(&Device->Hw.ProtocolLock, Irql);
+    return Status;
 }
 
-VOID SwifiDataKeyUpdate(SWIFI_DEVICE *D, BOOLEAN Updating)
+VOID SwifiDataEndKeyUpdate(SWIFI_DEVICE *D)
 {
     KIRQL Irql;
     KeAcquireSpinLock(&D->Hw.ProtocolLock, &Irql);
-    if (Updating && !D->Data.UpdatingKeys) ++D->Data.KeyEpoch;
-    D->Data.UpdatingKeys = Updating;
+    if (!D->Data.KeyTx.changing) {
+        KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
+        return;
+    }
+    D->Data.KeyTx.changing = FALSE;
     ++D->Data.TxProgress;
     KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
-    if (!Updating) SwifiDataNotify(D);
+    SwifiDataNotify(D);
 }
 
 static VOID TxComplete(void *Context, const swifi_packet_completion *Completion)
@@ -50,7 +74,7 @@ static VOID TxComplete(void *Context, const swifi_packet_completion *Completion)
     if (Completion->reason != SWIFI_COMPLETED || Completion->tx_status) ++D->TxErrors;
     if (Slot->Record) Slot->Record->Done = TRUE;
     if (Slot->Eapol) {
-        --D->EapolPending;
+        --D->KeyTx.pending;
         Slot->Eapol = FALSE;
         UpdateEapolEvent(D);
     }
@@ -144,14 +168,14 @@ static VOID RxComplete(void *Context, const swifi_packet_completion *Completion)
              * a receive key is live we can accept verified clear native EAPOL,
              * but cannot label an ambiguous Ethernet EAPOL as clear. */
             BOOLEAN PreKey = swifi_prekey_ethernet(Slot->KeyEpoch, D->KeyEpoch,
-                Slot->KeyInFlight, D->Pairwise || D->Group || D->UpdatingKeys);
+                Slot->KeyInFlight, D->Pairwise || D->Group || D->KeyTx.changing);
             SwifiReportRx(Report, Native ? SwifiRxNativeClear :
                 (PreKey ? SwifiRxEtherBeforeKey : SwifiRxEtherUncertain));
             if ((!Native && !PreKey) ||
                 !swifi_clear_eapol_allowed(Rule, D->Pairwise, D->ExcludeUnencrypted)) { ++D->RxDrops; return; }
         } else {
             /* Secure join required wsec_restrict readback before submitting. */
-            if (D->UpdatingKeys || !D->Pairwise || (Group && !D->Group)) { ++D->RxDrops; return; }
+            if (D->KeyTx.changing || !D->Pairwise || (Group && !D->Group)) { ++D->RxDrops; return; }
             Slot->Protected = TRUE;
             Slot->AcceptedKeyEpoch = D->KeyEpoch;
         }
@@ -207,12 +231,12 @@ NTSTATUS SwifiDataBind(SWIFI_DEVICE *Device)
     RtlZeroMemory(D->Tx, sizeof(D->Tx));
     RtlZeroMemory(D->Rx, sizeof(D->Rx));
     RtlZeroMemory(D->FlowEpoch, sizeof(D->FlowEpoch));
-    D->FlowFault = D->HeadEapol = D->UpdatingKeys = FALSE;
-    D->EapolPending = 0;
+    D->FlowFault = FALSE;
+    RtlZeroMemory(&D->KeyTx, sizeof(D->KeyTx));
     D->MetadataSeen = D->RssiSeen = D->BadMetadataSeen = D->NativeProtectedSeen = FALSE;
     D->SampleValid = FALSE;
     D->NextLinkCheck = 0;
-    KeInitializeEvent(&D->EapolIdle, NotificationEvent, TRUE);
+    KeSetEvent(&D->EapolIdle, IO_NO_INCREMENT, FALSE);
     if (swifi_data_init(&D->Core, &Ops, D, D->Flows, Flows, D->TxIds, SwifiNumTx,
         D->RxIds, RxCount, (USHORT)H->Chip.RxDataOffset) == SWIFI_OK) {
         H->DataBound = TRUE;
@@ -273,7 +297,7 @@ static VOID Service(SWIFI_STATION_DATA *D)
         Slot->Epoch = D->Epoch;
         Slot->QueueEpoch = D->RxQueueEpoch;
         Slot->KeyEpoch = D->KeyEpoch;
-        Slot->KeyInFlight = D->Pairwise || D->Group || D->UpdatingKeys;
+        Slot->KeyInFlight = D->Pairwise || D->Group || D->KeyTx.changing;
         Slot->State = SwifiRxPosted;
     }
 }
@@ -281,7 +305,9 @@ static VOID Service(SWIFI_STATION_DATA *D)
 VOID SwifiDataReset(PVOID Context)
 {
     SWIFI_STATION_DATA *D = &((SWIFI_DEVICE *)Context)->Data;
-    D->Enabled = D->Joining = D->Associated = D->Pairwise = D->Group = D->HeadEapol = FALSE;
+    D->Enabled = D->Joining = D->Associated = D->Pairwise = D->Group = FALSE;
+    D->KeyTx.head = SWIFI_TX_DATA;
+    UpdateEapolEvent(D);
     D->SampleValid = FALSE;
     SwifiReportKeys(&((SWIFI_DEVICE *)Context)->Report, 0, 0, 0);
     swifi_data_stopped_after_reset(&D->Core);
@@ -294,6 +320,8 @@ VOID SwifiDataRequestStop(SWIFI_DEVICE *Device)
     KeAcquireSpinLock(&Device->Hw.ProtocolLock, &Irql);
     Device->Data.Enabled = Device->Data.Joining = Device->Data.Associated = FALSE;
     Device->Data.Pairwise = Device->Data.Group = FALSE;
+    Device->Data.KeyTx.head = SWIFI_TX_DATA;
+    UpdateEapolEvent(&Device->Data);
     ++Device->Data.Epoch;
     ++Device->Data.TxProgress;
     KeReleaseSpinLock(&Device->Hw.ProtocolLock, Irql);
@@ -330,6 +358,7 @@ VOID SwifiDataLink(SWIFI_DEVICE *Device, const UCHAR *Peer, BOOLEAN Secure, BOOL
         return;
     }
     if ((!D->Associated && !D->Joining) || !Peer || !RtlEqualMemory(Peer, D->Peer, 6)) {
+        D->KeyTx.head = SWIFI_TX_DATA;
         ++D->Epoch;
         D->SampleValid = FALSE;
         D->NextLinkCheck = 0;
@@ -338,6 +367,7 @@ VOID SwifiDataLink(SWIFI_DEVICE *Device, const UCHAR *Peer, BOOLEAN Secure, BOOL
     }
     D->Joining = FALSE;
     D->Associated = Peer != NULL;
+    UpdateEapolEvent(D);
     D->Secure = Peer && Secure;
     D->Pairwise = Peer && Pairwise;
     D->Group = Peer && Group;
@@ -418,25 +448,27 @@ static swifi_result Transmit(SWIFI_QUEUE *Q, NET_PACKET *Packet, SWIFI_TX_RECORD
     SWIFI_STATION_DATA *D = Q->Data;
     UCHAR Priority;
     if (!CanSubmit(D) || !D->Associated) return SWIFI_STOPPED;
+    if (D->KeyTx.changing && D->KeyTx.head == SWIFI_TX_DATA) return SWIFI_RETRY;
     USHORT I;
     for (I = 0; I < SwifiNumTx && D->Tx[I].Owned; ++I) { }
-    if (I == SwifiNumTx) return SWIFI_RETRY;
+    if (I == SwifiNumTx) {
+        (VOID)swifi_eapol_admit(&D->KeyTx, SWIFI_TX_UNCLASSIFIED);
+        return SWIFI_RETRY;
+    }
     SIZE_T Offset = (SIZE_T)I * SWIFI_PACKET_SIZE;
     PUCHAR Buffer = D->TxMemory.Memory + Offset;
     SIZE_T Length = Gather(Q, Packet, Buffer);
     Length = swifi_station_tx(Buffer, Length, D->Address, D->Peer,
         Buffer, SWIFI_PACKET_SIZE, &Priority);
     if (!Length) return SWIFI_INVALID;
-    D->HeadEapol = IsEapol(Buffer);
-    if (D->Secure && !D->HeadEapol) {
-        if (D->UpdatingKeys) return SWIFI_RETRY;
-        if (!D->Pairwise) return SWIFI_INVALID;
-    }
+    BOOLEAN Eapol = IsEapol(Buffer);
+    if (!swifi_eapol_admit(&D->KeyTx, Eapol ? SWIFI_TX_EAPOL : SWIFI_TX_DATA)) return SWIFI_RETRY;
+    if (D->Secure && !Eapol && !D->Pairwise) return SWIFI_INVALID;
     UCHAR Action = Q->TxExemption.Enabled ?
         WifiExtensionGetExemptionAction(&Q->TxExemption, Q->Packets->NextIndex)->ExemptionAction :
-        (D->HeadEapol ? WDI_EXEMPT_ON_KEY_MAPPING_KEY_UNAVAILABLE : WDI_EXEMPT_NO_EXEMPTION);
+        (Eapol ? WDI_EXEMPT_ON_KEY_MAPPING_KEY_UNAVAILABLE : WDI_EXEMPT_NO_EXEMPTION);
     if (Action > WDI_EXEMPT_ON_KEY_MAPPING_KEY_UNAVAILABLE ||
-        (D->Secure && !D->HeadEapol && Action == WDI_EXEMPT_ALWAYS) ||
+        (D->Secure && !Eapol && Action == WDI_EXEMPT_ALWAYS) ||
         (D->Secure && !D->Pairwise && Action == WDI_EXEMPT_NO_EXEMPTION)) return SWIFI_INVALID;
     if (D->Core.flow_count == 1) Priority = 0;
     UCHAR Fifo = swifi_priority_fifo(Priority);
@@ -456,8 +488,8 @@ static swifi_result Transmit(SWIFI_QUEUE *Q, NET_PACKET *Packet, SWIFI_TX_RECORD
         (USHORT)(Length - SWIFI_ETH_HEADER_SIZE), &D->Tx[I]);
     if (R == SWIFI_OK) {
         D->Tx[I].Owned = TRUE;
-        D->Tx[I].Eapol = D->HeadEapol;
-        if (D->HeadEapol) ++D->EapolPending;
+        D->Tx[I].Eapol = Eapol;
+        if (Eapol) ++D->KeyTx.pending;
         D->Tx[I].Record = Record;
     } else if (R == SWIFI_RETRY) Q->WaitRing = Ring;
     return R;
@@ -475,11 +507,11 @@ static VOID AdvanceTx(SWIFI_QUEUE *Q)
         if (!Packet->Ignore) {
             swifi_result Result = Transmit(Q, Packet, R);
             if (Result == SWIFI_RETRY) break;
-            Q->Data->HeadEapol = FALSE;
             R->Done = Result != SWIFI_OK;
             if (R->Done) ++Q->Data->TxErrors;
             Fragments->NextIndex = NetRingAdvanceIndex(Fragments, Packet->FragmentIndex, Packet->FragmentCount);
         }
+        Q->Data->KeyTx.head = SWIFI_TX_DATA; /* Includes an ignored or cancelled head. */
         R->FragmentEnd = Fragments->NextIndex;
         Packets->NextIndex = NetRingIncrementIndex(Packets, Index);
     }
@@ -502,7 +534,7 @@ static VOID AdvanceRx(SWIFI_QUEUE *Q)
         SWIFI_RX_BUFFER *Slot = CONTAINING_RECORD(RemoveHeadList(&D->ReadyRx), SWIFI_RX_BUFFER, Link);
         Slot->State = SwifiRxFree;
         if (Slot->DerivedClear && !swifi_prekey_ethernet(Slot->KeyEpoch, D->KeyEpoch,
-            Slot->KeyInFlight, D->Pairwise || D->Group || D->UpdatingKeys)) {
+            Slot->KeyInFlight, D->Pairwise || D->Group || D->KeyTx.changing)) {
             ++D->RxDrops;
             continue;
         }
@@ -513,7 +545,7 @@ static VOID AdvanceRx(SWIFI_QUEUE *Q)
         SWIFI_DEVICE *Owner = CONTAINING_RECORD(D, SWIFI_DEVICE, Data);
         BOOLEAN Group = (Frame[0] & 1) != 0;
         if (!swifi_filter_accepts(&Owner->Filter, D->Address, Frame) ||
-            (Slot->Protected && (D->UpdatingKeys || !D->Pairwise || (Group && !D->Group) ||
+            (Slot->Protected && (D->KeyTx.changing || !D->Pairwise || (Group && !D->Group) ||
                 Slot->AcceptedKeyEpoch != D->KeyEpoch)) ||
             (D->Secure && IsEapol(Frame) && !swifi_clear_eapol_allowed(
                 D->EapolExemption[Group], D->Pairwise, D->ExcludeUnencrypted))) {
@@ -596,7 +628,7 @@ static VOID QueueCancel(NETPACKETQUEUE Handle)
     if (Q->IsTx) {
         /* Only private common buffers remain device-owned. */
         for (ULONG I = 0; I < SwifiNumTx; ++I) D->Tx[I].Record = NULL;
-        D->HeadEapol = FALSE;
+        D->KeyTx.head = SWIFI_TX_DATA;
         UpdateEapolEvent(D);
     } else {
         ++D->RxQueueEpoch;
@@ -616,8 +648,11 @@ static VOID QueueStop(NETPACKETQUEUE Handle)
     KIRQL Irql;
     KeAcquireSpinLock(&D->Hardware->ProtocolLock, &Irql);
     Q->Armed = FALSE;
-    if (Q->IsTx) D->TxQueue = NULL;
-    else D->RxQueue = NULL;
+    if (Q->IsTx) {
+        D->TxQueue = NULL;
+        D->KeyTx.head = SWIFI_TX_DATA;
+        UpdateEapolEvent(D);
+    } else D->RxQueue = NULL;
     KeReleaseSpinLock(&D->Hardware->ProtocolLock, Irql);
     ExWaitForRundownProtectionRelease(&Q->Notifications);
     ExReInitializeRundownProtection(&Q->Notifications);

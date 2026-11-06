@@ -373,9 +373,13 @@ the firmware disconnect event and an empty BSSID before reusing an aborted
 attempt. A missing fence triggers device recovery.
 
 `windows/station_keys.c` validates each key batch before programming the
-Broadcom `wsec_key` layout. It waits for submitted EAPOL frames, preserves
-firmware packet counters on an idempotent reinstall, and removes keys on
-disconnect. An ambiguous partial key change ends the session. RX requires
+Broadcom `wsec_key` layout. Version 0.5.2 holds new transmissions from
+the moment a key change starts until key programming and peer authorization
+finish. An EAPOL already submitted or already at the head of the TX queue can
+finish under the old key. If the pool was full when the head arrived, its
+EtherType is checked when a buffer becomes available. Stop and queue
+cancellation wake the waiter. The driver preserves firmware packet counters on
+an idempotent reinstall and removes keys on disconnect. An ambiguous partial key change ends the session. RX requires
 firmware cleartext rejection for secured data. Once a receive key is active,
 an Ethernet-format EAPOL completion can lack the original 802.11 Protected
 bit. The driver drops that ambiguous frame. A verified clear native EAPOL
@@ -500,7 +504,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.5.1.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.5.2.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the

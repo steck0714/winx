@@ -74,9 +74,12 @@ static NTSTATUS Apply(SWIFI_STATION_KEYS *Keys, SWIFI_DEVICE *D, const UCHAR Pee
             if (RtlEqualMemory(C->Key, Changes[J].Key, 16)) return STATUS_INVALID_PARAMETER;
         if (Slot->Present && Slot->Id != C->Id) return STATUS_NOT_SUPPORTED;
     }
-    NTSTATUS Status = SwifiDataDrainEapol(D);
+    ULONG First = 0;
+    while (First < Count && Changes[First].Skip) ++First;
+    if (First == Count) return STATUS_SUCCESS;
+    NTSTATUS Status = SwifiDataBeginKeyUpdate(D);
     if (!NT_SUCCESS(Status)) return Status;
-    for (ULONG I = 0; I < Count; ++I) {
+    for (ULONG I = First; I < Count; ++I) {
         KEY_CHANGE *C = &Changes[I];
         if (C->Skip) continue;
         Status = SwifiJoinKey(&D->Hw.Control, C->Id, C->Slot == 4 ? Peer : NULL, C->Key, C->Pn);

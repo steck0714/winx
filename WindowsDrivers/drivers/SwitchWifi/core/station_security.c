@@ -165,6 +165,24 @@ int swifi_clear_eapol_allowed(unsigned rule, int pairwise, int exclude_unencrypt
     return rule == 0 && !exclude_unencrypted;
 }
 
+int swifi_eapol_admit(swifi_eapol_tx *tx, swifi_tx_kind kind)
+{
+    /* Once changing is set, only the head seen before the key request may
+     * still contribute an EAPOL to the old key. No later head can enter. */
+    if (tx->changing && tx->head == SWIFI_TX_DATA) return 0;
+    if (kind == SWIFI_TX_UNCLASSIFIED) {
+        if (tx->head == SWIFI_TX_DATA) tx->head = kind;
+        return 0;
+    }
+    tx->head = kind;
+    return !tx->changing || kind == SWIFI_TX_EAPOL;
+}
+
+int swifi_eapol_idle(const swifi_eapol_tx *tx)
+{
+    return tx->pending == 0 && tx->head == SWIFI_TX_DATA;
+}
+
 int swifi_keep_key_on_retry(int same_slot, int present,
     const uint8_t requested_pn[6], const uint8_t initial_pn[6])
 {

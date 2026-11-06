@@ -765,7 +765,6 @@ static NTSTATUS ChangeKeys(SWIFI_JOIN *J, UINT16 Id, WDI_MESSAGE_HEADER *H, ULON
         return STATUS_INVALID_DEVICE_STATE;
     BOOLEAN Uncertain;
     BOOLEAN OldPair = J->Keys.Slot[4].Present;
-    SwifiDataKeyUpdate(J->Owner, TRUE);
     NTSTATUS Status = SwifiKeysChange(&J->Keys, J->Owner, J->Active->Peer, &J->Tlv,
         H, Bytes, Id == WDI_SET_ADD_CIPHER_KEYS, &Uncertain);
     if (NT_SUCCESS(Status) && OldPair != J->Keys.Slot[4].Present) {
@@ -781,7 +780,7 @@ static NTSTATUS ChangeKeys(SWIFI_JOIN *J, UINT16 Id, WDI_MESSAGE_HEADER *H, ULON
         /* A failed batch may have changed dongle key state. Reset before accepting another peer. */
         Poison(J, Status);
     }
-    SwifiDataKeyUpdate(J->Owner, FALSE);
+    SwifiDataEndKeyUpdate(J->Owner);
     return Status;
 }
 

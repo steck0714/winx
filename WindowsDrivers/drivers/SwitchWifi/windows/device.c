@@ -106,6 +106,7 @@ static NTSTATUS DeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
     if (!NT_SUCCESS(Status)) return Status;
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     D->Data.Hardware = &D->Hw;
+    KeInitializeEvent(&D->Data.EapolIdle, NotificationEvent, TRUE);
     SwifiReportOpen(Device, &D->Report);
     Status = SwifiFilterCreate(Device, D);
     if (NT_SUCCESS(Status)) Status = SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D, &D->Report);

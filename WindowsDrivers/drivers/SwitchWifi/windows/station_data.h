@@ -6,6 +6,7 @@
 #include "report.h"
 #include "../core/rx_metadata.h"
 #include "../core/receive_filter.h"
+#include "../core/station_security.h"
 #include <net/virtualaddress.h>
 
 enum { SwifiNumTx = 24, SwifiNumRx = 32, SwifiNumFifo = 4 };
@@ -43,9 +44,9 @@ typedef struct SWIFI_STATION_DATA {
     USHORT Sequence;
     UCHAR Address[6], Peer[6];
     BOOLEAN Enabled, Joining, Associated, Secure, Pairwise, Group, FlowFault;
-    BOOLEAN HeadEapol, ExcludeUnencrypted, UpdatingKeys;
+    BOOLEAN ExcludeUnencrypted;
     UCHAR EapolExemption[2]; /* unicast, multicast */
-    ULONG EapolPending;
+    swifi_eapol_tx KeyTx;
     KEVENT EapolIdle;
     ULONG Epoch, RxQueueEpoch, KeyEpoch, TxProgress;
     BOOLEAN MetadataSeen, RssiSeen, BadMetadataSeen, NativeProtectedSeen;
@@ -102,8 +103,8 @@ VOID SwifiDataRelease(PVOID Context);
  * A null peer disconnects. A key update for the same peer keeps its flows. */
 VOID SwifiDataBeginJoin(SWIFI_DEVICE *Device, const UCHAR Peer[6], BOOLEAN Secure, BOOLEAN ExcludeUnencrypted);
 VOID SwifiDataLink(SWIFI_DEVICE *Device, const UCHAR *Peer, BOOLEAN Secure, BOOLEAN Pairwise, BOOLEAN Group);
-VOID SwifiDataKeyUpdate(SWIFI_DEVICE *Device, BOOLEAN Updating);
-NTSTATUS SwifiDataDrainEapol(SWIFI_DEVICE *Device);
+NTSTATUS SwifiDataBeginKeyUpdate(SWIFI_DEVICE *Device);
+VOID SwifiDataEndKeyUpdate(SWIFI_DEVICE *Device);
 VOID SwifiDataRequestStop(SWIFI_DEVICE *Device);
 VOID SwifiPnpFailure(PVOID Context, NTSTATUS Reason);
 

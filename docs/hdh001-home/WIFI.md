@@ -10,7 +10,10 @@ SET_SSID success, failure or disconnect could therefore never reach the
 Windows association handler. A control-ring fixture exercises the corrected
 dispatch. The same Home firmware and external preparation EFI are used with
 this driver. Windows scanning, association and IP traffic still need a
-physical HDH-001 run.
+physical HDH-001 run. Version 0.5.2 also holds new TX across the EAPOL
+drain, firmware key write and authorization of the peer. Its local opt-in
+runtime uses the same two-volume SD target as the deployed BasicDisplay boot
+repair. The Wi-Fi runtime awaits a separate physical test.
 
 ## Verified source facts
 

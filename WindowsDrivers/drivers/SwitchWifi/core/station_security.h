@@ -36,6 +36,19 @@ int swifi_clear_eapol_allowed(unsigned rule, int pairwise, int exclude_unencrypt
 int swifi_keep_key_on_retry(int same_slot, int present,
     const uint8_t requested_pn[6], const uint8_t initial_pn[6]);
 
+/* Held under the station protocol lock. The queue retains its current head
+ * until it is consumed or cancelled. A full TX pool can defer classification. */
+typedef enum swifi_tx_kind {
+    SWIFI_TX_DATA, SWIFI_TX_UNCLASSIFIED, SWIFI_TX_EAPOL
+} swifi_tx_kind;
+typedef struct swifi_eapol_tx {
+    unsigned pending;
+    swifi_tx_kind head;
+    int changing;
+} swifi_eapol_tx;
+int swifi_eapol_admit(swifi_eapol_tx *tx, swifi_tx_kind kind);
+int swifi_eapol_idle(const swifi_eapol_tx *tx);
+
 /* Validate frame-body IE lengths before translating firmware association
  * reports or including a candidate frame in a WDI indication. */
 int swifi_valid_ies(const uint8_t *ies, size_t length);
