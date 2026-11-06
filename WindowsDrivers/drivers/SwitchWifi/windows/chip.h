@@ -49,7 +49,9 @@ NTSTATUS SwifiChipMapAndDiscover(SWIFI_CHIP *Chip, SWIFI_PCIE_RESOURCES *Bus);
 
 /* Paths must be kernel DOS paths, e.g.
  * \SystemRoot\System32\drivers\SwitchWOA\brcmfmac4356A3-pcie.bin
- * and its matching .txt board file. Firmware/NVRAM are supplied privately. */
+ * and its matching .txt board file. Firmware/NVRAM are supplied privately.
+ * A successfully stopped, still-powered endpoint can be reloaded through the
+ * retained BAR mappings; a platform/PERST reset requires fresh preparation. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiChipLoadFirmware(SWIFI_CHIP *Chip, PCWSTR FirmwarePath, PCWSTR NvramPath);
 

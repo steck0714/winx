@@ -96,6 +96,8 @@ The correction is built and deployed. The next physical trace reached CPU 1996.8
 
 ## Display rollback
 
+The owner retried the WinX display profile together with the two-volume SD driver (0.3.2.6). Windows showed a blue screen after the boot spinner. The trimmed image had crash dumps and bugcheck logging disabled. No stop code was recovered. To isolate the display path, only BL33 was switched back to the BasicDisplay profile. The SD driver and Bluetooth retry were retained. The physical boot result is pending.
+
 The WinX/Microsoft KMDOD experiment supplies software framebuffer blits and rotation, not GPU rendering acceleration. Its ARM64 VM rotation check passed, but the first Lite media boot went black at display-device restart. The owner subsequently chose to drop the extra CPU rotation work and cancelled the proposed physical PE trial.
 
 The active Home build omits `SWITCH_LITE_DISPLAY`. The targeted recovery removes `winxdisplay` and the `LiteLandscape` Run value/application from Windows. The normal installer no longer stages either component. The upstream display sources remain in their existing directory for reference; they are not part of the current Lite update. Home uses its previous native framebuffer orientation and Microsoft Basic Display. BCD, completed setup state, and the single Hekate entry were preserved and checked after the rollback; no PE trial is scheduled. The combined card update was safely ejected.

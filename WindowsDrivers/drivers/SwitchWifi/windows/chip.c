@@ -324,7 +324,8 @@ NTSTATUS SwifiChipLoadFirmware(SWIFI_CHIP *C, PCWSTR FirmwarePath, PCWSTR NvramP
     ULONG FirmwareLength, NvramLength, ResetVector, Marker, Pointer, Attempt;
     uint32_t RamSize, PackedLength;
     NTSTATUS Status;
-    if (!C->Bar0 || !C->Bar2 || C->Stage != SwifiChipDiscovered || C->RuntimePinned)
+    if (!C->Bar0 || !C->Bar2 ||
+        (C->Stage != SwifiChipDiscovered && C->Stage != SwifiChipStopped) || C->RuntimePinned)
         return STATUS_INVALID_DEVICE_STATE;
     Status = ReadImage(FirmwarePath, C->RamCapacity, &Firmware, &FirmwareLength);
     if (!NT_SUCCESS(Status))

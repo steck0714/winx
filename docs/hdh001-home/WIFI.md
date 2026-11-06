@@ -331,3 +331,5 @@ the passive firmware execution API must not be called directly from a
 DISPATCH_LEVEL WiFiCx SendCommand callback. Windows networking and power-exit
 behavior remain unverified. The [driver integration contract](../../WindowsDrivers/drivers/SwitchWifi/README.md#windows-command-execution-and-event-workers)
 lists the required create/bind/start/stop ordering.
+
+The Windows [device lifecycle and firmware queries](../../WindowsDrivers/drivers/SwitchWifi/README.md#device-startup-power-and-radio-capabilities) now build into the ARM64 transport library. PrepareHardware maps the controller, a system worker prepares the chip, and interrupt-enabled D0 startup obtains the station address, radio state and firmware-regulated channels. Physical Windows interrupt delivery, WiFiCx adapter registration, association and packet delivery remain pending.

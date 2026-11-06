@@ -244,6 +244,24 @@ request. The recovery callback only queues owner work and must not reset or
 flush workers inline. The kernel worker/lifecycle code is cross-compiled and
 not yet hardware-tested. It does not establish Windows shutdown or resume.
 
+## Device startup, power and radio capabilities
+
+`windows/lifecycle.c` maps the ACPI resources in PrepareHardware. A system
+worker loads the board files and publishes the shared rings before the callback
+creates the KMDF interrupt. D0 entry enables DMA. Once interrupts are armed,
+`windows/firmware.c` queries the station MAC, firmware version, radio state,
+allowed channels, bandwidth and stream counts. The channel list comes from
+firmware for the current regulatory configuration. A transport timeout aborts
+startup. Only explicit firmware replies indicating a missing or unsupported
+optional query permit a capability fallback.
+
+On exit the owner cancels commands, joins interrupt and passive work, then
+halts the endpoint before releasing DMA buffers. If the normal stop fails,
+the board fallback holds the Wi-Fi port in reset and checks for link-down.
+A successful fallback requires a fresh firmware boot for the next session.
+These components cross-compile for ARM64. WDF callback registration, WiFiCx
+capability publication, association and packet queues still need integration.
+
 ## Build and test
 
 With LLVM clang and extracted/installed WDK headers:
@@ -272,8 +290,8 @@ packing and the RAMS aperture. They do not simulate KMDF or prove hardware
 interrupt/cache behavior.
 
 The script uses `clang-cl /kernel` for the portable core, transport, resource
-mapping, chip loader, shared session and command workers with WDK/KMDF 1.33,
-then archives
+mapping, chip loader, shared session, command workers, hardware lifecycle and
+firmware queries with WDK/KMDF 1.33, then archives
 `SwitchWifiTransport.lib` for ARM64. `--kmdf-include`
 can specify separately extracted KMDF headers. This is not a linked, signed or
 installed SYS driver, and the new runtime transport is not hardware-accepted.

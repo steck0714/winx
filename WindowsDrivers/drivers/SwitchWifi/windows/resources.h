@@ -42,4 +42,11 @@ NTSTATUS SwifiMapBar(SWIFI_PCIE_RESOURCES *Bus, ULONG Address, ULONG Length,
 ULONG SwifiAfiAcknowledge(SWIFI_PCIE_RESOURCES *Bus, ULONG *Signature);
 VOID SwifiAfiInterruptMask(SWIFI_PCIE_RESOURCES *Bus, BOOLEAN Enable);
 
+/* Stop fallback after quiescing IRQs/callers: assert the Wi-Fi port's PERST
+ * and confirm link-down before freeing DMA. Does not touch GPIO, Bluetooth,
+ * shared supplies or UPHY. A successful hold needs cold firmware preparation
+ * before reuse because the endpoint BAR configuration has been reset. */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS SwifiHoldEndpointReset(SWIFI_PCIE_RESOURCES *Bus);
+
 #endif

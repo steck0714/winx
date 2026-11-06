@@ -148,3 +148,37 @@ VOID SwifiAfiInterruptMask(SWIFI_PCIE_RESOURCES *Bus, BOOLEAN Enable)
     WRITE_REGISTER_ULONG((PULONG)(Afi + 0xb4), Enable ? 1 : 0); /* MSI remains off. */
     (VOID)READ_REGISTER_ULONG((PULONG)(Afi + 0xb4));
 }
+
+NTSTATUS SwifiHoldEndpointReset(SWIFI_PCIE_RESOURCES *Bus)
+{
+    PULONG Control, Link;
+    ULONG Value, Attempt;
+    LARGE_INTEGER Delay;
+    if (!Bus->Host)
+        return STATUS_INVALID_DEVICE_STATE;
+    Control = (PULONG)(Bus->Host + SWIFI_AFI_OFFSET + 0x118);
+    Link = (PULONG)(Bus->Host + SWIFI_ROOT_OFFSET + 0x90);
+    SwifiAfiInterruptMask(Bus, FALSE);
+    Value = READ_REGISTER_ULONG(Control);
+    if (Value == MAXULONG)
+        return STATUS_DEVICE_DOES_NOT_EXIST;
+    /* AFI_PEX1_CTRL.RST is active-low, as in tegra_pcie_port_reset. */
+    WRITE_REGISTER_ULONG(Control, Value & ~1u);
+    Value = READ_REGISTER_ULONG(Control);
+    if (Value == MAXULONG || (Value & 1u))
+        return STATUS_DEVICE_PROTOCOL_ERROR;
+    Delay.QuadPart = -20 * 10000;
+    KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    Delay.QuadPart = -2 * 10000;
+    for (Attempt = 0; Attempt < 50; ++Attempt) {
+        Value = READ_REGISTER_ULONG(Link);
+        if (Value == MAXULONG)
+            return STATUS_DEVICE_DOES_NOT_EXIST;
+        if (!(Value & 0x20000000u)) {
+            KeMemoryBarrier();
+            return STATUS_SUCCESS;
+        }
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+    return STATUS_IO_TIMEOUT;
+}
