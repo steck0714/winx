@@ -9,6 +9,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/I2cLib.h>
 #include <Tegra214Performance.h>
+#include "EmcPolicy.h"
 
 #define ENV_ADDRESS 0xA9FC0000UL
 #define ENV_SIZE    0x40000U
@@ -17,7 +18,6 @@
 #define ATOMICS_RESULT0 0x70016C00UL
 #define BPMP_IRQ   0x60004018UL
 #define MRQ_CLK    22U
-#define MRQ_EMC_DVFS_TABLE 32U
 
 STATIC UINTN mChannel;
 STATIC INT32 mLastBpmp;
@@ -92,12 +92,10 @@ EFI_STATUS EFIAPI
 LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
 {
   LITE_PERFORMANCE *Config = (LITE_PERFORMANCE *)LITE_PERF_ADDRESS;
-  struct { UINT32 Count; struct { UINT32 Khz, Mv; } Pair[14]; } Timings;
   struct { UINT32 Command, Unused; UINT64 Rate; } SetRate;
   UINT8 Info[113], CoreReg, Register, Probe31, Probe33;
   UINT32 Request, RequiredMv = 0;
-  UINT64 Rate = 0;
-  UINTN Index;
+  UINT64 Rate = 0, RoundedRate = 0;
   EFI_STATUS Status;
 
   if ((MmioRead32 (0x70000804) & 0xFFF0) != 0x2120) return EFI_UNSUPPORTED;
@@ -142,23 +140,27 @@ LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
   Config->RamActualKhz = (UINT32)(Rate / 1000);
 
   Config->Status = LitePerfNoTiming;
-  if (EFI_ERROR (Bpmp (MRQ_EMC_DVFS_TABLE, NULL, 0, &Timings, sizeof (Timings))) || Timings.Count > 14) goto Done;
-  for (Index = 0; Index < Timings.Count; ++Index)
-    if (Timings.Pair[Index].Khz == Config->RamKhz) RequiredMv = Timings.Pair[Index].Mv;
+  // Linux asks BPMP to resolve a supported clock rate. Hekate/BPMP own the
+  // trained timings; a voltage-frequency band is not an exact timing entry.
+  SetRate.Command = 3U << 24; // CLK_ROUND_RATE, ID 0
+  SetRate.Unused = 0;
+  SetRate.Rate = (UINT64)Config->RamKhz * 1000;
+  if (EFI_ERROR (Bpmp (MRQ_CLK, &SetRate, sizeof (SetRate), &RoundedRate, sizeof (RoundedRate)))) goto Done;
+  RequiredMv = LiteEmcRequiredMv (Config->RamKhz, RoundedRate);
   if (RequiredMv == 0) goto Done;
 
   Config->Status = LitePerfCoreVoltage;
   Register = 0x16;
   if (!i2c_xfer_packet (I2C_5, 0x3C, &Register, 1, &CoreReg, 1)) goto Done;
   Config->CoreMv = 600 + (CoreReg & 0x3F) * 125 / 10;
-  // Hekate leaves Mariko VDD_CORE at 1050 mV. Do not invent a different rail setting.
+  // Use the existing VDD_CORE voltage. This does not alter DRAM VDD2/VDDQ.
   if (Config->CoreMv < RequiredMv) goto Done;
 
   Config->Status = LitePerfClockError;
-  if (Config->RamActualKhz != Config->RamKhz) {
+  if (Rate != RoundedRate) {
     SetRate.Command = 2U << 24; // CLK_SET_RATE, ID 0
     SetRate.Unused = 0;
-    SetRate.Rate = (UINT64)Config->RamKhz * 1000;
+    SetRate.Rate = RoundedRate;
     if (EFI_ERROR (Bpmp (MRQ_CLK, &SetRate, sizeof (SetRate), &Rate, sizeof (Rate)))) goto Done;
   }
   if (EFI_ERROR (ReadRate (&Rate))) goto Done;

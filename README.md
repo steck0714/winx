@@ -1,12 +1,12 @@
 # WinX · Switch Lite Windows ARM64
 
-This branch integrates Windows 11 ARM64 Home boot, bounded microSD writes, GPIO, I²C3, and FTM4 touch for HDH-001. The Hekate entry is **Lite Windows 11 Home**. A physical Lite has booted Home 23H2 (22631.2861) and accepted setup touch input; its saved SYSTEM hive records completed setup flags.
+This branch integrates Windows 11 ARM64 Home boot, bounded microSD writes, GPIO, I²C3, and FTM4 touch for HDH-001. The Hekate entry is **Lite Windows 11 Home**. A physical Lite has booted Home 23H2 (22631.2861) and accepted setup touch input; its saved SYSTEM hive records completed setup flags. The BasicDisplay rollback subsequently reached the desktop.
 
 The first media run went black during display-device restart. The owner chose to withdraw CPU-rendered display rotation. The current Home profile uses Microsoft Basic Display and the original orientation; WinX display and the automatic landscape helper are removed from the Home update. The proposed PE display trial was cancelled. BasicDisplay still provides no GPU rendering acceleration.
 
-The physical fan trace recorded CPU 1996.8 MHz, requested PWM duty 51, 34 C, and no sensor failures. EMC reported no matching 2100 MHz timing and a 204 MHz readback, so the RAM target is not achieved. Audio initialization created a playback endpoint; audible playback remains unconfirmed. Shared battery, RTC, volume buttons, and BootROM restart preparation remain integrated.
+The latest physical fan trace recorded CPU 1996.8 MHz, requested PWM duty 51, 37 C, and no CPU throttling or clock error. The owner confirmed the fan turns. EMC reported no matching 2100 MHz timing and a 204 MHz readback, so the RAM target is not achieved. Audio buffers, DMA and I²S advanced, but the owner reported silent internal speakers. RAM/audio R2 follows Linux BPMP rounding and DVB voltage bands and adds Switchroot codec bias/class-D initialization with driver-side readback. Actual R2 frequency and sound remain pending. Shared battery, RTC, volume buttons, and BootROM restart preparation remain integrated. The tested Home configuration uses a 512–2048 MB pagefile, allocated by Windows at its next boot.
 
-An optional Bluetooth profile reuses the upstream UART-D driver and Switch-specific patch. The combined BasicDisplay/audio/Bluetooth update is built and deployed; radio discovery and pairing await the next physical boot. The Erista SPI4 sensor profile stays disabled because Lite SIO owns that bus.
+An optional Bluetooth profile reuses the upstream UART-D driver and Switch-specific patch. The combined BasicDisplay/audio/Bluetooth update is built and deployed; the next boot confirmed patch loading, 3 Mbaud transport and the BthMini child. Pairing and range remain unconfirmed. The Erista SPI4 sensor profile stays disabled because Lite SIO owns that bus.
 
 - [Stage 6 builds and first-boot troubleshooting](docs/hdh001-home/README.md)
 - [Windows Boot Manager entry](Library/PlatformBootManagerLib/LiteHomeBoot.c)

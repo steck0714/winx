@@ -2,7 +2,7 @@
 
 This branch integrates the tested Switch Lite SD path, an NTFS desktop boot path, and GPIO, I²C3 and Hoag FTM4 touch support. Select **Lite Windows 11 Home** in Hekate.
 
-On 2026-11-05, one HDH-001 booted Simplified Chinese Windows 11 ARM64 Home 23H2 (22631.2861) from an 80 GiB NTFS WINARM volume. The owner could tap the Windows Setup error dialog. Setup phase 4 and windeploy subsequently completed successfully. The planned reboot before OOBE left the screen dark; manual startup subsequently reached the OOBE network-selection page. Desktop acceptance is pending.
+On 2026-11-05, one HDH-001 booted Simplified Chinese Windows 11 ARM64 Home 23H2 (22631.2861) from an 80 GiB NTFS WINARM volume. The owner could tap the Windows Setup error dialog. Setup phase 4 and windeploy subsequently completed successfully. The planned reboot before OOBE left the screen dark; manual startup subsequently reached the OOBE network-selection page. The BasicDisplay rollback later reached the desktop; the desktop three-circle touch check is still unconfirmed.
 
 The latest offline SYSTEM hive records OOBEInProgress=0, SystemSetupInProgress=0, and SetupType=0. The media update preserves that completed state. The media update was deployed, then its display path was withdrawn after a black screen; see the display rollback below.
 
@@ -56,7 +56,7 @@ The combined Lite build adds `-D SWITCH_LITE_POWER=1 -D SWITCH_LITE_FAN=1 -D SWI
 
 `cpu_oc=1996800` requests 1996.8 MHz CPU. `ram_oc=2100000` prepares the 2100 MHz memory timing in Hekate and requests it through BPMP in firmware. Setting `cpu_oc=0` and `ram_oc=1600000` restores the normal boot profile on the next launch. Fan control is automatic; GPU overclocking is not implemented.
 
-The firmware preserves the Hekate environment, identifies the MAX77812 variant, checks the trained EMC table and existing VDD_CORE supply, changes the EMC rate through BPMP and records the result in reserved memory. The shared `WindowsDrivers/drivers/SwitchFan` driver consumes this handoff. Its T214 CPU helper uses MAX77812 M4 at 1120 mV and PLLX for the requested 1996.8 MHz. It restores the boot frequency at 80 C or after repeated sensor failures and resumes below 70 C. A valid CPU overclock request keeps at least 51/236 fan duty even if clock preparation fails. CPU preparation is independent of the EMC result; voltage readback and temperature checks still apply.
+The firmware preserves the Hekate environment, identifies the MAX77812 variant, resolves a trained EMC rate through BPMP, checks the existing VDD_CORE supply against the Linux DVB voltage bands, and records the resulting clock in reserved memory. The shared `WindowsDrivers/drivers/SwitchFan` driver consumes this handoff. Its T214 CPU helper uses MAX77812 M4 at 1120 mV and PLLX for the requested 1996.8 MHz. It restores the boot frequency at 80 C or after repeated sensor failures and resumes below 70 C. A valid CPU overclock request keeps at least 51/236 fan duty even if clock preparation fails. CPU preparation is independent of the EMC result; voltage readback and temperature checks still apply.
 
 Shared GPIO, I2C and fan sources remain in their upstream directories. The model-specific clock helper is `WindowsDrivers/drivers/SwitchFan/src/t214/`; firmware-specific handoff and reset code live under the corresponding ClockManagementDxe/PmicDxe `t214` directories. The existing Erista backlight behavior remains in the shared fan driver; the Lite resource maps only PWM1 and does not accept backlight control.
 
@@ -106,9 +106,9 @@ Saved records show display installation at the restart boundary with Kernel-PnP 
 
 Add `-D SWITCH_LITE_AUDIO=1` with the Lite fan/I2C1 profile. `Drivers/UsbPowerAuditDxe/LiteAudio.inf` builds an audio-only entry from the existing upstream source. It prepares the APE power domain and clocks, initializes I2C1 explicitly, and calls the shared R403 codec/I2S/headphone setup. It does not invoke the Erista USB or CPU bring-up entry.
 
-The Lite wiring matches Switchroot: RT5639 at I2C1 address 0x1C, codec LDO enable PZ4, I2S1/DAP1, and active-low headphone detection PV6. The Lite power tree supplies the speaker amplifier from the battery and codec rails from SD3; the port retains those board supplies. The shared Windows `switchaudio` 1.0.0.7 uses PortCls/WaveRT, ADMA channel 0, ADMAIF1, and 48 kHz / 16-bit stereo. Speakers and headphones share one Windows endpoint; the driver switches the codec output after jack changes. Microphone capture is not implemented by this upstream driver.
+The Lite wiring matches Switchroot: RT5639 at I2C1 address 0x1C, codec LDO enable PZ4, I2S1/DAP1, and active-low headphone detection PV6. The Lite power tree supplies the speaker amplifier from the battery and codec rails from SD3; the port retains those board supplies. The shared Windows `switchaudio` 1.0.0.8 uses PortCls/WaveRT, ADMA channel 0, ADMAIF1, and 48 kHz / 16-bit stereo. Speakers and headphones share one Windows endpoint; the driver switches the codec output after jack changes. Microphone capture is not implemented by this upstream driver.
 
-Build with `WindowsDrivers/drivers/SwitchAudio/build-arm64.sh`, using ARM64 WDK `portcls.lib` and `libcntpr.lib`. Sign the final package and inject `switchaudio.inf` alongside the display and fan packages. Firmware and driver builds pass; actual playback, jack switching, and audio quality remain unverified on HDH-001.
+Build with `WindowsDrivers/drivers/SwitchAudio/build-arm64.sh`, using ARM64 WDK `portcls.lib` and `libcntpr.lib`. Sign the final package and inject `switchaudio.inf` alongside the fan and system-device packages. Firmware and driver builds pass; actual playback, jack switching, and audio quality remain unverified on HDH-001.
 
 References: [Switchroot common audio wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Lite supplies](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [upstream R403 firmware](https://github.com/hayato41200/Windows-for-Switch/blob/main/Drivers/UsbPowerAuditDxe/UsbPowerAudit.c), and [Switchroot BPMP transport](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/linux-5.1.2/drivers/firmware/tegra/mail_t210.c).
 
@@ -125,3 +125,29 @@ The combined firmware and ARM64 Bluetooth driver build. Signed package checks an
 Switchroot's Lite device tree explicitly disables the host SPI4 controller because SIO owns it. The Erista `SwitchSensor` SPI4 profile is therefore left disabled; the Lite's built-in controls and motion data need the SIO transport. The native framebuffer orientation is retained.
 
 References: [Lite SIO ownership](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/tegra210b01-vali.dts), [UART-D Bluetooth wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Switchroot patch provenance](https://gitlab.com/switchroot/android/proprietary_vendor_firmware/-/blob/main/README.md), and [upstream Bluetooth source and recovery tool](https://github.com/hayato41200/Windows-for-Switch-Drivers/tree/main/kits/Switch-Bluetooth).
+
+## Ubuntu EMC comparison and RAM R2
+
+The Lite Ubuntu path has three separate responsibilities. Hekate selects the MTC set by DRAM ID and prepares the requested `ram_oc` table through Arachne; BPMP owns the trained clock transitions. Linux calls CLK_ROUND_RATE before CLK_SET_RATE. The T210B01 DVFS path uses the DVB frequency/voltage bands, rather than requiring the requested number to occur as an exact entry in MRQ_EMC_DVFS_TABLE.
+
+The earlier Home firmware required an exact 2100000 kHz row in that latter table and stopped at NoTiming, leaving a 204000 kHz readback. RAM R2 queries BPMP for a supported rate and checks it against the worst process-bin VDD_CORE requirement from Switchroot's normal/SLT tables. A 2100 MHz rate is covered by the 2133 MHz band (725 mV VDD_CORE). The existing rail is read, never raised; DRAM VDD2/VDDQ are not changed. A rounded rate above the user's request is rejected. A lower supported rate can be applied but remains reported as a target mismatch rather than a successful 2100 MHz overclock. The 48-byte Windows handoff ABI is unchanged.
+
+The firmware build and focused policy regression pass. Physical 2100 MHz acceptance still depends on the next readback; this change does not invent or copy timing registers from another DRAM part.
+
+References: [Hekate MTC/Arachne preparation](https://github.com/CTCaer/hekate/blob/master/bootloader/l4t/l4t.c), [Linux BPMP rounding](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/linux-5.1.2/drivers/clk/tegra/clk-nv-bpmp.c), [T210B01 voltage bands](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/soc/tegra/tegra210b01-core-dvfs.c), and [DVB selection in Linux](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/soc/tegra/tegra210-dvfs.c).
+
+## Speaker silence investigation and audio R2
+
+The next physical Home run reached the desktop. Audio submitted a 12 KiB WaveRT buffer; ADMA completed 13 periods in the 100 ms snapshot and 177 periods before stop, with I2S consuming data. The owner reported silent internal speakers; headphones were not tested. This narrows investigation to the codec/output path but does not prove a cause.
+
+The Lite firmware now uses Switchroot's NX codec private initialization: register 0x1D=0x0347, BIAS_CUR3=0x8AAA and class-D tuning 0x20=0x6110, alongside the existing common setup. The original Erista initialization remains selected outside LiteAudioInitialize. SwitchAudio 1.0.0.8 records codec power, mixers, clocks and private bias/tuning values after a jack-route change, without adding work to the render callback. The optional one-shot TestTone mechanism remains available for diagnosis, but it is disabled on the tested Home installation at the owner's request. The normal Windows startup sound is the first audible check.
+
+This is a candidate correction based on the [Switchroot RT5640/RT5639 initialization](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/sound/soc/codecs/rt5640.c). Audible output remains pending.
+
+On the existing offline Home installation, DISM Add-Driver staged 1.0.0.8 while the device still referenced 1.0.0.7. Native maintenance identified and removed the superseded non-boot-critical package, then retained the signed 1.0.0.8 package. The retained audio devnode is marked with CONFIGFLAG_REINSTALL (0x20) for PnP reinstallation at the next enumeration, using the [documented configuration flag](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/determining-whether-a-device-is-plugged-in). Windows PnP binding and audible playback must be checked at the next physical boot; staging alone is not reported as a running driver update.
+
+## Pagefile setting for the tested Home installation
+
+At the owner's request, the offline SYSTEM hive sets `ControlSet001\Control\Session Manager\Memory Management\PagingFiles` to the REG_MULTI_SZ value `C:\pagefile.sys 512 2048`: 512 MB initial, 2048 MB maximum. The prior setting was system-managed (`0 0`) with TempPageFile=1 and no persistent pagefile visible after shutdown. The new allocation is created by Windows at its next boot; the stale temporary-pagefile indicator is not forcibly cleared to hide a creation failure. Setup and BCD are preserved.
+
+The native units and registry mapping are documented by [Win32_PageFileSetting](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-pagefilesetting).

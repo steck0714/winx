@@ -3972,6 +3972,7 @@ STATIC UINTN R390UartEvent (UINT8 *Buf, UINTN Max, UINTN TimeoutMs) {
 #define CAR_CLK_SOURCE_APE   0x6C0U
 
 STATIC BOOLEAN mR395CodecAnswers;
+STATIC BOOLEAN mLiteAudioProfile;
 
 STATIC BOOLEAN R393CodecRead16 (UINT8 Reg, UINT16 *Value) {
   UINT8 Buf[2] = { 0, 0 };
@@ -4147,14 +4148,22 @@ STATIC BOOLEAN R395CodecSetup (VOID) {
   STATIC CONST UINT16 Private[][2] = {      // rt5640 init_list
     { 0x3D, 0x3600 }, { 0x12, 0x0AA8 }, { 0x14, 0x0AAA }, { 0x21, 0xE0E0 }, { 0x23, 0x1804 },
   };
+  // Switchroot's NX init_list retains BIAS_CUR3 bit 15 and programs the
+  // class-D tuning/bias registers omitted by the generic upstream sequence.
+  STATIC CONST UINT16 LitePrivate[][2] = {
+    { 0x1D, 0x0347 }, { 0x3D, 0x3600 }, { 0x12, 0x0AA8 }, { 0x14, 0x8AAA },
+    { 0x20, 0x6110 }, { 0x21, 0xE0E0 }, { 0x23, 0x1804 },
+  };
+  CONST UINT16 (*Init)[2] = mLiteAudioProfile ? LitePrivate : Private;
+  UINTN InitCount = mLiteAudioProfile ? ARRAY_SIZE (LitePrivate) : ARRAY_SIZE (Private);
   BOOLEAN Ok = TRUE;
   UINTN Index;
 
   Ok &= R395CodecWrite (RT5640_RESET, 0);
   gBS->Stall (10000);
-  for (Index = 0; Index < ARRAY_SIZE (Private); ++Index) {
-    Ok &= R395CodecWrite (RT5640_PRIV_INDEX, Private[Index][0]);
-    Ok &= R395CodecWrite (RT5640_PRIV_DATA, Private[Index][1]);
+  for (Index = 0; Index < InitCount; ++Index) {
+    Ok &= R395CodecWrite (RT5640_PRIV_INDEX, Init[Index][0]);
+    Ok &= R395CodecWrite (RT5640_PRIV_DATA, Init[Index][1]);
   }
   // Bias (rt5640_set_bias_level STANDBY): VREF1, MB, BG, VREF2; then fast VREF.
   Ok &= R395CodecUpdate (RT5640_PWR_ANLG1, 0, (1U << 15) | (1U << 13) | (1U << 11) | (1U << 4));
@@ -4406,6 +4415,7 @@ EFI_STATUS EFIAPI LiteAudioInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *Syste
   UINTN Poll;
 
   if ((MmioRead32 (0x70000804) & 0xFFF0) != 0x2120) return EFI_UNSUPPORTED;
+  mLiteAudioProfile = TRUE;
   // Follow the Hekate PMC power-up sequence. The Erista MBIST workaround is
   // not required on T210B01. Do not access AHUB/I2S until power and clocks exist.
   if ((Pmc[PMC_PWRGATE_STATUS / 4] & Power) == 0) {
