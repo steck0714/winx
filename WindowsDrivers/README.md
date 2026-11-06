@@ -1,12 +1,12 @@
 # Windows for Switch — Drivers
 
+**Wi-Fi works on Switch Lite (HDH-001).** SwitchWifi 0.5.5 connected automatically to a saved WPA2-Personal network on Windows 11 ARM64 23H2. Windows recorded successful authentication, an IPv4 DHCP lease and a default gateway. The owner confirmed Internet access. [Driver and hardware results](drivers/SwitchWifi/README.md)
+
 This branch consolidates HDH-001 development: bounded WINARM SD (0.3.2.5), shared GPIO/I²C, FTM4 touch, power button, fan, battery, RTC and audio. T214 clock helpers stay alongside the shared fan implementation. See the [Lite build notes](docs/hdh001/README.md).
 
 A physical Lite reaches the Home 23H2 desktop with BasicDisplay and working setup touch. CPU readback is 1996.8 MHz and RAM is 1866 MHz; the requested 2100 MHz RAM target remains unmet. The owner confirmed fan operation, audible output after the audio-pad update, and working brightness buttons. Returned-card readback confirms active SwitchAudio 1.0.0.9 and SwitchFan 1.0.0.5, plus a 512 MiB pagefile with a 2048 MB maximum. Headphones, jack switching and display wake remain untested. Windows shutdown and restart still hang on the companion Power R4 firmware. Pre-Windows shutdown with the same BL31 passed; the Windows late-exit/runtime-state boundary remains unresolved.
 
 The media display experiment went black at device restart. At the owner's request, the Home installer now excludes CPU-rendered display rotation and the landscape helper; the companion firmware retains BasicDisplay. The proposed PE display trial was cancelled. The combined update includes the shared UART-D Bluetooth driver and patch-aware installer; it is built, staged and deployed, with patch loading, 3 Mbaud transport and BthMini startup confirmed by the next boot; pairing and range remain pending. The upstream devices listed below are not all enabled or validated on Lite.
-
-The companion firmware's R6 pre-Windows Wi-Fi probe completed passive scanning with six records and return Success. This accepts the BCM4356A3 PCIe/firmware/control-event DMA path, not a Windows Wi-Fi adapter. Association, keys, packet transport and Windows networking integration remain in progress; see the [shared Wi-Fi status](https://github.com/ruje0504-2/winx/blob/hdh001/docs/hdh001-home/WIFI.md).
 
 The shared [SwitchWifi packet core](drivers/SwitchWifi/README.md) now implements msgbuf-v5 flow-ring lifecycle, Ethernet TX/RX descriptors and buffer ownership. The packet/ring integration fixtures pass under sanitizers. The KMDF DMA/interrupt transport compiles with WDK/KMDF 1.33 into an ARM64 static library. The companion gated runtime profile now prepares PCIe and exposes a shared ACPI resource contract, with Windows resource mapping and AFI interrupt acknowledgment in source. The Windows chip/firmware loader is now implemented with the same EROM/NVRAM parser source as UEFI. Device lifetime binding, shared-ring/control-session setup, WiFiCx registration, association/keys and OS packet queues remain unfinished. These source components are not installed on WINARM.
 
@@ -26,7 +26,8 @@ The upstream UEFI and DSDT are maintained in [Windows-for-Switch](https://github
 | `switchpwrbtn` | ACPI\SWOA0601 | R374 | Power-button HID through VHF |
 | `switchcpu` | ACPI\SWOA0701 | R375 | Erista CPU clock profiles (614–1766 MHz) and thermal limits |
 | `switchrtc` | ACPI\SWOA0801 | R377 | MAX77620 RTC with a persistent Windows time offset |
-| `switchbt` | ACPI\SWOA0B01 | R390 | BCM4356A3 on UART-D, connected to the Windows BthMini stack at 3 Mbps. Supply `BCM4356A3.hcd` separately; it is not distributed. Upstream reports very short radio range while Wi-Fi is unavailable. |
+| `switchwifi` 0.5.5 | ACPI\SWOA0D01 | HDH-001 Wi-Fi runtime | BCM4356A3 PCIe station. WPA2, DHCP and Internet access confirmed on Lite. |
+| `switchbt` | ACPI\SWOA0B01 | R390 | BCM4356A3 on UART-D, connected to the Windows BthMini stack at 3 Mbps. Supply `BCM4356A3.hcd` separately; it is not distributed. The original Erista test reported limited Bluetooth range. |
 | `switchaudio` (beta) | ACPI\SWOA0C01 | R403; R402 for speakers only | PortCls WaveRT playback: 48 kHz, 16-bit stereo, speakers/headphones with automatic jack switching. One shared speaker endpoint and volume; no microphone. |
 | `switchsensor` | ACPI\SWOA0901 | R379 | Tilt sensing for automatic rotation. Upstream could not detect the ambient-light sensor on the tested device. |
 | `swoadiag` | Loaded on demand | — | Read-only USB (XUSB) register diagnostics |

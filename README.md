@@ -1,5 +1,7 @@
 # WinX · Switch Lite Windows ARM64
 
+**Wi-Fi works on Switch Lite (HDH-001).** SwitchWifi 0.5.5 connected automatically to a saved WPA2-Personal network on Windows 11 ARM64 23H2. Windows recorded successful authentication, an IPv4 DHCP lease and a default gateway. The owner confirmed Internet access. [Hardware results](docs/hdh001-home/WIFI.md)
+
 The current HDH-001 boots trimmed Windows 11 Pro 23H2 (22631.2861) through **Windows 11 Lite**. The owner reached the desktop and confirmed that the FAT32 partition is visible, the display works in landscape and Bluetooth works with switchbt 1.0.0.13.
 
 The earlier `INACCESSIBLE_BOOT_DEVICE` (0x7B) occurred when UEFI exposed only WINARM while nvtsdhc 0.3.2.6 exposed WINARM and FAT32. Replacing BL33 made UEFI present the same two volumes in the same order as the Windows driver. The next physical boot reached the desktop.
@@ -11,8 +13,6 @@ The first Home media run went black during display-device restart. The Home inst
 **Measured clocks on HDH-001: CPU 1996.8 MHz; RAM 1866 MHz.** The owner confirmed fan operation. The `ram_oc=2100000` setting requests 2100 MHz, but the measured RAM clock remains 1866 MHz; 2100 MHz operation has not been validated. After the paired audio-pad/backlight update, the owner confirmed audible output and working brightness buttons; the returned card confirms SwitchAudio 1.0.0.9 and SwitchFan 1.0.0.5 are active. Windows has created a 512 MiB pagefile with a 2048 MB maximum, and TempPageFile is absent. Headphones, jack switching and display wake remain untested. Windows shutdown and restart still leave a black screen with the fan running on Power R4. A pre-Windows shutdown through the same firmware completed normally, narrowing the investigation to the Windows exit path or device state changed during Windows runtime. Pre-Windows restart remains untested. The temporary power-check setting has been removed and Home launches Windows normally. Shared battery, RTC and volume-button support remain integrated.
 
 An optional Bluetooth profile reuses the upstream UART-D driver and Switch-specific patch. The combined BasicDisplay/audio/Bluetooth update is built and deployed; the next boot confirmed patch loading, 3 Mbaud transport and the BthMini child. Pairing and range remain unconfirmed. The Erista SPI4 sensor profile stays disabled because Lite SIO owns that bus.
-
-The Lite's BCM4356A3 completed a passive scan in UEFI and returned six records. The B01 PCIe supply and bridge BAR changes are in the shared firmware. The temporary probe was removed from **Windows 11 Lite**. In an isolated ARM64 Windows PE 22621.2861 guest, the signed 0.5.0.0 driver evaluated the ACPI isolation method and registered the GSI 130 interrupt. It stopped at the expected missing-memory boundary in that fixture. Driver 0.5.1 delivers the chip’s association and disconnect notifications to the Windows connect handler. On trimmed Pro, Windows enumerated WFI0, loaded the BCM firmware and consumed ring completions with its interrupt handler active. Driver 0.5.2.0 failed during station creation with `0xC0200211`. On the next boot, Windows started the 0.5.3.0 station and the owner saw Wi-Fi networks. The report counted 19 scans, with success for the latest scan. Connection, DHCP and rekey await a hardware result.
 
 - [Driver porting goal and Wi-Fi roadmap](docs/hdh001-home/PORTING.md)
 - [Stage 6 builds and first-boot troubleshooting](docs/hdh001-home/README.md)
@@ -67,7 +67,7 @@ Reported by the author from real-hardware tests. Items not listed here are untes
 | xHCI (XUSB) reaches Windows | partly: Windows sees it, then **BSOD** |
 | Custom EHCI / xHCI path | works in UEFI only; no working USB in Windows yet |
 | Touch panel (`TCH0` / `touch-fts4`) in Windows | **no response** (no BSOD either) |
-| Windows keyboard / Wi-Fi / Bluetooth / sound / GPU acceleration | not working yet |
+| Windows keyboard / Wi-Fi / Bluetooth / sound / GPU acceleration | Unavailable in this October 2026 Erista test |
 
 Next steps: get the BSOD bugcheck code (kernel debugger below, or the memory dump), compare the `XHC0` / `EHC0` / `TCH0` / `I2C*`
 entries in `AcpiTables/Dsdt/Dsdt.asl` with what the Windows drivers expect, then rerun the A/B EHCI test in `TEST_PLAN.md`.
@@ -189,7 +189,7 @@ Replace the BCD store path and serial port settings as necessary.
 
 Connect the serial interface through the right-side rail connector to a compatible host and configure WinDbg for serial kernel debugging at 115200 baud.
 
-## Planned / In-Progress
+## Original Erista build: outstanding work
 
 - Fix the BSOD when booting while charging, and the xHCI BSOD in Windows.
 - Make touch work in Windows (currently no response).

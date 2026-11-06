@@ -457,8 +457,7 @@ an error from `NetAdapterCreate` has step 8 and an error from
 which each kind was first observed. The four `filter` fields hold the requested flag mask, address count, firmware
 mode and NTSTATUS. Modes 0 through 4 mean pending, hardware list, software-filtered
 wide reception, requested all-multicast and no requested group addresses, respectively. A passive work item saves a single value
-on first observations, state changes and teardown. The report contains counters and status codes. Device addresses, network names, payloads and keys stay private. Windows association, DHCP and group rekey still need a board
-result.
+on first observations, state changes and teardown. The report contains counters and status codes. Device addresses, network names, payloads and keys stay private. The physical Lite completed WPA2 association and DHCP with 0.5.5. Group rekey remains unmeasured.
 
 Version 5 adds `hw=stage/NTSTATUS` for isolation (1), interrupt registration
 (2), memory windows (3), DMA adapter (4), endpoint discovery (5), legacy INTx
@@ -618,10 +617,7 @@ The hexadecimal `path` field records the first observation of each step:
 | 100 / 200 / 400 / 800 / 1000 | Bad completion / native frame rejected / destination filtered / malformed EAPOL / key policy denied |
 | 2000 / 4000 / 8000 / 10000 | RX queue started / TX queue started / separate authenticator source / private RX free list exhausted |
 
-`credits` is the negotiated RX buffer count. The owner confirmed working Internet access on the Lite after installing
-0.5.5.0. The saved WPA2 profile connected successfully. The owner's report
-covers end-to-end connectivity. A DHCP lease record, sustained traffic and
-key rotation have not been checked independently.
+`credits` is the negotiated RX buffer count. On HDH-001, 0.5.5.0 connected automatically to a saved WPA2 profile. Windows logged successful wireless security and connection events, and the station interface recorded an IPv4 DHCP lease and a default gateway. The owner confirmed Internet access. Sustained throughput and group rekey still need hardware measurements.
 
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),

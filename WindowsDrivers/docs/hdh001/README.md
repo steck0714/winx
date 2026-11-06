@@ -97,13 +97,7 @@ The shared long-term scope, including Switchroot-based Wi-Fi and Lite SIO, is tr
 
 ## Wi-Fi and power boundaries
 
-The companion R6 firmware probe completed a physical passive scan with six
-records, terminal status 0 and UEFI return Success. PCIe supply/PHY/link,
-BCM4356A3 firmware startup and control/event DMA are accepted for that
-pre-Windows check. The temporary check flag was removed and Home boots Windows
-normally again. This repository does not yet provide a working Windows Wi-Fi
-adapter; association/key management and packet/OS integration are ongoing.
-See the [shared Wi-Fi implementation and evidence](https://github.com/ruje0504-2/winx/blob/hdh001/docs/hdh001-home/WIFI.md).
+**Wi-Fi works on Switch Lite (HDH-001).** SwitchWifi 0.5.5 connected automatically to a saved WPA2-Personal network on Windows 11 ARM64 23H2. Windows recorded successful authentication, an IPv4 DHCP lease and a default gateway. The owner confirmed Internet access. [Driver and hardware results](../../drivers/SwitchWifi/README.md)
 
 Windows shutdown/restart still black-screen with the fan running. A pre-Windows
 shutdown using the same Power R4 BL31 succeeded, so final Windows exit and
@@ -111,4 +105,4 @@ runtime hardware state remain under investigation.
 
 ## Windows Wi-Fi packet core
 
-The shared [SwitchWifi packet core](../../drivers/SwitchWifi/README.md) now implements msgbuf-v5 flow-ring lifecycle, Ethernet TX/RX descriptors and buffer ownership. The packet/ring integration fixtures pass under sanitizers. The KMDF DMA/interrupt transport compiles with WDK/KMDF 1.33 into an ARM64 static library. The companion gated runtime profile now prepares PCIe and exposes a shared ACPI resource contract, with Windows resource mapping and AFI interrupt acknowledgment in source. The Windows chip/firmware loader is now implemented with the same EROM/NVRAM parser source as UEFI. The control/event engine and shared-ring allocation/publication are implemented, including atomic command submission and timeout/reset ownership. The Windows command layer now waits on interrupts/stop events, delivers firmware events in passive workers and joins callers before reset. Device lifetime binding, WiFiCx request dispatch/registration, association/keys and OS packet queues remain unfinished. These source components are not installed on WINARM.
+The ARM64 WiFiCx driver uses NetAdapterCx packet queues and the Broadcom msgbuf transport. Current hardware evidence and the meaning of each diagnostic field are in the [driver notes](../../drivers/SwitchWifi/README.md).

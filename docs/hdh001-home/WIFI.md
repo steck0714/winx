@@ -9,8 +9,7 @@ Previously the control worker passed events only to the escan handler. A
 SET_SSID success, failure or disconnect could therefore never reach the
 Windows association handler. A control-ring fixture exercises the corrected
 dispatch. The same Home firmware and external preparation EFI are used with
-this driver. The physical Windows scan is recorded below. Association and IP
-traffic still need a connection test. Version 0.5.2 also holds new TX across the EAPOL
+this driver. The Windows connection result is recorded below. Version 0.5.2 also holds new TX across the EAPOL
 drain, firmware key write and authorization of the peer. The owner confirmed the trimmed Pro desktop booted with the repaired
 two-volume SD profile. DISM then staged 0.5.2.0 as `oem12.inf` on WINARM.
 Readback matched the signed package, board firmware, calibration and
@@ -28,7 +27,7 @@ The saved profile was used automatically. Security events reported a dynamic
 key exchange timeout (0x00048005), and the driver recorded zero key
 installations. Version 0.5.5.0 primes the firmware receive ring and handles
 bridged and length-encapsulated EAPOL. The owner confirmed Internet access on the Lite after this update.
-DHCP lease details, sustained throughput and group rekey remain unmeasured.
+The returned station configuration confirms an IPv4 DHCP lease and a default gateway. Sustained throughput and group rekey remain unmeasured.
 The trimmed image includes the Windows on-screen keyboard at
 `%SystemRoot%\System32\osk.exe` for entering network credentials.
 [Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
@@ -356,7 +355,7 @@ the signed driver. The runtime-only `WIRS` method checks PCIEX/PEX/AFI reset
 state and can hold these dedicated reset lines if both endpoint halt and port
 reset fail. The Windows package staged in an isolated PE VM. The Lite has not
 received this runtime build. The Windows station now handles directed WPA2-Personal association and CCMP
-key installation. Windows scanning subsequently passed on the physical Lite. Authentication, DHCP and rekey await a board connection.
+key installation. Windows scanning subsequently passed on the physical Lite. Driver 0.5.5 subsequently passed WPA2 authentication and DHCP on the Lite.
 
 ## Windows connection package
 
@@ -378,7 +377,7 @@ The device's `SwitchWifiReport` value records initialization, scans, joins,
 acknowledged key slots and observed frame types. See the
 [status fields and read command](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).
 An isolated ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package as `oem0.inf`. The existing 22631.2861 ARM64 installation media includes WiFiCx, NetAdapterCx and the WLAN service. Acceptance on the physical Windows
-adapter, including DHCP and rekey, remains pending.
+adapter later passed WPA2, DHCP and Internet access in version 0.5.5. Group rekey remains unmeasured.
 
 The station now registers the four ordinary data filters with NetAdapterCx
 before adapter startup and handles WDI filter/list changes on the station port.
