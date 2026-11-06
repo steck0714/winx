@@ -39,7 +39,8 @@ kernel_flags = [str(kernel_cc), "--target=aarch64-pc-windows-msvc", "/c",
     f"/imsvc{(args.sdk_include or args.wdk_include) / 'shared'}", f"/imsvc{kmdf}"]
 objects = []
 for source in sources + [root / "windows/transport.c", root / "windows/resources.c",
-                        root / "windows/chip.c", root / "windows/shared.c"]:
+                        root / "windows/chip.c", root / "windows/shared.c",
+                        root / "windows/control.c"]:
     obj = args.out / (source.stem + ".obj")
     # On macOS, an absolute /Users/... path otherwise looks like clang-cl /U.
     subprocess.run(kernel_flags + [f"/Fo{obj}", "--", str(source)], check=True)

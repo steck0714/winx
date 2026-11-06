@@ -33,7 +33,7 @@ periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
 These components are host-tested and compile to an ARM64 KMDF static library. There is
 currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-WiFiCx device registration, device lifetime binding, command scheduling,
+WiFiCx device registration, device lifetime binding, WiFiCx request dispatch,
 connection/key management and NetAdapterCx packet queues still need integration and hardware
 acceptance. Do not add an empty network device or mark this driver as deployed.
 
@@ -172,7 +172,7 @@ are rejected while pinned. After interrupt quiescence, stop disables bus
 mastering, halts CR4 and holds D11 reset before permitting DMA teardown. If stop
 fails, the owner must reset the platform endpoint before freeing DMA memory.
 
-This code has compiled, but Windows device callbacks, command scheduling and
+This code has compiled, but Windows device callbacks, WiFiCx request dispatch and
 the WiFiCx interface have not yet been bound to it. Windows firmware startup
 has not been physically tested. Firmware binaries, board data and keys are
 not included in the repository or static library.
@@ -204,6 +204,46 @@ uses the PCIe-core revision-dependent double SBMBX notification. This supports
 the owner's later deep-sleep/power state machine; it does not itself implement
 Windows suspend/resume. No periodic runtime polling loop is introduced.
 
+## Windows command execution and event workers
+
+`windows/control.c` connects the portable control engine to the KMDF transport.
+`SwifiControlExecute` runs in a passive caller/command worker, serializes one
+firmware IOCTL and waits on completion or stop events with a two-second deadline.
+Ring backpressure waits for DPC progress rather than polling. Caller input is
+staged in resident memory before the submission lock; the DPC copies replies
+into resident storage, and the passive caller copies bounded results outward.
+Firmware status and original response length are retained.
+
+The WiFiCx SendCommand callback can run at DISPATCH_LEVEL, so the future WiFiCx
+request dispatcher must queue passive work before calling Execute. This module
+provides the firmware execution layer, not that WIFIREQUEST dispatcher or a
+network adapter. Its event and mailbox work items have automatic serialization
+disabled and use protocol-lock-protected queue ownership. Upper event callbacks
+run without the protocol lock, may issue a subsequent command, and must copy
+borrowed data before returning. Only then is the event DMA buffer reposted.
+
+The device owner must wire this lifecycle in order:
+
+1. Create the transport and control objects, prepare shared buffers, and bind a
+   fresh control session before enabling interrupts.
+2. After transport Ready/Armed, call `SwifiControlStart` from
+   D0EntryPostInterruptsEnabled to prime events and allow capability queries.
+3. Route D2H control messages and mailbox flags to this module. Pass unhandled
+   packet/flow completions to the data core. Call `SwifiControlNotify` outside
+   DataLock, before completing OS packets.
+4. On stop, first request control cancellation, then quiesce/join the transport
+   DPC. Quiesce the control module to flush event/mailbox work and join command
+   callers. This wakes pending commands immediately without waiting for their
+   normal deadline; it does not release hardware-owned DMA.
+5. Stop/reset the chip, then call `SwifiControlStoppedAfterReset` to cancel any
+   remaining firmware ownership. Delete/rebind buffers only after this step.
+
+Timeout/completion races are resolved under DataLock. Timeout blocks buffer
+reuse until recovery; a concurrent normal stop suppresses a second recovery
+request. The recovery callback only queues owner work and must not reset or
+flush workers inline. The kernel worker/lifecycle code is cross-compiled and
+not yet hardware-tested. It does not establish Windows shutdown or resume.
+
 ## Build and test
 
 With LLVM clang and extracted/installed WDK headers:
@@ -225,13 +265,15 @@ bounded drain and a device-side model exchanging packets with the packet core.
 Control fixtures cover atomic paired submission, ACK/completion distinction,
 stale command/response IDs, truncated responses, timeout/reset cancellation,
 event offsets and retained-buffer backpressure. The Windows shared-session
-allocator and mailbox helpers are cross-compiled, not simulated by these tests.
+allocator, mailbox helpers and Windows command/event workers are cross-compiled,
+not simulated by these tests.
 Shared EROM/NVRAM fixtures also cover extended/truncated descriptors, board-file
 packing and the RAMS aperture. They do not simulate KMDF or prove hardware
 interrupt/cache behavior.
 
 The script uses `clang-cl /kernel` for the portable core, transport, resource
-mapping, chip loader and shared session with WDK/KMDF 1.33, then archives
+mapping, chip loader, shared session and command workers with WDK/KMDF 1.33,
+then archives
 `SwitchWifiTransport.lib` for ARM64. `--kmdf-include`
 can specify separately extracted KMDF headers. This is not a linked, signed or
 installed SYS driver, and the new runtime transport is not hardware-accepted.

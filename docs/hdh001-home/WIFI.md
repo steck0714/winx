@@ -212,7 +212,7 @@ Native ASan/UBSan fixtures exercise wire messages, atomic ring-full/wrap behavio
 packet ownership, command deadlines and event retention. WDK/KMDF 1.33 builds an
 ARM64 `SwitchWifiTransport.lib` including the Windows resource layer, chip loader
 and shared-session allocator. These are implemented components, not a linked or
-installed SYS/INF. Windows device callbacks, command scheduling, WiFiCx capability
+installed SYS/INF. Windows device callbacks, WiFiCx request dispatch/capability
 registration, connection/key management and OS packet queues still need binding
 and physical acceptance. No empty/placeholder network adapter is installed.
 
@@ -260,8 +260,8 @@ resource buffer and HID. The interpreter reported four outstanding cache
 allocations at exit; WFI0 evaluations returned the expected values. Windows
 source compiles with WDK/KMDF into the ARM64 transport library. These are local
 artifacts only, not deployed or physically accepted. The Windows chip loader and
-shared-buffer publisher below are implemented; device lifecycle, command
-scheduling, WiFiCx registration, authentication and OS queues still require
+shared-buffer publisher below are implemented; device lifecycle, WiFiCx request
+dispatch/registration, authentication and OS queues still require
 integration before a network adapter can be installed.
 
 ## Windows chip-firmware loader
@@ -286,7 +286,7 @@ assumed. The Windows loader refuses backplane-window changes while runtime acces
 is pinned; only the quiesced stop path releases that constraint.
 
 Windows firmware startup is implemented but not yet hardware-tested. Device
-lifetime binding, command scheduling and WiFiCx association/data integration
+lifetime binding, WiFiCx request dispatch and association/data integration
 still need completion before a SYS/INF can be installed. This update contains
 no firmware binary, calibration data or network credentials and has not been
 copied to the card.
@@ -313,3 +313,21 @@ waits at most one second for an outstanding host word, then uses PCI config
 SBMBX with the double-notification workaround on core revisions <=13. The
 Windows owner still must bind those helpers to its recovery/power state machine;
 these helpers do not establish suspend/resume or solve system shutdown.
+
+## Windows firmware-command execution
+
+The Windows control layer now binds the portable engine to KMDF synchronization:
+a passive command caller waits for interrupt-driven completion, ring progress or
+stop, with a two-second command deadline. The DPC uses only resident staging
+buffers. Event/mailbox work runs passively outside the protocol lock; event DMA
+is retained until the callback returns. Normal device stop wakes commands and
+joins workers before hardware reset; cancellation alone never authorizes DMA
+release. A recovery callback queues separate owner work rather than resetting
+inline from a DPC or a worker being flushed.
+
+This layer compiles into the ARM64 library. The WiFiCx callback still needs its
+own request dispatcher, capability registration and adapter/data-queue binding;
+the passive firmware execution API must not be called directly from a
+DISPATCH_LEVEL WiFiCx SendCommand callback. Windows networking and power-exit
+behavior remain unverified. The [driver integration contract](../../WindowsDrivers/drivers/SwitchWifi/README.md#windows-command-execution-and-event-workers)
+lists the required create/bind/start/stop ordering.
