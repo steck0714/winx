@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: ISC */
 #include "capabilities.h"
+#include "../core/WifiEscan.h"
 #include <netadaptercx.h>
 #include <wificx.h>
 #include "../core/phy_rates.h"
@@ -10,6 +11,7 @@ C_ASSERT(SWIFI_RATE_RX == WDI_DATA_RATE_RX_RATE && SWIFI_RATE_TX == WDI_DATA_RAT
 struct SWIFI_RADIO_CAPS {
     SWIFI_FIRMWARE_INFO Identity;
     WIFI_DEVICE_CAPABILITIES Device;
+    WIFI_STATION_CAPABILITIES Station;
     WIFI_BAND_CAPABILITIES Bands;
     WIFI_PHY_CAPABILITIES Phys;
     WIFI_BAND_INFO Band[MaxBands];
@@ -86,6 +88,12 @@ static NTSTATUS Build(SWIFI_RADIO_CAPS *Caps, const SWIFI_FIRMWARE_INFO *Info)
     while (Length + 1 < sizeof(Caps->Device.FirmwareVersion) && Info->Version[Length]) ++Length;
     RtlCopyMemory(Caps->Device.FirmwareVersion, Info->Version, Length);
 
+    WIFI_STATION_CAPABILITIES_INIT(&Caps->Station);
+    /* The 22621/22631 WiFiCx 1.0 structure ends before the later MLO fields. */
+    Caps->Station.Size = FIELD_OFFSET(WIFI_STATION_CAPABILITIES, MaxMultiLinkConnectionsSupported);
+    Caps->Station.ScanSSIDListSize = SwifiScanSsids;
+    /* This build implements station discovery. Publish authentication/key
+     * pairs only together with their WDI association and key tasks. */
     Caps->Bands.Size = sizeof(Caps->Bands);
     Caps->Bands.BandInfoList = Caps->Band;
     Caps->Phys.Size = sizeof(Caps->Phys);
@@ -172,6 +180,11 @@ NTSTATUS SwifiPublishRadioCaps(WDFDEVICE Device, SWIFI_RADIO_CAPS **Slot,
         Status = WifiDeviceSetPhyCapabilities(Device, &Caps->Phys);
         if (!NT_SUCCESS(Status)) return Status;
         Caps->Published = 3;
+    }
+    if (Caps->Published < 4) {
+        Status = WifiDeviceSetStationCapabilities(Device, &Caps->Station);
+        if (!NT_SUCCESS(Status)) return Status;
+        Caps->Published = 4;
     }
     return STATUS_SUCCESS;
 }

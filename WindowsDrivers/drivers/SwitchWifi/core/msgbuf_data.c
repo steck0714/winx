@@ -7,7 +7,11 @@
 
 /* brcmfmac groups 802.1D priorities by access category for flow creation.
  * TX descriptors still carry each packet's original 0..7 priority. */
-static const uint8_t priority_fifo[8] = {0, 1, 1, 0, 2, 2, 3, 3};
+uint8_t swifi_priority_fifo(uint8_t priority)
+{
+    static const uint8_t fifo[8] = {0, 1, 1, 0, 2, 2, 3, 3};
+    return priority < 8 ? fifo[priority] : UINT8_MAX;
+}
 
 static uint16_t get16(const uint8_t *p)
 {
@@ -138,13 +142,13 @@ swifi_result swifi_data_create_flow(swifi_data *d, uint16_t ring,
     item[1] = ifidx;
     memcpy(item + 8, destination, 6);
     memcpy(item + 14, source, 6);
-    item[20] = priority_fifo[priority];
+    item[20] = swifi_priority_fifo(priority);
     put16(item + 22, ring);
     put16(item + 28, depth);
     put16(item + 30, SWIFI_TX_ITEM_SIZE);
     put_address(item + 32, ring_dma);
     flow->ifidx = ifidx;
-    flow->fifo = priority_fifo[priority];
+    flow->fifo = swifi_priority_fifo(priority);
     flow->state = SWIFI_FLOW_CREATING;
     result = d->ops.submit(d->context, SWIFI_CONTROL_RING, item, sizeof(item));
     if (result != SWIFI_OK)
@@ -189,7 +193,7 @@ swifi_result swifi_data_tx(swifi_data *d, uint16_t ring, uint8_t priority,
         return SWIFI_INVALID;
     if (flow->state != SWIFI_FLOW_OPEN)
         return SWIFI_RETRY;
-    if (priority_fifo[priority] != flow->fifo)
+    if (swifi_priority_fifo(priority) != flow->fifo)
         return SWIFI_INVALID;
     slot = reserve_slot(d->tx, d->tx_count, &d->tx_cursor, cookie);
     if (!slot)

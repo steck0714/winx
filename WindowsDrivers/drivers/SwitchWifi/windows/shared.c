@@ -7,10 +7,11 @@
 #define SHARED_TWO_BYTE_INDICES 0x00100000u
 #define SHARED_HOST_READY 0x10000000u
 
-static NTSTATUS CreateBuffer(WDFDMAENABLER Dma, SIZE_T Length, SWIFI_SHARED_BUFFER *Buffer)
+NTSTATUS SwifiSharedCreateBuffer(WDFDMAENABLER Dma, SIZE_T Length, SWIFI_SHARED_BUFFER *Buffer)
 {
     WDF_COMMON_BUFFER_CONFIG Config;
     NTSTATUS Status;
+    if (!Buffer || Buffer->Handle || !Length) return STATUS_INVALID_PARAMETER;
     WDF_COMMON_BUFFER_CONFIG_INIT(&Config, 63);
     Status = WdfCommonBufferCreateWithConfig(Dma, Length, &Config,
         WDF_NO_OBJECT_ATTRIBUTES, &Buffer->Handle);
@@ -21,13 +22,15 @@ static NTSTATUS CreateBuffer(WDFDMAENABLER Dma, SIZE_T Length, SWIFI_SHARED_BUFF
     Buffer->Length = Length;
     if (Buffer->Logical.QuadPart < 0 ||
         (ULONGLONG)Buffer->Logical.QuadPart > MAXULONG ||
-        Length - 1 > MAXULONG - (ULONGLONG)Buffer->Logical.QuadPart)
+        Length - 1 > MAXULONG - (ULONGLONG)Buffer->Logical.QuadPart) {
+        SwifiSharedDeleteBuffer(Buffer);
         return STATUS_CONFLICTING_ADDRESSES;
+    }
     RtlZeroMemory(Buffer->Memory, Length);
     return STATUS_SUCCESS;
 }
 
-static VOID DeleteBuffer(SWIFI_SHARED_BUFFER *Buffer)
+VOID SwifiSharedDeleteBuffer(SWIFI_SHARED_BUFFER *Buffer)
 {
     if (Buffer->Handle)
         WdfObjectDelete(Buffer->Handle);
@@ -103,7 +106,7 @@ NTSTATUS SwifiSharedPrepare(SWIFI_SHARED *S, SWIFI_CHIP *C, WDFDMAENABLER Dma)
         S->IndexBase[2] = 2 * S->MaxSubmit * S->IndexWidth;
         S->IndexBase[3] = (2 * S->MaxSubmit + 3) * S->IndexWidth;
         IndexBytes = (2 * S->MaxSubmit + 6) * S->IndexWidth;
-        Status = CreateBuffer(Dma, IndexBytes, &S->Indices);
+        Status = SwifiSharedCreateBuffer(Dma, IndexBytes, &S->Indices);
         if (!NT_SUCCESS(Status))
             goto Failed;
     } else {
@@ -129,11 +132,11 @@ NTSTATUS SwifiSharedPrepare(SWIFI_SHARED *S, SWIFI_CHIP *C, WDFDMAENABLER Dma)
         if (!NT_SUCCESS(Status))
             goto Failed;
     }
-    Status = CreateBuffer(Dma, 8, &S->Scratch);
+    Status = SwifiSharedCreateBuffer(Dma, 8, &S->Scratch);
     if (!NT_SUCCESS(Status)) goto Failed;
-    Status = CreateBuffer(Dma, 1024, &S->Update);
+    Status = SwifiSharedCreateBuffer(Dma, 1024, &S->Update);
     if (!NT_SUCCESS(Status)) goto Failed;
-    Status = CreateBuffer(Dma, (2 + SWIFI_EVENT_COUNT) * SWIFI_CONTROL_BUFFER_SIZE, &S->Control);
+    Status = SwifiSharedCreateBuffer(Dma, (2 + SWIFI_EVENT_COUNT) * SWIFI_CONTROL_BUFFER_SIZE, &S->Control);
     if (!NT_SUCCESS(Status)) goto Failed;
     S->Input.memory = S->Control.Memory;
     S->Input.dma = (ULONGLONG)S->Control.Logical.QuadPart;
@@ -258,6 +261,16 @@ NTSTATUS SwifiSharedAllocateFlow(SWIFI_SHARED *S, USHORT RingId)
     return SwifiWinCreateRing(S->Dma, &S->H2d[RingId], Host, Peer, 512, 48, TRUE, 0);
 }
 
+VOID SwifiSharedRearmClosedFlow(SWIFI_WIN_RING *Ring)
+{
+    swifi_ring *Core = &Ring->Core;
+    RtlZeroMemory(Core->memory, (SIZE_T)Core->depth * Core->item_size);
+    Core->host_index = 0;
+    ZeroFlowIndex(Ring->Host);
+    ZeroFlowIndex(Ring->Peer);
+    KeMemoryBarrier();
+}
+
 VOID SwifiSharedDeleteFlowAfterStop(SWIFI_SHARED *S, USHORT RingId)
 {
     if (S->H2d && RingId >= 2 && RingId < S->MaxSubmit)
@@ -274,9 +287,9 @@ VOID SwifiSharedDeleteAfterReset(SWIFI_SHARED *S)
     }
     for (I = 0; I < 3; ++I)
         SwifiWinDeleteRingAfterReset(&S->D2h[I]);
-    DeleteBuffer(&S->Control);
-    DeleteBuffer(&S->Update);
-    DeleteBuffer(&S->Scratch);
-    DeleteBuffer(&S->Indices);
+    SwifiSharedDeleteBuffer(&S->Control);
+    SwifiSharedDeleteBuffer(&S->Update);
+    SwifiSharedDeleteBuffer(&S->Scratch);
+    SwifiSharedDeleteBuffer(&S->Indices);
     RtlZeroMemory(S, sizeof(*S));
 }

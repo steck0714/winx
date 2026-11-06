@@ -210,6 +210,28 @@ static NTSTATUS SetSoftwareRadio(SWIFI_WDI *State, BOOLEAN Enabled)
     return Status;
 }
 
+static NTSTATUS ConfigureAdapter(SWIFI_WDI *State, WDI_MESSAGE_HEADER *Header, ULONG Length)
+{
+    WDI_SET_FIRMWARE_CONFIGURATION_PARAMETERS P = {0};
+    if (Header->PortId != WDI_PORT_ID_ADAPTER) return STATUS_INVALID_PARAMETER;
+    NTSTATUS Status = (NTSTATUS)ParseWdiSetAdapterConfigurationToIhv(Length,
+        (PUCHAR)(Header + 1), &State->Tlv, &P);
+    ULONG Disallowed = 0;
+    if (NT_SUCCESS(Status) && P.Optional.MacAddress_IsPresent &&
+        !RtlEqualMemory(P.MacAddress.Address, State->Info->Address, 6))
+        Status = STATUS_NOT_SUPPORTED; /* Do not silently use a different identity. */
+    if (NT_SUCCESS(Status) && P.Optional.DisallowedBandList_IsPresent) {
+        for (ULONG I = 0; I < P.DisallowedBandList.ElementCount; ++I) {
+            WDI_BAND_ID Band = P.DisallowedBandList.pElements[I];
+            if (Band == WDI_BAND_ID_2400) Disallowed |= SWIFI_BAND_2GHZ;
+            if (Band == WDI_BAND_ID_5000) Disallowed |= SWIFI_BAND_5GHZ;
+        }
+    }
+    if (NT_SUCCESS(Status)) Status = SwifiScanSetDisallowedBands(State->Scan, Disallowed);
+    CleanupParsedWdiSetAdapterConfigurationToIhv(&P);
+    return Status;
+}
+
 static VOID Handle(SWIFI_WDI *State, WIFIREQUEST Request)
 {
     UINT Input, Output;
@@ -222,6 +244,10 @@ static VOID Handle(SWIFI_WDI *State, WIFIREQUEST Request)
     BOOLEAN Enable;
     if (!Header || Input < sizeof(*Header) || Output < sizeof(*Header)) {
         SwifiCompleteWdiRequest(Request, STATUS_INVALID_PARAMETER);
+        return;
+    }
+    if (Id == WDI_SET_ADAPTER_CONFIGURATION) {
+        SwifiCompleteWdiRequest(Request, ConfigureAdapter(State, Header, Input - sizeof(*Header)));
         return;
     }
     if (Id == WDI_TASK_SCAN || Id == WDI_ABORT_TASK) {

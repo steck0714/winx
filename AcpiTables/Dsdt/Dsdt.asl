@@ -658,6 +658,31 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                 Memory32Fixed (ReadWrite, SWIFI_APERTURE_BASE, SWIFI_APERTURE_SIZE)
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { SWIFI_LEGACY_GSI }
             })
+            // Tegra CAR reset-group U: status and write-one-to-set aliases.
+            // Restrict this method to the PCIe controller's three reset lines.
+            OperationRegion (WCRS, SystemMemory, 0x6000600C, 4)
+            Field (WCRS, DWordAcc, NoLock, Preserve) { WRST, 32 }
+            OperationRegion (WCRW, SystemMemory, 0x60006310, 4)
+            Field (WCRW, DWordAcc, NoLock, WriteAsZeros) { WSET, 32 }
+            Method (WIRS, 1, Serialized)
+            {
+                If (WSTA != 0x0F) { Return (Zero) }
+                If (Arg0 == Zero) {
+                    If ((WRST & 0x540) == Zero) { Return (One) }
+                    Return (Zero)
+                }
+                If (Arg0 != One) { Return (Zero) }
+                // Switchroot asserts PCIEX, then PEX, then AFI. Do not
+                // cycle the shared radio supply or the USB pad controller.
+                WSET = 0x400
+                WSET = 0x040
+                WSET = 0x100
+                Sleep (20)
+                Local0 = WRST
+                If (Local0 == 0xFFFFFFFF) { Return (Zero) }
+                If ((Local0 & 0x540) == 0x540) { Return (One) }
+                Return (Zero)
+            }
             Method (_STA, 0, NotSerialized)
             {
                 If ((WSTA == 0x0F)) { Return (0x0F) }

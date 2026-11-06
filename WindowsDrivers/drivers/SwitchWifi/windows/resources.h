@@ -49,4 +49,9 @@ VOID SwifiAfiInterruptMask(SWIFI_PCIE_RESOURCES *Bus, BOOLEAN Enable);
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiHoldEndpointReset(SWIFI_PCIE_RESOURCES *Bus);
 
+/* Evaluate the WFI0 firmware reset method. FALSE checks that the dedicated
+ * PCIEX, PEX and AFI resets are released; TRUE holds them as a last resort. */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS SwifiPlatformIsolation(WDFDEVICE Device, BOOLEAN AssertReset);
+
 #endif

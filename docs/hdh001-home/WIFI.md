@@ -1,12 +1,15 @@
 # HDH-001 Wi-Fi bring-up
 
-Wi-Fi is part of the active porting goal. It is not yet a working Windows adapter.
+An HDH-001 completed a pre-Windows scan. The Windows station driver now builds
+as `switchwifi.sys` and its signed package staged in ARM64 Windows PE 22621.1.
+Testing on the Lite remains pending. WPA association, key handling and IP
+connectivity are still in development.
 
 ## Verified source facts
 
 The Switchroot B01 board description selects BCM4356 FullMAC on PCIe root port index 1 (`pci@2,0`), using UPHY lane `pcie-0`. Port index 0 is disabled. The old SDIO commands in WifiBtApp are explicitly unsuitable for the Switch Wi-Fi path.
 
-The existing upstream `Drivers/WifiBtApp/WifiPcie.h` and `WifiPexStages.h` already implement draft PCIe link, endpoint BAR, backplane/chip and firmware-console stages. The shared source now includes msgbuf-v5 control/event rings and passive scanning. Association, packet transport and a Windows network adapter remain unfinished. Reuse this source rather than starting a parallel Lite implementation.
+The existing upstream `Drivers/WifiBtApp/WifiPcie.h` and `WifiPexStages.h` already implement draft PCIe link, endpoint BAR, backplane/chip and firmware-console stages. The shared source now includes msgbuf-v5 control/event rings and passive scanning. Windows reuses its protocol formats in the station driver.
 
 Switchroot's `tegra210b01_pcie_data` differs from Erista: it does not request the Erista PCIe IO-DPD and MBIST workarounds, and its lane configuration resolves to x4+x1. Power supplies are MAX77620 LDO1/SD3. Wi-Fi and Bluetooth share the chip and low-power clock. The shared PCIe entry configures only Wi-Fi pins, leaving Bluetooth/UART pinmux intact, and skips the Erista IO-DPD workaround on B01.
 
@@ -172,7 +175,7 @@ For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/
 
 The firmware blob, board calibration, MAC address and credentials are not committed. The PCIe radio path runs only in the explicit pre-Windows diagnostic; no Windows Wi-Fi driver is installed yet.
 
-The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. Firmware capabilities, scan/association/key operations and packet queues must be connected to that interface; a registered placeholder adapter would not establish functionality.
+The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. The driver publishes firmware capabilities, dispatches scans and implements packet queues. Association and key requests are the remaining control tasks.
 
 ## Primary references
 
@@ -211,10 +214,8 @@ DMA deletion. No periodic runtime polling timer is used.
 Native ASan/UBSan fixtures exercise wire messages, atomic ring-full/wrap behavior,
 packet ownership, command deadlines and event retention. WDK/KMDF 1.33 builds an
 ARM64 `SwitchWifiTransport.lib` including the Windows resource layer, chip loader
-and shared-session allocator. These are implemented components, not a linked or
-installed SYS/INF. Windows device callbacks, WiFiCx request dispatch/capability
-registration, connection/key management and OS packet queues still need binding
-and physical acceptance. No empty/placeholder network adapter is installed.
+and shared-session allocator. The station driver links the library with WiFiCx and
+NetAdapterCx. Its signed package stages in an ARM64 PE guest.
 
 The existing OOBE bypass only skips first-setup networking. It does not disable
 WLAN or account for the missing Windows Wi-Fi adapter.
@@ -259,10 +260,8 @@ returns WFI0 status 0 before readiness and 0x0F afterward, plus the expected
 resource buffer and HID. The interpreter reported four outstanding cache
 allocations at exit; WFI0 evaluations returned the expected values. Windows
 source compiles with WDK/KMDF into the ARM64 transport library. These are local
-artifacts only, not deployed or physically accepted. The Windows chip loader and
-shared-buffer publisher below are implemented; device lifecycle, WiFiCx request
-dispatch/registration, authentication and OS queues still require
-integration before a network adapter can be installed.
+artifacts only, not deployed or physically accepted. The Windows chip loader, shared-buffer publisher, device lifecycle and station
+queues are implemented. The physical firmware handoff remains untested.
 
 ## Windows chip-firmware loader
 
@@ -285,9 +284,8 @@ brcmfmac's `brcmf_pcie_select_core` sequence. No independent BAR0+0x2000 alias i
 assumed. The Windows loader refuses backplane-window changes while runtime access
 is pinned; only the quiesced stop path releases that constraint.
 
-Windows firmware startup is implemented but not yet hardware-tested. Device
-lifetime binding, WiFiCx request dispatch and association/data integration
-still need completion before a SYS/INF can be installed. This update contains
+Windows firmware startup, station creation and data queues have yet to run on
+the physical board. Association and key management remain unfinished. This update contains
 no firmware binary, calibration data or network credentials and has not been
 copied to the card.
 
@@ -325,11 +323,9 @@ joins workers before hardware reset; cancellation alone never authorizes DMA
 release. A recovery callback queues separate owner work rather than resetting
 inline from a DPC or a worker being flushed.
 
-This layer compiles into the ARM64 library. The WiFiCx callback still needs its
-own request dispatcher, capability registration and adapter/data-queue binding;
-the passive firmware execution API must not be called directly from a
-DISPATCH_LEVEL WiFiCx SendCommand callback. Windows networking and power-exit
-behavior remain unverified. The [driver integration contract](../../WindowsDrivers/drivers/SwitchWifi/README.md#windows-command-execution-and-event-workers)
-lists the required create/bind/start/stop ordering.
-
-The [Windows Wi-Fi lifecycle](../../WindowsDrivers/drivers/SwitchWifi/README.md#device-startup-power-and-radio-capabilities) now initializes WiFiCx with the station-adapter factory supplied by the device owner. Interrupt-enabled D0 startup obtains the firmware radio state and legal channels and publishes device, band and PHY capabilities. The command worker implements the software radio task using WDI TLV parsing, a masked firmware write, readback, radio-status indication and matching task completion. The capability and command components build for ARM64. The Windows scan/abort handlers use the shared UEFI escan format, with firmware-regulated channels and WDI BSS indications. Station creation, association, keys and packet queues remain in development. The Windows radio path awaits hardware acceptance.
+The [Windows Wi-Fi lifecycle](../../WindowsDrivers/drivers/SwitchWifi/README.md#device-startup-power-and-radio-capabilities) now initializes WiFiCx with the station-adapter factory supplied by the device owner. Interrupt-enabled D0 startup obtains the firmware radio state and legal channels and publishes device, band and PHY capabilities. The command worker implements the software radio task using WDI TLV parsing, a masked firmware write, readback, radio-status indication and matching task completion. The capability and command components build for ARM64. The Windows scan/abort handlers use the shared UEFI escan format, with firmware-regulated channels and WDI BSS indications. The KMDF device callbacks and station transmit/receive queues now link into
+the signed driver. The runtime-only `WIRS` method checks PCIEX/PEX/AFI reset
+state and can hold these dedicated reset lines if both endpoint halt and port
+reset fail. The Windows package staged in an isolated PE VM. The Lite has not
+received this runtime build. Authentication, key management and physical
+Windows radio/scan acceptance remain pending.

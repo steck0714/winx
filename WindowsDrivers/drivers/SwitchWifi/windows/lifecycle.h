@@ -13,6 +13,8 @@ typedef struct SWIFI_HARDWARE_CALLBACKS {
     /* DISPATCH_LEVEL under DataLock, after confirmed hardware stop/reset.
      * Cancel packet ownership into completion lists; do not call the OS yet. */
     VOID (*CancelDataAfterReset)(PVOID Context);
+    /* PASSIVE_LEVEL, after cancellation and endpoint reset. */
+    VOID (*ReleaseDataAfterReset)(PVOID Context);
     /* PASSIVE_LEVEL; copy any event data that must outlive the callback. */
     VOID (*Event)(PVOID Context, const swifi_event_completion *Event);
     /* <=DISPATCH_LEVEL, nonblocking. Queue owner recovery/PnP failure work.
@@ -22,6 +24,7 @@ typedef struct SWIFI_HARDWARE_CALLBACKS {
 
 typedef struct SWIFI_HARDWARE {
     WDFDEVICE Device;
+    KSPIN_LOCK ProtocolLock;
     WDFWORKITEM InitializeWork;
     WDFDMAENABLER Dma;
     SWIFI_PCIE_RESOURCES Bus;

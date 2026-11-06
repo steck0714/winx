@@ -122,7 +122,7 @@ VOID SwifiWinDeleteRingAfterReset(SWIFI_WIN_RING *Ring)
 }
 
 NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *T,
-    SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
+    PKSPIN_LOCK DataLock, SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
     USHORT H2dCount, SWIFI_WIN_RING D2h[3], const SWIFI_WIN_CALLBACKS *Callbacks,
     PVOID Context, PCM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt,
     PCM_PARTIAL_RESOURCE_DESCRIPTOR TranslatedInterrupt)
@@ -131,7 +131,7 @@ NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *T,
     WDF_DPC_CONFIG DpcConfig;
     WDF_OBJECT_ATTRIBUTES Attributes;
     NTSTATUS Status;
-    if (!Bus || !Bus->Host || !Registers || RegisterLength < 0x148 ||
+    if (!DataLock || !Bus || !Bus->Host || !Registers || RegisterLength < 0x148 ||
         !H2d || H2dCount < 2 || !D2h ||
         !Callbacks || !Callbacks->Dispatch || !Callbacks->Mailbox ||
         !Callbacks->Notify || !Callbacks->ScheduleRecovery ||
@@ -140,7 +140,7 @@ NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *T,
         TranslatedInterrupt->Type != CmResourceTypeInterrupt)
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(T, sizeof(*T));
-    KeInitializeSpinLock(&T->DataLock);
+    T->DataLock = DataLock;
     T->Registers = Registers;
     T->Bus = Bus;
     T->H2d = H2d;
@@ -250,9 +250,9 @@ static VOID SwifiDpc(WDFDPC Dpc)
     UCHAR Index, Step;
     BOOLEAN More = FALSE;
 
-    KeAcquireSpinLockAtDpcLevel(&T->DataLock);
+    KeAcquireSpinLockAtDpcLevel(T->DataLock);
     if (!T->Ready || !T->Armed) {
-        KeReleaseSpinLockFromDpcLevel(&T->DataLock);
+        KeReleaseSpinLockFromDpcLevel(T->DataLock);
         return;
     }
     Pending = (ULONG)InterlockedExchange(&T->Pending, 0);
@@ -274,7 +274,7 @@ static VOID SwifiDpc(WDFDPC Dpc)
         InterlockedExchange(&T->Faulted, 1);
         InterlockedExchange(&T->Ready, 0);
     }
-    KeReleaseSpinLockFromDpcLevel(&T->DataLock);
+    KeReleaseSpinLockFromDpcLevel(T->DataLock);
 
     /* Upper-stack completions may immediately submit another packet. */
     T->Callbacks.Notify(T->Context);
@@ -340,8 +340,8 @@ VOID SwifiWinQuiesceInterrupts(SWIFI_WIN_TRANSPORT *T)
     /* A TX callback may have passed Ready just before it was cleared. Join
      * that in-flight submission before the owner resets/frees DMA. Never
      * hold the ISR lock while waiting for the lower-IRQL protocol lock. */
-    KeAcquireSpinLock(&T->DataLock, &OldIrql);
-    KeReleaseSpinLock(&T->DataLock, OldIrql);
+    KeAcquireSpinLock(T->DataLock, &OldIrql);
+    KeReleaseSpinLock(T->DataLock, OldIrql);
     WdfDpcCancel(T->Dpc, TRUE);
 }
 

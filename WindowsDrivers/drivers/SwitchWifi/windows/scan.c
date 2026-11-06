@@ -25,7 +25,7 @@ struct SWIFI_SCAN {
     BOOLEAN Online, Poisoned, Draining, Live;
     WDI_PORT_ID Port;
     USHORT Sync;
-    ULONG Repeat;
+    ULONG Repeat, DisallowedBands;
     NTSTATUS DrainStatus;
     ULONGLONG Deadline, MaximumEnd, BatchEnd;
     WDFMEMORY DoneMemory;
@@ -275,6 +275,15 @@ static NTSTATUS AddChannel(SWIFI_SCAN *S, ULONG Channel, WDI_BAND_ID Band)
     return STATUS_SUCCESS;
 }
 
+NTSTATUS SwifiScanSetDisallowedBands(SWIFI_SCAN *S, ULONG Bands)
+{
+    WdfWaitLockAcquire(S->Lock, NULL);
+    NTSTATUS Status = S->DoneMemory ? STATUS_DEVICE_BUSY : STATUS_SUCCESS;
+    if (NT_SUCCESS(Status)) S->DisallowedBands = Bands;
+    WdfWaitLockRelease(S->Lock);
+    return Status;
+}
+
 static NTSTATUS ParseSpec(SWIFI_SCAN *S, const WDI_SCAN_PARAMETERS *P)
 {
     RtlZeroMemory(&S->Spec, sizeof(S->Spec));
@@ -327,6 +336,22 @@ static NTSTATUS ParseSpec(SWIFI_SCAN *S, const WDI_SCAN_PARAMETERS *P)
     S->Spec.PassiveMs = P->DwellTime.PassiveChannelDwellTime;
     S->MaximumEnd = P->DwellTime.MaximumScanTime ?
         KeQueryInterruptTime() + SCAN_MS(P->DwellTime.MaximumScanTime) : 0;
+    if (S->DisallowedBands) {
+        /* Keep an explicitly empty allowed set from turning into firmware's
+         * "all channels". Filtering applies to both explicit and wildcard scans. */
+        if (!S->Spec.ChannelCount) {
+            S->Spec.ChannelCount = S->Info->ChannelCount;
+            RtlCopyMemory(S->Spec.Channels, S->Info->Channels, S->Spec.ChannelCount);
+        }
+        ULONG Keep = 0;
+        for (ULONG I = 0; I < S->Spec.ChannelCount; ++I) {
+            UCHAR Ch = S->Spec.Channels[I];
+            if (!(S->DisallowedBands & (Ch <= 14 ? SWIFI_BAND_2GHZ : SWIFI_BAND_5GHZ)))
+                S->Spec.Channels[Keep++] = Ch;
+        }
+        if (!Keep) return STATUS_NOT_SUPPORTED;
+        S->Spec.ChannelCount = Keep;
+    }
     S->Repeat = P->ScanModeParameters.ScanRepeatCount;
     S->Live = P->ScanModeParameters.LiveUpdatesNeeded;
     return STATUS_SUCCESS;

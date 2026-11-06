@@ -110,6 +110,9 @@ swifi_result swifi_data_init(swifi_data *data, const swifi_data_ops *ops,
     swifi_packet_slot *tx, uint16_t tx_count,
     swifi_packet_slot *rx, uint16_t rx_count, uint16_t rx_data_offset);
 
+/* Returns UINT8_MAX for a priority outside the eight WMM user priorities. */
+uint8_t swifi_priority_fifo(uint8_t priority);
+
 /* ring is the firmware H2D ring number (2 + zero-based flow index). The
  * caller zeroes ring storage AND both indices before creating/reusing it.
  * Keep that allocation until CLOSED is reported or DMA is stopped/reset.

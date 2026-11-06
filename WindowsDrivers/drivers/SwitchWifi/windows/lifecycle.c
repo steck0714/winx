@@ -60,9 +60,10 @@ NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
     WDF_WORKITEM_CONFIG Config;
     NTSTATUS Status;
     if (!H || !Callbacks || !Callbacks->CreateAdapter || !Callbacks->DispatchData || !Callbacks->NotifyData ||
-        !Callbacks->CancelDataAfterReset || !Callbacks->Event || !Callbacks->ScheduleRecovery)
+        !Callbacks->CancelDataAfterReset || !Callbacks->ReleaseDataAfterReset || !Callbacks->Event || !Callbacks->ScheduleRecovery)
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(H, sizeof(*H));
+    KeInitializeSpinLock(&H->ProtocolLock);
     H->Device = Device;
     H->Callbacks = *Callbacks;
     H->Context = Context;
@@ -109,6 +110,10 @@ NTSTATUS SwifiHardwarePrepare(SWIFI_HARDWARE *H, WDFCMRESLIST Raw, WDFCMRESLIST 
     NTSTATUS Status, CleanupStatus;
     if (H->Prepared || H->Bus.Host || !H->InitializeWork || H->RequiresColdBoot)
         return STATUS_INVALID_DEVICE_STATE;
+    /* Refuse bus mastering against an old firmware lacking the last-resort
+     * controller reset. The non-mutating check runs while PCIEX is released. */
+    Status = SwifiPlatformIsolation(H->Device, FALSE);
+    if (!NT_SUCCESS(Status)) return Status;
     Status = SwifiMapResources(&H->Bus, Raw, Translated);
     if (!NT_SUCCESS(Status)) return Status;
     Status = SwifiWinCreateDma(H->Device, &H->Dma);
@@ -116,7 +121,7 @@ NTSTATUS SwifiHardwarePrepare(SWIFI_HARDWARE *H, WDFCMRESLIST Raw, WDFCMRESLIST 
     Status = InitializeSession(H);
     if (!NT_SUCCESS(Status)) goto Failed;
     /* This call remains in the PrepareHardware callback, not InitializeWork. */
-    Status = SwifiWinCreateTransport(H->Device, &H->Transport, &H->Bus,
+    Status = SwifiWinCreateTransport(H->Device, &H->Transport, &H->ProtocolLock, &H->Bus,
         SwifiChipRuntimeRegisters(&H->Chip), H->Chip.Bar0Length,
         H->Shared.H2d, H->Shared.MaxSubmit, H->Shared.D2h, &TransportCallbacks, H,
         &H->Bus.RawInterrupt, &H->Bus.TranslatedInterrupt);
@@ -196,6 +201,8 @@ NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
         Status = SwifiChipStopAfterQuiesce(&H->Chip);
         if (!NT_SUCCESS(Status)) {
             Status = SwifiHoldEndpointReset(&H->Bus);
+            if (!NT_SUCCESS(Status))
+                Status = SwifiPlatformIsolation(H->Device, TRUE);
             if (NT_SUCCESS(Status)) {
                 H->RequiresColdBoot = TRUE;
                 H->Chip.RuntimePinned = FALSE;
@@ -208,11 +215,12 @@ NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
     if (!NT_SUCCESS(Status))
         return Status; /* DMA/mappings remain owned; never free on uncertainty. */
     if (H->DataBound) {
-        KeAcquireSpinLock(&H->Transport.DataLock, &Irql);
+        KeAcquireSpinLock(&H->ProtocolLock, &Irql);
         H->Callbacks.CancelDataAfterReset(H->Context);
         H->DataBound = FALSE;
-        KeReleaseSpinLock(&H->Transport.DataLock, Irql);
+        KeReleaseSpinLock(&H->ProtocolLock, Irql);
         H->Callbacks.NotifyData(H->Context);
+        H->Callbacks.ReleaseDataAfterReset(H->Context);
     }
     if (H->ControlCreated)
         SwifiControlStoppedAfterReset(&H->Control);

@@ -134,11 +134,11 @@ NTSTATUS SwifiControlStart(SWIFI_WIN_CONTROL *C)
     swifi_result Result;
     if (!C->Bound || !C->Transport->Ready || !C->Transport->Armed || C->Running)
         return STATUS_INVALID_DEVICE_STATE;
-    KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+    KeAcquireSpinLock(C->Transport->DataLock, &Irql);
     KeClearEvent(&C->Stop);
     InterlockedExchange(&C->Running, 1);
     Result = swifi_control_refill_events(&C->Core);
-    KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+    KeReleaseSpinLock(C->Transport->DataLock, Irql);
     if (Result != SWIFI_OK && Result != SWIFI_RETRY) {
         ReportFault(C, ProtocolStatus(Result));
         return ProtocolStatus(Result);
@@ -188,7 +188,7 @@ NTSTATUS SwifiControlExecute(SWIFI_WIN_CONTROL *C, UCHAR IfIndex, ULONG Command,
     if (!C->Bound || !C->Running) { Status = STATUS_CANCELLED; goto Unlock; }
     Deadline = KeQueryInterruptTime() + SWIFI_COMMAND_TIMEOUT_100NS;
     for (;;) {
-        KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+        KeAcquireSpinLock(C->Transport->DataLock, &Irql);
         KeClearEvent(&C->RingProgress);
         KeClearEvent(&C->ReplyReady);
         if (!C->Running) {
@@ -197,7 +197,7 @@ NTSTATUS SwifiControlExecute(SWIFI_WIN_CONTROL *C, UCHAR IfIndex, ULONG Command,
             Result = swifi_control_command(&C->Core, IfIndex, Command, InputCopy,
                 InputLength, OutputLength, C, &RequestId);
         }
-        KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+        KeReleaseSpinLock(C->Transport->DataLock, Irql);
         if (Result != SWIFI_RETRY)
             break;
         Status = WaitFor(C, &C->RingProgress, Deadline);
@@ -213,9 +213,9 @@ NTSTATUS SwifiControlExecute(SWIFI_WIN_CONTROL *C, UCHAR IfIndex, ULONG Command,
     Status = WaitFor(C, &C->ReplyReady, Deadline);
     if (Status == STATUS_WAIT_0) { Status = STATUS_CANCELLED; goto Unlock; }
     if (Status == STATUS_TIMEOUT) {
-        KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+        KeAcquireSpinLock(C->Transport->DataLock, &Irql);
         Result = swifi_control_timeout(&C->Core, RequestId);
-        KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+        KeReleaseSpinLock(C->Transport->DataLock, Irql);
         if (Result == SWIFI_OK) { Fault = Status = STATUS_IO_TIMEOUT; goto Unlock; }
         /* Completion won the race with the deadline; consume that result. */
     } else if (Status != STATUS_WAIT_0 + 1) {
@@ -267,7 +267,7 @@ VOID SwifiControlNotify(SWIFI_WIN_CONTROL *C)
     BOOLEAN QueueEvent = FALSE, QueueMailbox = FALSE;
     swifi_result Result = SWIFI_OK;
     NTSTATUS Fault;
-    KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+    KeAcquireSpinLock(C->Transport->DataLock, &Irql);
     if (C->Bound && C->Running) {
         Result = swifi_control_refill_events(&C->Core);
         if (C->EventCount && !C->EventQueued) {
@@ -280,7 +280,7 @@ VOID SwifiControlNotify(SWIFI_WIN_CONTROL *C)
         }
     }
     Fault = (NTSTATUS)InterlockedExchange(&C->FaultPending, 0);
-    KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+    KeReleaseSpinLock(C->Transport->DataLock, Irql);
     KeSetEvent(&C->RingProgress, IO_NO_INCREMENT, FALSE);
     if (QueueEvent) WdfWorkItemEnqueue(C->EventWork);
     if (QueueMailbox) WdfWorkItemEnqueue(C->MailboxWork);
@@ -298,24 +298,24 @@ static VOID EventWorker(WDFWORKITEM Work)
         swifi_event_completion Event;
         swifi_result Result = SWIFI_OK;
         BOOLEAN Running;
-        KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+        KeAcquireSpinLock(C->Transport->DataLock, &Irql);
         if (!C->EventCount) {
             C->EventQueued = FALSE;
-            KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+            KeReleaseSpinLock(C->Transport->DataLock, Irql);
             return;
         }
         Event = C->Events[C->EventHead];
         C->EventHead = (UCHAR)((C->EventHead + 1) % SWIFI_EVENT_COUNT);
         --C->EventCount;
         Running = C->Running != 0;
-        KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+        KeReleaseSpinLock(C->Transport->DataLock, Irql);
         if (Running)
             C->Callbacks.Event(C->Context, &Event);
-        KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+        KeAcquireSpinLock(C->Transport->DataLock, &Irql);
         Result = swifi_control_release_event(&C->Core, Event.request_id);
         if (Result == SWIFI_OK && C->Running)
             Result = swifi_control_refill_events(&C->Core);
-        KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+        KeReleaseSpinLock(C->Transport->DataLock, Irql);
         if (Result != SWIFI_OK && Result != SWIFI_RETRY && Result != SWIFI_STOPPED)
             ReportFault(C, ProtocolStatus(Result));
     }
@@ -328,15 +328,15 @@ static VOID MailboxWorker(WDFWORKITEM Work)
     for (;;) {
         ULONG Flags;
         NTSTATUS Status;
-        KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+        KeAcquireSpinLock(C->Transport->DataLock, &Irql);
         Flags = C->MailboxPending;
         C->MailboxPending = 0;
         if (!Flags || !C->Running) {
             C->MailboxQueued = FALSE;
-            KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+            KeReleaseSpinLock(C->Transport->DataLock, Irql);
             return;
         }
-        KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+        KeReleaseSpinLock(C->Transport->DataLock, Irql);
         Status = SwifiSharedSendMailbox(C->Shared, Flags);
         if (!NT_SUCCESS(Status)) ReportFault(C, Status);
     }
@@ -367,7 +367,7 @@ VOID SwifiControlStoppedAfterReset(SWIFI_WIN_CONTROL *C)
     if (!C->Bound)
         return;
     NT_ASSERT(!C->Running && !C->EventQueued && !C->MailboxQueued);
-    KeAcquireSpinLock(&C->Transport->DataLock, &Irql);
+    KeAcquireSpinLock(C->Transport->DataLock, &Irql);
     swifi_control_stopped_after_reset(&C->Core);
     /* Workers are flushed and their callback contract never lends a pointer
      * past return. This also releases a retained slot after a queue fault. */
@@ -376,7 +376,7 @@ VOID SwifiControlStoppedAfterReset(SWIFI_WIN_CONTROL *C)
             (VOID)swifi_control_release_event(&C->Core, C->Core.events[I].request_id);
     C->Bound = FALSE;
     C->Shared = NULL;
-    KeReleaseSpinLock(&C->Transport->DataLock, Irql);
+    KeReleaseSpinLock(C->Transport->DataLock, Irql);
 }
 
 VOID SwifiControlDelete(SWIFI_WIN_CONTROL *C)

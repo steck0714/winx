@@ -39,7 +39,7 @@ typedef struct SWIFI_WIN_CALLBACKS {
 struct SWIFI_WIN_TRANSPORT {
     WDFINTERRUPT Interrupt;
     WDFDPC Dpc;
-    KSPIN_LOCK DataLock;
+    PKSPIN_LOCK DataLock; /* Device-lifetime lock shared with packet queues. */
     /* BAR0 pinned to the PCIe core before enabling interrupts. No window
      * changes until quiescence. Covers offsets 0x48, 0x4c, 0x140 and 0x144. */
     PUCHAR Registers;
@@ -80,7 +80,7 @@ VOID SwifiWinDeleteRingAfterReset(SWIFI_WIN_RING *Ring);
  * during D0Entry before KMDF enables interrupts. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiWinCreateTransport(WDFDEVICE Device, SWIFI_WIN_TRANSPORT *Transport,
-    SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
+    PKSPIN_LOCK DataLock, SWIFI_PCIE_RESOURCES *Bus, PUCHAR Registers, SIZE_T RegisterLength, SWIFI_WIN_RING *H2d,
     USHORT H2dCount, SWIFI_WIN_RING D2h[3], const SWIFI_WIN_CALLBACKS *Callbacks,
     PVOID Context, PCM_PARTIAL_RESOURCE_DESCRIPTOR RawInterrupt,
     PCM_PARTIAL_RESOURCE_DESCRIPTOR TranslatedInterrupt);

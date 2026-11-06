@@ -37,6 +37,12 @@ typedef struct SWIFI_SHARED {
     BOOLEAN DmaExposed;
 } SWIFI_SHARED;
 
+/* Common 32-bit DMA allocation; caller owns it up to confirmed completion/reset. */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS SwifiSharedCreateBuffer(WDFDMAENABLER Dma, SIZE_T Length, SWIFI_SHARED_BUFFER *Buffer);
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID SwifiSharedDeleteBuffer(SWIFI_SHARED_BUFFER *Buffer);
+
 /* After firmware startup, while bus mastering and interrupts are disabled.
  * Shared must be zero-initialized. Allocates all common rings, indices,
  * scratch/update areas and command/event buffers, then publishes their HAL
@@ -73,6 +79,10 @@ NTSTATUS SwifiSharedSendMailbox(SWIFI_SHARED *Shared, ULONG Flags);
  * table entry exists for a dynamic flow in the five-ring common table. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS SwifiSharedAllocateFlow(SWIFI_SHARED *Shared, USHORT RingId);
+
+/* Under the protocol lock, between a confirmed successful flow delete and reuse. */
+_IRQL_requires_(DISPATCH_LEVEL)
+VOID SwifiSharedRearmClosedFlow(SWIFI_WIN_RING *Ring);
 
 /* Matching successful delete completion (or endpoint reset) has stopped this
  * flow's DMA and all packets have been returned. It is now safe to free it. */

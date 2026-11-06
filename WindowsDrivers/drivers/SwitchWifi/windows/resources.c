@@ -2,6 +2,7 @@
 /* Tegra AFI configuration translation follows Switchroot pci-tegra.c and
  * the pre-Windows WifiPcie.h implementation. */
 #include "resources.h"
+#include <acpiioct.h>
 
 NTSTATUS SwifiMapResources(SWIFI_PCIE_RESOURCES *Bus,
     WDFCMRESLIST Raw, WDFCMRESLIST Translated)
@@ -181,4 +182,29 @@ NTSTATUS SwifiHoldEndpointReset(SWIFI_PCIE_RESOURCES *Bus)
         KeDelayExecutionThread(KernelMode, FALSE, &Delay);
     }
     return STATUS_IO_TIMEOUT;
+}
+
+NTSTATUS SwifiPlatformIsolation(WDFDEVICE Device, BOOLEAN AssertReset)
+{
+    ACPI_EVAL_INPUT_BUFFER_SIMPLE_INTEGER Input = {0};
+    ACPI_EVAL_OUTPUT_BUFFER Output = {0};
+    WDF_MEMORY_DESCRIPTOR In, Out;
+    WDF_REQUEST_SEND_OPTIONS Options;
+    ULONG_PTR Bytes = 0;
+    Input.Signature = ACPI_EVAL_INPUT_BUFFER_SIMPLE_INTEGER_SIGNATURE;
+    RtlCopyMemory(Input.MethodName, "WIRS", 4);
+    Input.IntegerArgument = AssertReset ? 1 : 0;
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&In, &Input, sizeof(Input));
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&Out, &Output, sizeof(Output));
+    WDF_REQUEST_SEND_OPTIONS_INIT(&Options, WDF_REQUEST_SEND_OPTION_TIMEOUT | WDF_REQUEST_SEND_OPTION_IGNORE_TARGET_STATE);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&Options, WDF_REL_TIMEOUT_IN_MS(1000));
+    NTSTATUS Status = WdfIoTargetSendIoctlSynchronously(WdfDeviceGetIoTarget(Device), NULL,
+        IOCTL_ACPI_EVAL_METHOD, &In, &Out, &Options, &Bytes);
+    if (!NT_SUCCESS(Status)) return Status;
+    if (Bytes < sizeof(Output) || Output.Signature != ACPI_EVAL_OUTPUT_BUFFER_SIGNATURE ||
+        Output.Length != sizeof(Output) || Output.Count != 1 ||
+        Output.Argument[0].Type != ACPI_METHOD_ARGUMENT_INTEGER ||
+        Output.Argument[0].DataLength != sizeof(ULONG) || Output.Argument[0].Argument != 1)
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    return STATUS_SUCCESS;
 }

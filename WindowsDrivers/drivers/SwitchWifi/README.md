@@ -31,14 +31,12 @@ handles at most 32 entries per completion ring, rotating which ring goes first;
 more work queues another DPC. Runtime traffic uses hardware interrupts, not a
 periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
-These components are host-tested and compile to an ARM64 KMDF static library. There is
-currently **no installable SwitchWifi.sys/INF and no Windows Wi-Fi option**.
-The shared device-creation helper initializes WiFiCx. The request worker handles
-software radio changes and station scans. DriverEntry, station creation, association,
-keys and NetAdapterCx packet queues still need integration and hardware acceptance. Do not add an empty network device or mark this driver as deployed.
-
-Skipping the network page during OOBE only allows first setup to continue offline;
-it does not create or disable the missing Wi-Fi driver.
+The ARM64 `switchwifi.sys` binds to the opt-in WFI0 device. Its WiFiCx station
+creates NetAdapterCx transmit and receive queues and handles radio, scan and
+abort commands. A 22621.1 ARM64 Windows PE VM added the signed package to its
+driver store. The board still uses its BasicDisplay boot profile. Windows
+scan results on HDH-001, association, key handling and IP traffic remain open.
+Skipping networking during OOBE only affects first setup.
 
 ## Packet ownership contract
 
@@ -256,6 +254,10 @@ optional query permit a capability fallback.
 On exit the owner cancels commands, joins interrupt and passive work, then
 halts the endpoint before releasing DMA buffers. If the normal stop fails,
 the board fallback holds the Wi-Fi port in reset and checks for link-down.
+If the endpoint and port both fail to acknowledge isolation, the WFI0
+`WIRS` method asserts PCIEX, PEX and AFI through Tegra CAR and reads back
+their reset bits. The driver checks for this method before enabling DMA.
+The last-resort reset and physical D0 teardown still require board testing.
 A successful fallback requires a fresh firmware boot for the next session.
 After control startup, `windows/capabilities.c` calls the WiFiCx device, band
 and PHY capability setters. It supplies the firmware’s sorted legal channel
@@ -275,8 +277,7 @@ with the WDK WiFiCx TLV library and the OS's negotiated WDI version. It saves
 the task header before completing M3, updates only the firmware's software
 radio-disable bit, queries the actual radio states and sends the radio status
 and task completion to Windows. Stop wakes pending firmware commands and joins
-this worker before clearing the radio state. The scan and abort handlers are described below. Association, keys and the
-station packet queues still need binding.
+this worker before clearing the radio state. The scan and abort handlers are described below.
 
 The static library includes the radio path and the allocation hooks used by
 `WificxTLVGenParse.lib`. No card deployment or Windows radio toggle is claimed.
@@ -304,12 +305,34 @@ so the TSF field is zero. Live updates are batched at three records or 500 ms.
 An abort sends the brcmfmac scan-abort command and waits for a terminal event
 before reusing the scanner. A missing terminal requires device recovery because
 some terminal events lack a sync ID. D0 exit joins the scan timer and returns
-any accepted WDI task. Windows scan delivery on the board awaits the station
-adapter and real hardware testing.
+any accepted WDI task. Physical WDI scan delivery on HDH-001 is pending.
 
 [Microsoft WDI frame-body example](https://github.com/microsoft/Windows-driver-samples/blob/main/network/wlan/WDI/PLATFORM/NDIS6/WDI_Common.c),
 [Windows scan task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-scan),
 [Switchroot escan](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c).
+
+## Windows station queues
+
+`windows/device.c` owns the KMDF PnP/power callbacks. WiFiCx calls
+`windows/adapter.c` to create and start one station with the firmware MAC
+and the assigned port ID. It starts disconnected. A net ring provides
+system-managed buffers in each direction. Private 32-bit DMA buffers isolate
+the lifetime of a Windows packet from a firmware completion. Canceling a
+queue returns its Windows buffers while firmware-owned storage survives
+until completion or confirmed reset.
+
+`windows/station_data.c` posts and completes packets through the shared
+msgbuf core. QoS traffic maps to four firmware FIFO flows when available.
+A closed flow can be reused only after both indices have been reset.
+Queue notifications run outside the protocol lock. `core/station_frame.c`
+translates native 802.11 station MSDUs to and from the chip’s Ethernet
+payloads. Fixtures cover EAPOL, QoS, multicast, length-framed LLC, RFC1042
+and bridge-tunnel SNAP. The station does not advertise authentication or
+cipher pairs until the association and key paths are implemented.
+
+[WiFiCx station initialization](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),
+[NetAdapterCx packet queues](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/transmit-and-receive-queues),
+[Receive MSDU format](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/wdi-receive-operations-and-offloads).
 
 ## Build and test
 
@@ -338,18 +361,24 @@ Shared EROM/NVRAM fixtures also cover extended/truncated descriptors, board-file
 packing and the RAMS aperture. They do not simulate KMDF or prove hardware
 interrupt/cache behavior.
 
-The script uses `clang-cl /kernel` for the portable core, transport, resource
-mapping, chip loader, shared session, command workers, hardware lifecycle and
-firmware queries with WDK/KMDF 1.33, then archives
-`SwitchWifiTransport.lib` for ARM64. `--kmdf-include`
-can specify separately extracted KMDF headers. This is not a linked, signed or
-installed SYS driver, and the new runtime transport is not hardware-accepted.
-The companion runtime Home firmware and WifiPrepare application also compile
-for AARCH64. ACPICA evaluation returns WFI0 status 0 before preparation and
-0x0F after the readiness-byte patch, with the three ranges and GSI above.
-The full-table interpreter reported four outstanding cache allocations on exit;
-the WFI0 evaluations themselves returned the expected values. No physical
-handoff, Windows interrupt delivery or Windows network connection is claimed.
+The build uses KMDF 1.33, NetAdapterCx 2.2 and WiFiCx 1.0. After the checks,
+link the ARM64 native driver with the class-extension and WDI TLV libraries:
+
+```sh
+python3 tools/link-driver.py --objects /path/to/output \
+  --kit /path/to/WindowsKits/10 --out /path/to/package
+```
+
+Use the matching WDK ARM64 libraries under `Lib/10.0.26100.0/km/ARM64`
+and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf` and
+generate and sign the catalog using `package/switchwifi.cdf` after signing
+the SYS. Use the exact INF bytes that generated the catalog.
+
+The test-signed package staged as `oem0.inf` in an isolated ARM64 Windows PE
+22621.1 guest. The VM had no BCM4356. Hardware acceptance requires a
+compatible firmware handoff, the private board files under
+`System32/drivers/SwitchWOA`, and an actual Windows scan on HDH-001. The
+runtime firmware and signed driver have not been deployed to WINARM.
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),
 [WiFiCx client model](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),
