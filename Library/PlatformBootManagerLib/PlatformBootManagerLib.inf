@@ -58,6 +58,8 @@
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   IoLib
+  I2cLib
+  TimerLib
   UefiLib
 
 [FeaturePcd]

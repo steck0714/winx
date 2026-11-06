@@ -3,6 +3,8 @@
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/IoLib.h>
+#include <Library/I2cLib.h>
+#include <Library/TimerLib.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <winarm-target.h>
 
@@ -10,6 +12,7 @@
 STATIC BOOLEAN IsWindowsPartition (EFI_HANDLE Handle);
 
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
+#include "../../Drivers/WifiBtApp/t214/power.h"
 /* The Hekate BL33 environment is reserved by the performance profile.
  * Configuration avoids VOL- being consumed by Hekate before BL33 starts. */
 STATIC UINT32
@@ -108,7 +111,7 @@ CheckWifiBeforeWindows (VOID)
   UINTN Count, I;
   EFI_STATUS Status;
   if (BootCheckMode ("wifi_check=") != 1) return;
-  Print (L"WIFI CHECK / CONFIG 1 / LOADER R4\r\nWindows will not start during this check.\r\n");
+  Print (L"WIFI CHECK / CONFIG 1 / LOADER R5\r\nWindows will not start during this check.\r\n");
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
   if (!EFI_ERROR (Status)) {
     Status = EFI_NOT_FOUND;
@@ -125,6 +128,16 @@ CheckWifiBeforeWindows (VOID)
         break;
       }
       EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *Console = gST->ConOut;
+      T214_PCIE_SUPPLY Supply;
+      ZeroMem (&Supply, sizeof (Supply));
+      i2c_init (I2C_5);
+      if ((MmioRead32 (0x70000804) & 0xFFF0) != 0x2120 || !T214PcieSupplyEnable (&Supply)) {
+        Print (L"PCIe supply preparation failed.\r\n");
+        T214PcieSupplyRestore (&Supply);
+        gBS->UnloadImage (Image);
+        Status = EFI_DEVICE_ERROR;
+        break;
+      }
       mWifiTraceLength = 0;
       mWifiTrace[0] = 0;
       mWifiOutput = Console->OutputString;
@@ -133,6 +146,14 @@ CheckWifiBeforeWindows (VOID)
       Console->OutputString = mWifiOutput;
       gBS->UnloadImage (Image);
       ReplayWifiOutput ();
+      Print (L"PCIe supply: before=%02x enabled=%02x POK=%02x\r\n",
+             Supply.Config, Supply.EnabledConfig, Supply.PowerStatus);
+      if (Supply.Changed) {
+        // Also cover an early PHY/link failure before the child marks PEX up.
+        MmioWrite32 (0x60006310, BIT10); // PCIEX reset, CAR RST_DEV_U_SET
+        gBS->Stall (20);
+      }
+      if (!T214PcieSupplyRestore (&Supply)) Print (L"PCIe supply restore failed.\r\n");
       break;
     }
     FreePool (Volumes);

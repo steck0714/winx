@@ -94,7 +94,27 @@ firmware/NVRAM on WINARM are unchanged. The R3 result confirmed that the probe r
 `Print()` truncated the replay at its configured 320-character limit. R4 sends
 the already-formatted tail directly through `OutputString`, preserving the
 end of the trace. R4 is deployed; the actual failing hardware stage is still
-pending an untruncated result.
+identified by the R4 result below.
+
+R4's complete tail reports **LAST STAGE 1: UPHY CAL_DONE timeout**, with PLL
+CTL2 `0x00000005`. B01 management-clock readback is `PLLP_MISC1=0x30000000`,
+`DIV=0x00000106`. This is before endpoint enumeration, chip firmware or scan.
+The first R4 launch was black before the logo; the owner retried and obtained
+the diagnostic result. That isolated startup failure has not been explained.
+
+Switchroot enables the PCIe supply regulators before clock/PHY initialization.
+The Home probe lacked that step. B01's board description assigns PCIe analog
+and PLL supplies to MAX77620 LDO1 at 1.0 V; SD3 is the shared 1.8 V rail.
+`t214/power.h` provides the R5 preparation in the explicit diagnostic boot path:
+observe SD3 without writing it, enable an off LDO1 at 1.0 V, wait for power-good,
+and preserve an already-powered 1.0-1.05 V shared supply. It restores the original
+LDO1/FPS state after the child exits, asserting PCIEX reset before releasing an
+acquired supply. This also covers failure before the child marks PEX up.
+
+R5 changes only Home BL33 and is deployed. The probe application/data on WINARM
+are unchanged. The supply policy builds and its focused model covers ramp,
+shared-rail preservation, restoration and I2C failures; physical power-good,
+calibration and link results remain pending.
 
 ## Build and focused checks
 
