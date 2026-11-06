@@ -111,4 +111,4 @@ runtime hardware state remain under investigation.
 
 ## Windows Wi-Fi packet core
 
-The shared [SwitchWifi packet core](../../drivers/SwitchWifi/README.md) now implements msgbuf-v5 flow-ring lifecycle, Ethernet TX/RX descriptors and buffer ownership. Host sanitizer checks and ARM64 Windows object compilation pass; WiFiCx registration, Windows DMA/interrupt transport, association/keys and OS packet queues remain unfinished. This source component is not installed on WINARM.
+The shared [SwitchWifi packet core](../../drivers/SwitchWifi/README.md) now implements msgbuf-v5 flow-ring lifecycle, Ethernet TX/RX descriptors and buffer ownership. The packet/ring integration fixtures pass under sanitizers. The KMDF DMA/interrupt transport compiles with WDK/KMDF 1.33 into an ARM64 static library. WiFiCx registration, PCIe/ACPI resource binding, firmware/shared-ring setup, association/keys and OS packet queues remain unfinished. These source components are not installed on WINARM.

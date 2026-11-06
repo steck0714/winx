@@ -1,7 +1,10 @@
-The msgbuf-v5 layouts and firmware sequencing are based on:
+The msgbuf-v5 layouts, ring ownership and PCIe interrupt sequencing are based on:
 
   Switchroot / brcmfmac, drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
   https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+
+  Switchroot / brcmfmac, drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+  https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
 
 Copyright (c) 2014 Broadcom Corporation
 

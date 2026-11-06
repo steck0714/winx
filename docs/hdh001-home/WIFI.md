@@ -207,3 +207,19 @@ was added to the card and no Windows networking acceptance is claimed.
 
 The existing OOBE bypass only skips first-setup networking. It does not disable
 WLAN or account for the missing Windows Wi-Fi adapter.
+
+The Windows runtime transport now includes producer/consumer ring handling,
+KMDF common-buffer allocation with HAL logical addresses, 16/32-bit host or TCM
+indices, a mailbox ISR and bounded DPC dispatch. It masks/acknowledges interrupt
+causes, drains at most 32 items per completion ring per DPC, and closes the
+masked-arrival/rearm race. Upper-stack notifications occur outside the protocol
+lock. Stop joins in-flight submissions and cancels/waits for the DPC before the
+caller resets hardware and releases DMA; post-reset object deletion does not
+access endpoint registers. There is no runtime polling timer or UEFI-style
+AFI-ASID bypass.
+
+Sanitized ring/packet integration fixtures pass, and the WDK/KMDF 1.33 runtime
+source builds into `SwitchWifiTransport.lib` for ARM64. This is a linkable source
+component, not a SYS/INF or physical Windows acceptance. Device resource binding,
+firmware/shared-buffer setup, WiFiCx registration, authentication and OS queues
+remain required before deploying a Windows adapter.
