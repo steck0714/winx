@@ -17,16 +17,16 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | SD / boot | NTFS bounded writes and cold reads passed; Home 23H2 desktop reached | Reliable read/write and cold boot within the selected 80 GiB target |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
-| Backlight | Paired PWM0 firmware, fan 1.0.0.5 and brightness tool deployed; next-boot activation pending | Brightness adjustment and display off/on; fan PWM1 stays independent |
-| Audio | 1.0.0.8 playback was silent despite active transfers; pad correction and 1.0.0.9 diagnostics deployed, activation pending | Audible stereo speakers, headphones and jack switching; no added boot test tone |
+| Backlight | Owner confirmed that the deployed brightness buttons work; display off/on remains untested | Brightness adjustment and display off/on; fan PWM1 stays independent |
+| Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Shared packages integrated; full function not confirmed | Battery/charging telemetry, retained RTC offset, power and volume inputs |
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed | Discovery, pairing, data exchange and usable range |
 | USB | Upstream firmware paths exist; Lite Windows support unfinished | Device enumeration and keyboard/storage operation through the supported host path |
 | Built-in controls / motion | Lite SIO owns SPI4; Erista direct-SPI sensor profile is unsuitable | Lite SIO transport, button/stick input and sensor reports |
 | Wi-Fi | B01 PHY/clock/radio adaptation and NVRAM loader build; PCIe module remains outside the Home package | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
-| Paging | Fixed-boot SD ACPI description deployed; 512–2048 MB request preserved | Persistent pagefile creation without the startup warning |
+| Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
-| Power lifecycle | Restart has previously hung | Repeatable shutdown/restart and supported display power transitions |
+| Power lifecycle | Owner confirms black-screen shutdown without power-off; replacement BL31 failed pre-Windows boot and was rolled back | Repeatable shutdown/restart and supported display power transitions |
 
 ## Execution order
 
