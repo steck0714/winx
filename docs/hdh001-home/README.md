@@ -151,3 +151,11 @@ On the existing offline Home installation, DISM Add-Driver staged 1.0.0.8 while 
 At the owner's request, the offline SYSTEM hive sets `ControlSet001\Control\Session Manager\Memory Management\PagingFiles` to the REG_MULTI_SZ value `C:\pagefile.sys 512 2048`: 512 MB initial, 2048 MB maximum. The prior setting was system-managed (`0 0`) with TempPageFile=1 and no persistent pagefile visible after shutdown. The new allocation is created by Windows at its next boot; the stale temporary-pagefile indicator is not forcibly cleared to hide a creation failure. Setup and BCD are preserved.
 
 The native units and registry mapping are documented by [Win32_PageFileSetting](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-pagefilesetting).
+
+## R2 hardware follow-up: startup sound
+
+The next physical boot bound audio 1.0.0.8, cleared the reinstall flag and read all recorded codec registers successfully. Jack=0 selected the speakers, SPK_VOL=0x1414 was unmuted, and ADMA completed 439 periods. These observations establish driver activation and data-path activity, not audible playback.
+
+The owner clarified that only the Windows startup sound had been checked. The offline SOFTWARE hive had `Microsoft\Windows\CurrentVersion\Authentication\LogonUI\BootAnimation\DisableStartupSound=1`, with no overriding sound policy. The normal startup sound is enabled by setting this value to 0. The optional driver TestTone remains 0. No additional driver or firmware change is made for this configuration correction. Desktop playback and headphone output remain untested.
+
+The same boot read CPU 1996.8 MHz and RAM 1866 MHz. BPMP rounded below the 2100 MHz request, so the firmware correctly reported a target mismatch rather than claiming 2100 MHz success.
