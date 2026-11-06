@@ -86,6 +86,12 @@ collecting the result to restore normal Windows launch. A completed scan is
 not a Windows network connection; physical PCIe/firmware/scan results remain
 pending.
 
+The R2 physical run returned `Device Error`; its final photograph retained
+only the parent status, so the exact child failure stage is unknown. Loader
+R3 captures the child console output and reprints the last 12 lines after
+image exit. This diagnostic changes only Home BL33; the R2 application and
+firmware/NVRAM on WINARM are unchanged. It is deployed for stage identification.
+
 ## Build and focused checks
 
 From the configured EDK2 workspace, build the command module with:

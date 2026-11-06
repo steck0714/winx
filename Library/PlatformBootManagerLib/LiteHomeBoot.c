@@ -51,6 +51,52 @@ CheckPowerBeforeWindows (VOID)
 }
 
 STATIC VOID
+ReplayWifiOutput (VOID);
+
+STATIC EFI_TEXT_STRING mWifiOutput;
+STATIC CHAR16 mWifiTrace[8192];
+STATIC UINTN mWifiTraceLength;
+
+STATIC EFI_STATUS EFIAPI
+CaptureWifiOutput (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, CHAR16 *Text)
+{
+  UINTN Length = StrLen (Text);
+  UINTN Capacity = ARRAY_SIZE (mWifiTrace) - 1;
+  if (Length >= Capacity) {
+    CopyMem (mWifiTrace, Text + Length - Capacity, Capacity * sizeof (CHAR16));
+    mWifiTraceLength = Capacity;
+  } else {
+    if (mWifiTraceLength + Length > Capacity) {
+      UINTN Drop = mWifiTraceLength + Length - Capacity;
+      CopyMem (mWifiTrace, mWifiTrace + Drop, (mWifiTraceLength - Drop) * sizeof (CHAR16));
+      mWifiTraceLength -= Drop;
+    }
+    CopyMem (mWifiTrace + mWifiTraceLength, Text, Length * sizeof (CHAR16));
+    mWifiTraceLength += Length;
+  }
+  mWifiTrace[mWifiTraceLength] = 0;
+  return mWifiOutput (This, Text);
+}
+
+STATIC VOID
+ReplayWifiOutput (VOID)
+{
+  if (mWifiTraceLength == 0) {
+    Print (L"Probe returned without console output.\r\n");
+    return;
+  }
+  // Child-image exit can restore/clear the console. Reprint its last lines
+  // from the parent so the actual failing stage remains visible afterwards.
+  UINTN Start = mWifiTraceLength;
+  UINTN Lines = 0;
+  while (Start > 0) {
+    --Start;
+    if (mWifiTrace[Start] == '\n' && ++Lines == 12) { ++Start; break; }
+  }
+  Print (L"Wi-Fi probe output (last lines):\r\n%s\r\n", mWifiTrace + Start);
+}
+
+STATIC VOID
 CheckWifiBeforeWindows (VOID)
 {
   STATIC CHAR16 ProbePath[] = L"\\SwitchWOA\\WifiProbe\\WifiProbe.efi";
@@ -58,7 +104,7 @@ CheckWifiBeforeWindows (VOID)
   UINTN Count, I;
   EFI_STATUS Status;
   if (BootCheckMode ("wifi_check=") != 1) return;
-  Print (L"WIFI CHECK / CONFIG 1\r\nWindows will not start during this check.\r\n");
+  Print (L"WIFI CHECK / CONFIG 1 / LOADER R3\r\nWindows will not start during this check.\r\n");
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
   if (!EFI_ERROR (Status)) {
     Status = EFI_NOT_FOUND;
@@ -74,8 +120,15 @@ CheckWifiBeforeWindows (VOID)
         Print (L"LoadImage %s: %r\r\n", ProbePath, Status);
         break;
       }
+      EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *Console = gST->ConOut;
+      mWifiTraceLength = 0;
+      mWifiTrace[0] = 0;
+      mWifiOutput = Console->OutputString;
+      Console->OutputString = CaptureWifiOutput;
       Status = gBS->StartImage (Image, NULL, NULL);
+      Console->OutputString = mWifiOutput;
       gBS->UnloadImage (Image);
+      ReplayWifiOutput ();
       break;
     }
     FreePool (Volumes);
