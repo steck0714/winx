@@ -29,6 +29,8 @@ for %%N in (%drivers%) do (
 )
 pnputil /scan-devices
 if errorlevel 1 exit /b 1
+call :tools "%PUBLIC%\Desktop"
+if errorlevel 1 exit /b 1
 if "%reboot%"=="1" exit /b 3010
 exit /b 0
 
@@ -58,6 +60,12 @@ for %%N in (%drivers%) do (
   set "reboot=1"
  ) else if errorlevel 1 exit /b 1
 )
+for %%H in (SWOA0402 SWOA0C01) do (
+ call :device-rebind "%vol%" %%H
+ if errorlevel 1 exit /b 1
+)
+call :tools "%vol%\Users\Public\Desktop"
+if errorlevel 1 exit /b 1
 if "%reboot%"=="1" exit /b 3010
 exit /b 0
 
@@ -74,3 +82,32 @@ if not exist "%~dp0Firmware\BCM4356A3.hcd" (
 if not exist "%~1\System32\drivers\SwitchWOA" mkdir "%~1\System32\drivers\SwitchWOA"
 copy /y "%~dp0Firmware\BCM4356A3.hcd" "%~1\System32\drivers\SwitchWOA\BCM4356A3.hcd" >nul || exit /b 1
 exit /b 0
+
+:tools
+if not exist "%~dp0LitePerformanceCheck.exe" exit /b 0
+if not exist "%~1" mkdir "%~1"
+copy /y "%~dp0LitePerformanceCheck.exe" "%~1\LitePerformanceCheck.exe" >nul || exit /b 1
+exit /b 0
+
+:device-rebind
+rem DISM stages packages; an existing devnode also needs reinstallation.
+setlocal EnableDelayedExpansion
+set "fanHive=LiteDeviceUpdate%RANDOM%%RANDOM%"
+reg load "HKLM\!fanHive!" "%~1\Windows\System32\config\SYSTEM" >nul || exit /b 1
+set "current="
+for /f "tokens=1,2,3" %%A in ('reg query "HKLM\!fanHive!\Select" /v Current 2^>nul') do if /i "%%A"=="Current" set /a "current=%%C" >nul
+if not defined current goto device-unload-fail
+set "cs=00!current!"
+set "node=HKLM\!fanHive!\ControlSet!cs:~-3!\Enum\ACPI\%~2\0"
+reg query "!node!" >nul 2>&1
+if errorlevel 1 goto device-unload-ok
+set "flags=0"
+for /f "tokens=1,2,3" %%A in ('reg query "!node!" /v ConfigFlags 2^>nul') do if /i "%%A"=="ConfigFlags" set /a "flags=%%C" >nul
+set /a "flags=flags | 0x20" >nul
+reg add "!node!" /v ConfigFlags /t REG_DWORD /d !flags! /f >nul || goto device-unload-fail
+:device-unload-ok
+reg unload "HKLM\!fanHive!" >nul || exit /b 1
+exit /b 0
+:device-unload-fail
+reg unload "HKLM\!fanHive!" >nul
+exit /b 1

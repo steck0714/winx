@@ -3973,6 +3973,7 @@ STATIC UINTN R390UartEvent (UINT8 *Buf, UINTN Max, UINTN TimeoutMs) {
 
 STATIC BOOLEAN mR395CodecAnswers;
 STATIC BOOLEAN mLiteAudioProfile;
+#include "t214/audio-pads.h"
 
 STATIC BOOLEAN R393CodecRead16 (UINT8 Reg, UINT16 *Value) {
   UINT8 Buf[2] = { 0, 0 };
@@ -4298,9 +4299,10 @@ STATIC BOOLEAN R395AudioTone (BOOLEAN PlayTone) {
          Car[CAR_CLK_SOURCE_I2S1 / 4]);
 
   // DAP1 pins to I2S1 (function 0), Tegra drives SCLK, FS and DOUT.
-  Pin[PINMUX_DAP1_FS / 4] = PINMUX_PULL_DOWN_BITS | PINMUX_INPUT_EN_BIT;
-  Pin[PINMUX_DAP1_SCLK / 4] = PINMUX_PULL_DOWN_BITS | PINMUX_INPUT_EN_BIT;
-  Pin[PINMUX_DAP1_DOUT / 4] = PINMUX_PULL_DOWN_BITS;
+  // Switchroot's Vali pinmux uses no pull/input on the driven DAP1 pins.
+  Pin[PINMUX_DAP1_FS / 4] = mLiteAudioProfile ? 0 : PINMUX_PULL_DOWN_BITS | PINMUX_INPUT_EN_BIT;
+  Pin[PINMUX_DAP1_SCLK / 4] = mLiteAudioProfile ? 0 : PINMUX_PULL_DOWN_BITS | PINMUX_INPUT_EN_BIT;
+  Pin[PINMUX_DAP1_DOUT / 4] = mLiteAudioProfile ? 0 : PINMUX_PULL_DOWN_BITS;
   Pin[PINMUX_DAP1_DIN / 4] = PINMUX_PULL_DOWN_BITS | PINMUX_TRISTATE_BIT | PINMUX_INPUT_EN_BIT;
   R366GpioSet (GPIO_PB_OFFSET, GPIO_CNF, 0, FALSE);
   R366GpioSet (GPIO_PB_OFFSET, GPIO_CNF, 1, FALSE);
@@ -4413,9 +4415,12 @@ EFI_STATUS EFIAPI LiteAudioInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *Syste
   volatile UINT32 *Pmc = (volatile UINT32 *)PMC_BASE;
   UINT32 Power = 1U << PMC_PG_APE_BIT;
   UINTN Poll;
+  EFI_STATUS PadStatus;
 
   if ((MmioRead32 (0x70000804) & 0xFFF0) != 0x2120) return EFI_UNSUPPORTED;
   mLiteAudioProfile = TRUE;
+  PadStatus = LiteAudioPreparePads ();
+  if (EFI_ERROR (PadStatus)) return PadStatus;
   // Follow the Hekate PMC power-up sequence. The Erista MBIST workaround is
   // not required on T210B01. Do not access AHUB/I2S until power and clocks exist.
   if ((Pmc[PMC_PWRGATE_STATUS / 4] & Power) == 0) {

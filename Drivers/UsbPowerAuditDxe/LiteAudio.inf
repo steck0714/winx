@@ -8,6 +8,7 @@
 
 [Sources.common]
   UsbPowerAudit.c
+  t214/audio-pads.h
 
 [Packages]
   MdePkg/MdePkg.dec

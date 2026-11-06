@@ -1,0 +1,59 @@
+# HDH-001 driver porting goal
+
+The goal is a usable Windows 11 ARM64 Home system on Switch Lite HDH-001:
+adapt the applicable upstream drivers and add Wi-Fi using Switchroot's Linux
+implementation and board descriptions as hardware references. A successful
+build or package installation is not hardware acceptance.
+
+Shared drivers remain in their upstream directories. Only SoC-dependent code
+belongs under `t214`. Source, build notes and review descriptions are English.
+The sole Hekate Windows entry is **Lite Windows 11 Home**. Existing FAT32,
+Ubuntu, Android, emuMMC and WINARM data must be preserved.
+
+## Current work and acceptance
+
+| Area | Evidence / current gap | Acceptance |
+|---|---|---|
+| SD / boot | NTFS bounded writes and cold reads passed; Home 23H2 desktop reached | Reliable read/write and cold boot within the selected 80 GiB target |
+| GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
+| CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
+| Backlight | Shared PWM0 control adaptation builds; not yet deployed | Brightness adjustment and display off/on; fan PWM1 stays independent |
+| Audio | 1.0.0.8 bound, codec readback and ADMA/I2S active; owner confirmed silent speakers during Windows Settings playback | Audible stereo speakers, headphones and jack switching; no added boot test tone |
+| Battery / RTC / buttons | Shared packages integrated; full function not confirmed | Battery/charging telemetry, retained RTC offset, power and volume inputs |
+| Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed | Discovery, pairing, data exchange and usable range |
+| USB | Upstream firmware paths exist; Lite Windows support unfinished | Device enumeration and keyboard/storage operation through the supported host path |
+| Built-in controls / motion | Lite SIO owns SPI4; Erista direct-SPI sensor profile is unsuitable | Lite SIO transport, button/stick input and sensor reports |
+| Wi-Fi | Added to goal; Switchroot describes BCM4356 over PCIe port 1, lane 0 | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
+| Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
+| Power lifecycle | Restart has previously hung | Repeatable shutdown/restart and supported display power transitions |
+
+## Execution order
+
+1. Diagnose the confirmed speaker-silence path against Switchroot codec,
+   I2S, clock and pad setup; finish and package shared backlight control.
+2. Close input, power and existing-driver gaps using physical traces.
+3. Bring up the Wi-Fi PCIe transport, then its firmware protocol and Windows
+   networking integration. Keep Bluetooth coexistence and the shared chip's
+   power/reset state intact.
+4. Complete USB and Lite SIO/control/sensor integration according to their
+   hardware prerequisites; do not load the Erista sensor profile on Lite.
+5. Run focused physical acceptance for each device and document remaining
+   limitations. Update the existing firmware and driver PRs rather than
+   creating parallel Lite source trees or replacement review branches.
+
+Detailed Wi-Fi dependencies are tracked in [WIFI.md](WIFI.md).
+
+## Linux / Switchroot references
+
+- [Lite device tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/tegra210b01-vali.dts)
+- [B01 board wiring, PCIe and audio](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi)
+- [Lite pinmux](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-pinmux.dtsi)
+- [RT5639/RT5640 codec](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/sound/soc/codecs/rt5640.c)
+- [Tegra I2S](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/linux-5.1.2/sound/soc/tegra-alt/tegra210_i2s_alt.c)
+- [B01 PMC pads and power](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/soc/tegra/pmc.c)
+- [brcmfmac PCIe transport](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c)
+
+Linux provides register sequences, protocol behavior and board constraints.
+The port must supply the corresponding Windows ACPI, KMDF/SPB, HID,
+PortCls and networking interfaces. Board-specific firmware blobs and private
+identifiers are supplied locally rather than committed to the source tree.

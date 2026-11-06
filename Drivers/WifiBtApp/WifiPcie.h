@@ -143,6 +143,11 @@ STATIC UINT32   mPexRstRun = 1;       // level of WIFI_RST (PH1) that means "chi
 STATIC UINT32   mPexGen2   = 0;       // retrain to Gen2 after link-up (default: stay Gen1)
 STATIC UINT32   mUphyLanes = BIT0;    // PEX lanes whose IDDQ is released (lane0 = Wi-Fi). USB3 will need lanes 5/6.
 
+STATIC BOOLEAN PexIsB01 (VOID)
+{
+  return (MmioRead32 (0x70000804UL) & 0xFFF0U) == 0x2120U;
+}
+
 STATIC
 VOID
 Rm (

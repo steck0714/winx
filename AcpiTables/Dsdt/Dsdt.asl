@@ -189,7 +189,11 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_HID, "NVDA0101")
             Name (_CID, "NVD0D40")
             Name (_CCA, Zero)
+#ifdef SWITCH_LITE_BOOT_SD
+            Name (_RMV, Zero)
+#else
             Name (_RMV, One)
+#endif
 #else
             Method (_HID, 0, NotSerialized)
             {
@@ -208,6 +212,16 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             {
                 Return (0x0F)
             }
+#ifdef SWITCH_LITE_BOOT_SD
+            // SDPORT evaluates the slot child, not just the controller _RMV.
+            // Home's boot card stays installed for the entire Windows session.
+            // Slot 0 / memory function 0. Physical removal is shutdown-only.
+            Device (CARD)
+            {
+                Name (_ADR, Zero)
+                Name (_RMV, Zero)
+            }
+#endif
         }
 
         // eMMC (internal storage, SDMMC4). Base/length/IRQ cross-
@@ -808,8 +822,12 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_CRS, ResourceTemplate ()
             {
                 #ifdef SWITCH_LITE_FAN
-                // Expose only PWM1; the Lite fan driver cannot access PWM0/backlight.
+                // Dedicated PWM1 keeps Lite identification and fan control stable.
                 Memory32Fixed (ReadWrite, 0x7000A010, 0x00000004)
+#ifdef SWITCH_LITE_BACKLIGHT
+                // Lite LCD brightness: PWM0/PV0, separate from the fan register.
+                Memory32Fixed (ReadWrite, 0x7000A000, 0x00000004)
+#endif
 #ifdef SWITCH_LITE_PERFORMANCE
                 Memory32Fixed (ReadWrite, 0x60006000, 0x00000100)
                 Memory32Fixed (ReadOnly,  0xA9FB0000, 0x00001000)

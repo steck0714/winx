@@ -8,6 +8,8 @@
 
 [Sources]
   WifiBt.c
+  WifiPcie.h
+  WifiPexStages.h
 
 [Packages]
   MdePkg/MdePkg.dec

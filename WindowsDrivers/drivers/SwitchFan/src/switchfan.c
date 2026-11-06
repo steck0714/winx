@@ -1,16 +1,15 @@
-/* Shared Nintendo Switch fan driver. Erista retains its backlight interface;
- * T214/HDH-001 is detected from its PWM1-only ACPI resource and uses the
- * optional t214 clock helper. Sensor configuration is model-specific.
+/* Shared Nintendo Switch fan/backlight driver. T214/HDH-001 is detected
+ * from its dedicated PWM1 resource. New Lite firmware can additionally
+ * expose PWM0 for backlight control. Clock/sensor setup is model-specific.
  */
 #include <ntddk.h>
 #include <ntstrsafe.h>
 #include <wdf.h>
 #include <spb.h>
 #include "t214/performance.h"
+#include "backlight.h"
 
 #define PWM_CSR_0        0x00
-#define BACKLIGHT_MIN    8u
-#define BACKLIGHT_MAX    255u
 #define IOCTL_SWBL_GET   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_READ_ACCESS)    /* 0x00226040 */
 #define IOCTL_SWBL_SET   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x811, METHOD_BUFFERED, FILE_WRITE_ACCESS)   /* 0x0022A044 */
 
@@ -39,6 +38,9 @@ typedef struct _SWFAN_DEVICE {
     ULONG PwmLength;
     ULONG FanOffset;
     BOOLEAN IsLite;
+    volatile UCHAR *BacklightPwm;
+    ULONG BacklightLength;  /* zero when this aliases the Erista PWM map */
+    BOOLEAN BacklightReady;
     WDFWAITLOCK BacklightLock;
     PVOID DisplayCallback;
     ULONG Brightness, DisplayState;
@@ -248,15 +250,10 @@ static ULONG SwFanReadParam(PCWSTR Name, ULONG Default)
 /* CSR_0 from the brightness and the display state. Caller holds BacklightLock. */
 static ULONG SwFanApplyBacklight(PSWFAN_DEVICE Dev)
 {
-    ULONG Duty = Dev->Brightness;
-    if (Dev->IsLite) return 0;
-    if (Dev->DisplayState == 0) {
-        Duty = 0;
-    } else if (Dev->DisplayState == 2) {
-        Duty = (Duty / 3 < BACKLIGHT_MIN) ? BACKLIGHT_MIN : Duty / 3;
-    }
-    if (Dev->Pwm != NULL) {
-        WRITE_REGISTER_ULONG((PULONG)(Dev->Pwm + PWM_CSR_0), PWM_CSR_EN | (Duty << 16));
+    ULONG Duty = SwBacklightDuty(Dev->Brightness, Dev->DisplayState);
+    if (Dev->BacklightPwm != NULL) {
+        PULONG Csr = (PULONG)(Dev->BacklightPwm + PWM_CSR_0);
+        WRITE_REGISTER_ULONG(Csr, SwBacklightCsr(READ_REGISTER_ULONG(Csr), Duty));
     }
     SwFanTrace(L"BacklightDuty", Duty);
     return Duty;
@@ -283,15 +280,16 @@ VOID SwFanEvtIoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLengt
     UNREFERENCED_PARAMETER(OutLength);
     UNREFERENCED_PARAMETER(InLength);
 
-    if (Dev->IsLite) { WdfRequestComplete(Request, STATUS_NOT_SUPPORTED); return; }
     WdfWaitLockAcquire(Dev->BacklightLock, NULL);
-    if (Code == IOCTL_SWBL_GET) {
+    if (Dev->BacklightPwm == NULL) {
+        Status = STATUS_NOT_SUPPORTED;
+    } else if (Code == IOCTL_SWBL_GET) {
         SWBL_STATUS *Out;
         Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(*Out), (PVOID *)&Out, NULL);
         if (NT_SUCCESS(Status)) {
             Out->Version = 2;
             Out->Brightness = Dev->Brightness;
-            Out->Duty = (Dev->Pwm != NULL) ? (READ_REGISTER_ULONG((PULONG)(Dev->Pwm + PWM_CSR_0)) >> 16) & 0x7FFF : 0;
+            Out->Duty = (READ_REGISTER_ULONG((PULONG)(Dev->BacklightPwm + PWM_CSR_0)) >> 16) & 0x7FFF;
             Out->DisplayState = Dev->DisplayState;
             Info = sizeof(*Out);
         }
@@ -300,7 +298,7 @@ VOID SwFanEvtIoDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutLengt
         Status = WdfRequestRetrieveInputBuffer(Request, sizeof(ULONG), (PVOID *)&In, NULL);
         if (NT_SUCCESS(Status)) {
             ULONG Level = *In;
-            Dev->Brightness = (Level < BACKLIGHT_MIN) ? BACKLIGHT_MIN : (Level > BACKLIGHT_MAX) ? BACKLIGHT_MAX : Level;
+            Dev->Brightness = SwBacklightClamp(Level);
             SwFanTrace(L"Brightness", Dev->Brightness);     /* also what the next boot restores */
             (VOID)SwFanApplyBacklight(Dev);
         }
@@ -330,6 +328,10 @@ NTSTATUS SwFanEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIS
                 if (Dev->Pwm == NULL) return STATUS_INSUFFICIENT_RESOURCES;
                 Dev->PwmLength = sizeof(ULONG);
                 Dev->FanOffset = 0; Dev->IsLite = TRUE;
+            } else if (Desc->u.Memory.Start.QuadPart == 0x7000A000 && Desc->u.Memory.Length == sizeof(ULONG)) {
+                Dev->BacklightPwm = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, sizeof(ULONG), PAGE_READWRITE | PAGE_NOCACHE);
+                if (Dev->BacklightPwm == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+                Dev->BacklightLength = sizeof(ULONG);
             } else if (Desc->u.Memory.Start.QuadPart == 0x7000A000 && Desc->u.Memory.Length >= 0x20) {
                 Dev->Pwm = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, Desc->u.Memory.Length, PAGE_READWRITE | PAGE_NOCACHE);
                 if (Dev->Pwm == NULL) return STATUS_INSUFFICIENT_RESOURCES;
@@ -362,6 +364,8 @@ NTSTATUS SwFanEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIS
     if (Dev->Pwm == NULL || !HaveSensor) {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
+    if (!Dev->IsLite) Dev->BacklightPwm = Dev->Pwm;
+    SwFanTrace(L"BacklightAvailable", Dev->BacklightPwm != NULL);
     SwFanTrace(L"CpuRequestedKhz", Dev->Config.CpuKhz);
     SwFanTrace(L"RamRequestedKhz", Dev->Config.RamKhz);
     SwFanTrace(L"RamActualKhz", Dev->Config.RamActualKhz);
@@ -378,6 +382,22 @@ NTSTATUS SwFanEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
 {
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     UNREFERENCED_PARAMETER(Translated);
+    /* Power notifications run outside the WDF queue: drain them before unmap. */
+    if (Dev->DisplayCallback != NULL) {
+        (VOID)PoUnregisterPowerSettingCallback(Dev->DisplayCallback);
+        Dev->DisplayCallback = NULL;
+    }
+    WdfWaitLockAcquire(Dev->BacklightLock, NULL);
+    if (Dev->BacklightReady) {
+        Dev->DisplayState = 1;
+        (VOID)SwFanApplyBacklight(Dev);
+    }
+    if (Dev->BacklightLength != 0 && Dev->BacklightPwm != NULL)
+        MmUnmapIoSpace((PVOID)Dev->BacklightPwm, Dev->BacklightLength);
+    Dev->BacklightPwm = NULL;
+    Dev->BacklightLength = 0;
+    Dev->BacklightReady = FALSE;
+    WdfWaitLockRelease(Dev->BacklightLock);
     if (Dev->Pwm != NULL) {
         (VOID)SwFanEvtSuspend(Device); /* stop polling before removing the PWM mapping */
         MmUnmapIoSpace((PVOID)Dev->Pwm, Dev->PwmLength);
@@ -387,20 +407,24 @@ NTSTATUS SwFanEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
     return STATUS_SUCCESS;
 }
 
-NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
+static VOID SwFanStartBacklight(WDFDEVICE Device)
 {
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     NTSTATUS Status;
-
-    if (!Dev->IsLite) {
-    /* Backlight first: it must not depend on the temperature sensor. */
+    ULONG BootCsr, DefaultLevel;
+    if (Dev->BacklightPwm == NULL || Dev->BacklightReady) return;
     WdfWaitLockAcquire(Dev->BacklightLock, NULL);
-    Dev->Brightness = SwFanReadParam(L"Brightness", BACKLIGHT_MAX);
+    BootCsr = READ_REGISTER_ULONG((PULONG)(Dev->BacklightPwm + PWM_CSR_0));
+    DefaultLevel = Dev->IsLite ? ((BootCsr >> 16) & 0x7FFF) : BACKLIGHT_MAX;
+    if (DefaultLevel < BACKLIGHT_MIN || DefaultLevel > BACKLIGHT_MAX) DefaultLevel = 150;
+    Dev->Brightness = SwFanReadParam(L"Brightness", DefaultLevel);
     if (Dev->Brightness < BACKLIGHT_MIN || Dev->Brightness > BACKLIGHT_MAX) {
-        Dev->Brightness = BACKLIGHT_MAX;
+        Dev->Brightness = DefaultLevel;
     }
     Dev->DisplayState = 1;
-    SwFanTrace(L"BacklightCsrAtStart", READ_REGISTER_ULONG((PULONG)(Dev->Pwm + PWM_CSR_0)));
+    Dev->BacklightReady = TRUE;
+    SwFanTrace(L"BacklightCsrAtStart", BootCsr);
+    SwFanTrace(L"Brightness", Dev->Brightness);
     (VOID)SwFanApplyBacklight(Dev);
     WdfWaitLockRelease(Dev->BacklightLock);
     if (Dev->DisplayCallback == NULL) {
@@ -413,8 +437,14 @@ NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
         }
     }
 
-    }
+}
 
+NTSTATUS SwFanEvtSelfManagedIoInit(WDFDEVICE Device)
+{
+    PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
+    NTSTATUS Status;
+    /* Backlight first: it must not depend on the temperature sensor. */
+    SwFanStartBacklight(Device);
     Status = SwFanOpenTarget(Device, Dev->SensorId, &Dev->Sensor);
     SwFanTrace(L"OpenSensorStatus", (ULONG)Status);
     if (!NT_SUCCESS(Status)) {
@@ -455,6 +485,7 @@ NTSTATUS SwFanEvtRestart(WDFDEVICE Device)
 {
     PSWFAN_DEVICE Dev = SwFanGetDevice(Device);
     NTSTATUS Status = Dev->IsLite ? SwFanConfigureSensor(Dev->Sensor) : STATUS_SUCCESS;
+    SwFanStartBacklight(Device);
     SwFanTrace(L"ConfigureSensorStatus", (ULONG)Status);
     if (!NT_SUCCESS(Status)) {
         SwFanSetDuty(Dev, FAILSAFE_DUTY);
@@ -477,10 +508,11 @@ VOID SwFanEvtSelfManagedIoCleanup(WDFDEVICE Device)
         (VOID)PoUnregisterPowerSettingCallback(Dev->DisplayCallback);
         Dev->DisplayCallback = NULL;
     }
-    if (!Dev->IsLite) {
+    if (Dev->BacklightPwm != NULL) {
         WdfWaitLockAcquire(Dev->BacklightLock, NULL);
         Dev->DisplayState = 1;
         (VOID)SwFanApplyBacklight(Dev);
+        Dev->BacklightReady = FALSE;
         WdfWaitLockRelease(Dev->BacklightLock);
     }
     if (Dev->Sensor != NULL) {
@@ -542,7 +574,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&SwFanParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, SwFanParamsPath);
     }
-    SwFanTrace(L"DriverVersion", 4);
+    SwFanTrace(L"DriverVersion", 5);
     WDF_DRIVER_CONFIG_INIT(&Config, SwFanEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);
 }

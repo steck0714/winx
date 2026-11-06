@@ -72,7 +72,8 @@ PexUp (
   mBpWin   = 0xFFFFFFFF;
 
   Log (L"pex[1] radio off (WIFI_EN/WIFI_RST low), pinmux, 32 kHz");
-  PinsRadio ();
+  // Wi-Fi bring-up must leave the already configured Bluetooth/UART pins alone.
+  PinsWifi ();
   Step32k (TRUE);
   GpioH (H0 | H1, 0, TRUE);
   Ms (10);
@@ -85,7 +86,10 @@ PexUp (
   if (!PexPgOn (PX_PG_PCIE)) {
     return FALSE;
   }
-  PexIoPadsOn ();
+  // Switchroot tegra210b01_pcie_data omits config_pex_io_dpd. Erista
+  // retains that sequence; B01 uses UPHY preparation without these pad writes.
+  if (!PexIsB01 () && !PexIoPadsOn ()) return FALSE;
+  Log (L"pex: SoC profile %s, crossbar x4+x1", PexIsB01 () ? L"T214/B01" : L"T210");
 
   Log (L"pex[4] clocks: afi, pex; PLLE + cml0");
   Wr (CAR_BASE, PX_CAR_ENB_U_SET, PX_U_AFI | PX_U_PEX);
