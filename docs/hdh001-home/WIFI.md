@@ -14,8 +14,11 @@ physical HDH-001 run. Version 0.5.2 also holds new TX across the EAPOL
 drain, firmware key write and authorization of the peer. The owner confirmed the trimmed Pro desktop booted with the repaired
 two-volume SD profile. DISM then staged 0.5.2.0 as `oem12.inf` on WINARM.
 Readback matched the signed package, board firmware, calibration and
-preparation EFI. The matching WFI0 firmware is installed for the first
-Windows scan and connection test.
+preparation EFI. Windows enumerated WFI0, loaded the radio firmware and recorded
+`hw=9/00000000 irq=1 ring=1`. The owner found no Wi-Fi option. Station creation
+failed with `0xC0200211` before the first scan. The 0.5.3.0 driver corrects the
+NetAdapterCx context attributes and keeps WDI teardown at PASSIVE_LEVEL.
+[Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
 
 ## Verified source facts
 
@@ -156,7 +159,7 @@ BSSIDs and device calibration are not copied into this public record.
 The temporary `wifi_check=1` line has been removed from the returned card,
 restoring normal **Windows 11 Lite** launch. R6 was the firmware-only scan.
 The Windows driver has since gained station queues, association and CCMP
-keys. The 0.5.2.0 driver is installed on the tested dual-volume profile.
+keys. The 0.5.2.0 physical run reached the Windows station factory on the dual-volume profile.
 
 ## Build and focused checks
 

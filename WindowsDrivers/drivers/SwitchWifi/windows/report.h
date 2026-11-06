@@ -5,7 +5,8 @@
 #include <wdf.h>
 
 typedef enum SWIFI_BOOT_STEP {
-    SwifiDeviceAdd = 1, SwifiPrepare, SwifiEnterD0, SwifiRadioOnline, SwifiStationStart, SwifiRuntimeFailure, SwifiQuiesce
+    SwifiDeviceAdd = 1, SwifiPrepare, SwifiEnterD0, SwifiRadioOnline, SwifiStationStart,
+    SwifiRuntimeFailure, SwifiQuiesce, SwifiStationCreate, SwifiStationInitialize
 } SWIFI_BOOT_STEP;
 
 typedef enum SWIFI_HW_STEP {

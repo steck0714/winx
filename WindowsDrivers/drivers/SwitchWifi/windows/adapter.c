@@ -1,17 +1,34 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include "station_filter.h"
 
-static VOID AdapterCleanup(WDFOBJECT Object)
+typedef struct SWIFI_STATION_BINDING {
+    SWIFI_DEVICE *Device;
+    NETADAPTER Adapter;
+    WDI_PORT_ID Port;
+} SWIFI_STATION_BINDING;
+
+static EVT_WDF_OBJECT_CONTEXT_CLEANUP StationBindingCleanup;
+
+static VOID StationBindingCleanup(WDFOBJECT Object)
 {
-    SWIFI_ADAPTER *A = SwifiAdapterContext((NETADAPTER)Object);
-    if (!A->Bound) return;
-    SWIFI_DEVICE *D = A->Device;
+    PAGED_CODE();
+    SWIFI_STATION_BINDING *Binding = WdfMemoryGetBuffer((WDFMEMORY)Object, NULL);
+    SWIFI_DEVICE *D = Binding->Device;
+    NETADAPTER Adapter = Binding->Adapter;
     KIRQL Irql;
     KeAcquireSpinLock(&D->Hw.ProtocolLock, &Irql);
+    if (D->Station != Adapter) {
+        KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
+        return;
+    }
+    D->StationClosing = TRUE;
     D->Station = NULL;
     KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
-    SwifiWdiStation(D->Hw.Wdi, D->Port, FALSE);
+    SwifiWdiStation(D->Hw.Wdi, Binding->Port, FALSE);
     SwifiDataLink(D, NULL, FALSE, FALSE, FALSE);
+    KeAcquireSpinLock(&D->Hw.ProtocolLock, &Irql);
+    D->StationClosing = FALSE;
+    KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
 }
 
 NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
@@ -25,6 +42,8 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
     NET_ADAPTER_TX_CAPABILITIES Tx;
     NET_ADAPTER_RX_CAPABILITIES Rx;
     WDF_OBJECT_ATTRIBUTES Attributes;
+    WDFMEMORY BindingMemory;
+    SWIFI_STATION_BINDING *Binding;
     NETADAPTER Adapter;
     KIRQL Irql;
     if (WifiAdapterInitGetType(Init) != WIFI_ADAPTER_EXTENSIBLE_STATION) return STATUS_NOT_SUPPORTED;
@@ -35,19 +54,33 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
     NET_ADAPTER_DATAPATH_CALLBACKS_INIT(&Callbacks, SwifiCreateTxQueue, SwifiCreateRxQueue);
     NetAdapterInitSetDatapathCallbacks(Init, &Callbacks);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWIFI_ADAPTER);
-    Attributes.ExecutionLevel = WdfExecutionLevelPassive; /* Cleanup drains passive WDI operations. */
-    Attributes.EvtCleanupCallback = AdapterCleanup;
     NTSTATUS Status = NetAdapterCreate(Init, &Attributes, &Adapter);
     if (!NT_SUCCESS(Status)) {
-        SwifiReportStep(&D->Report, SwifiStationStart, Status);
+        SwifiReportStep(&D->Report, SwifiStationCreate, Status);
         return Status;
     }
     SWIFI_ADAPTER *A = SwifiAdapterContext(Adapter);
     A->Device = D;
     Status = WifiAdapterInitialize(Adapter);
+    if (!NT_SUCCESS(Status)) {
+        SwifiReportStep(&D->Report, SwifiStationInitialize, Status);
+        WdfObjectDelete(Adapter);
+        return Status;
+    }
+    /* NetAdapterCx allocates the adapter context on an existing WDF object.
+     * KMDF runs cleanup for a paged WDFMEMORY child at PASSIVE_LEVEL, so the
+     * WDI port can drain its scan/join work and acquire its wait locks there. */
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    Attributes.ParentObject = Adapter;
+    Attributes.EvtCleanupCallback = StationBindingCleanup;
+    Status = WdfMemoryCreate(&Attributes, PagedPool, 'bFwS', sizeof(*Binding),
+        &BindingMemory, (PVOID *)&Binding);
     if (!NT_SUCCESS(Status)) goto Failed;
+    Binding->Device = D;
+    Binding->Adapter = Adapter;
+    Binding->Port = (WDI_PORT_ID)WifiAdapterGetPortId(Adapter);
     KeAcquireSpinLock(&D->Hw.ProtocolLock, &Irql);
-    if (D->Station) {
+    if (D->Station || D->StationClosing) {
         KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
         Status = STATUS_DEVICE_BUSY;
         goto Failed;
@@ -74,9 +107,7 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
         NetAdapterPauseFunctionTypeUnsupported, NetAdapterAutoNegotiationFlagNone);
     NetAdapterSetLinkState(Adapter, &Link);
 
-    D->Port = (WDI_PORT_ID)WifiAdapterGetPortId(Adapter);
-    A->Bound = TRUE;
-    SwifiWdiStation(D->Hw.Wdi, D->Port, TRUE);
+    SwifiWdiStation(D->Hw.Wdi, Binding->Port, TRUE);
     Status = NetAdapterStart(Adapter);
     if (NT_SUCCESS(Status)) {
         SwifiReportStep(&D->Report, SwifiStationStart, Status);

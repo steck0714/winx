@@ -36,10 +36,10 @@ The ARM64 `switchwifi.sys` targets the opt-in WFI0 device. Windows PE
 ran its isolation method and registered its interrupt. The fixture supplies an
 interrupt and omits Tegra MMIO, so preparation stops at the memory check.
 The station implements NetAdapterCx packet queues, radio, scan/abort, open and
-WPA2-Personal association, and CCMP key operations. DISM staged 0.5.2.0 in the trimmed Pro image. Card readback matched the
-signed package, board firmware and calibration, and preparation EFI. The
-two-volume BasicDisplay firmware now exposes WFI0. Scanning and connecting
-from Windows on the Lite await a board result.
+WPA2-Personal association, and CCMP key operations. On trimmed Pro, Windows bound 0.5.2.0 to the physical ACPI device.
+The radio loaded its firmware and the Windows driver received interrupts and DMA
+completions. Creating the station adapter failed before the first scan. The
+[adapter startup record](#station-adapter-startup-on-hdh-001) describes the 0.5.3.0 fix.
 Skipping networking during OOBE only affects first setup.
 
 ## Packet ownership contract
@@ -447,9 +447,10 @@ reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SWOA0D01" /s /v SwitchWifiRep
 ```
 
 `step` identifies device creation (1), hardware preparation (2), D0 entry (3),
-radio online (4) or station startup (5). `failure` retains the first failure
-in the preparation session, including runtime (6) and stop (7), with its
-NTSTATUS. Scan and connect fields count finished or rejected requests;
+radio online (4) or station startup (5). `failure` retains the first failing
+step and NTSTATUS, including runtime (6) and stop (7). Starting with 0.5.3.0,
+an error from `NetAdapterCreate` has step 8 and an error from
+`WifiAdapterInitialize` has step 9. Scan and connect fields count finished or rejected requests;
 `keys` is the last acknowledged slot mask (GTK bits 0–3, PTK bit 4).
 `eth_pre`, `eth_unknown` and `native_clear` count EAPOL observations.
 `native_protected`, `meta`, `rssi` and `malformed` count datapath starts in
@@ -506,7 +507,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.5.2.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.5.3.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -565,10 +566,25 @@ and failure, link loss, deauthentication, an unknown event, the wrong interface
 and a failed buffer completion. This covers event delivery without exercising
 a physical association or WPA2 handshake.
 
-The validated pre-Windows probe scanned on the Lite. Windows still needs to
-enumerate WFI0, show its own scan results, connect to a WPA2 network, get
-an IP address and sustain traffic through a reconnect and rekey. The current
-device boot profile is reserved for the display investigation.
+### Station adapter startup on HDH-001
+
+The owner reached Windows Settings with 0.5.2.0 and found no Wi-Fi option.
+SetupAPI selected `switchwifi` for `ACPI\SWOA0D01\0`. Its hardware-key
+report recorded `hw=9/00000000 irq=1 ring=1`, `failure=5/C0200211` and
+zero completed scans. The 0.5.2.0 adapter context requested
+`WdfExecutionLevelPassive`. NetAdapterCx adds that context to an existing
+framework object, which rejects the execution-level override.
+[NetAdapterCx adapter creation](https://github.com/microsoft/Network-Adapter-Class-Extension/blob/release_21H2/netcx/adapter/nxadapterapi.cpp)
+
+Version 0.5.3.0 uses the default context attributes and stores its WDI port
+binding in adapter-owned paged framework memory. KMDF calls its cleanup at
+PASSIVE_LEVEL, where scan and join can acquire their wait locks. A retiring
+port finishes cleanup before another station can claim it. The next board
+check is a Windows scan and connection to a WPA2 network.
+[KMDF cleanup levels](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfobject/nc-wdfobject-evt_wdf_object_context_cleanup)
+
+Version 0.5.3.0 was installed offline as `oem13.inf`. The previous package was retired and the existing Wi-Fi instance was marked for driver selection on its next enumeration.
+
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),
 [WiFiCx client model](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),

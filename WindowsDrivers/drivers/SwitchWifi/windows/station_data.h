@@ -79,14 +79,13 @@ typedef struct SWIFI_DEVICE {
     /* Writers take FilterLock, RX reads the published policy under ProtocolLock. */
     swifi_receive_filter Filter;
     BOOLEAN FilterLive;
-    WDI_PORT_ID Port;
+    BOOLEAN StationClosing; /* ProtocolLock guards station publication and teardown. */
     volatile LONG Failing;
 } SWIFI_DEVICE;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWIFI_DEVICE, SwifiDeviceContext);
 
 typedef struct SWIFI_ADAPTER {
     SWIFI_DEVICE *Device;
-    BOOLEAN Bound;
 } SWIFI_ADAPTER;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWIFI_ADAPTER, SwifiAdapterContext);
 
