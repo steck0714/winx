@@ -11,7 +11,7 @@ static VOID AdapterCleanup(WDFOBJECT Object)
     D->Station = NULL;
     KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
     SwifiWdiStation(D->Hw.Wdi, D->Port, FALSE);
-    SwifiDataLink(D, NULL, FALSE);
+    SwifiDataLink(D, NULL, FALSE, FALSE, FALSE);
 }
 
 NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
@@ -32,6 +32,7 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
     NET_ADAPTER_DATAPATH_CALLBACKS_INIT(&Callbacks, SwifiCreateTxQueue, SwifiCreateRxQueue);
     NetAdapterInitSetDatapathCallbacks(Init, &Callbacks);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWIFI_ADAPTER);
+    Attributes.ExecutionLevel = WdfExecutionLevelPassive; /* Cleanup drains passive WDI operations. */
     Attributes.EvtCleanupCallback = AdapterCleanup;
     NTSTATUS Status = NetAdapterCreate(Init, &Attributes, &Adapter);
     if (!NT_SUCCESS(Status)) return Status;

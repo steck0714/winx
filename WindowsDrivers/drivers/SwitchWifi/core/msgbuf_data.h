@@ -43,6 +43,7 @@ typedef struct swifi_packet_completion {
     uint32_t request_id;
     uint16_t flow_ring;
     uint16_t offset;
+    uint16_t rx_flags; /* v5 completion flags, including native 802.11 vs Ethernet. */
     uint16_t length;
     int16_t firmware_status;
     uint16_t tx_status; /* Firmware TX result, not an NDIS status. */
@@ -129,6 +130,10 @@ swifi_result swifi_data_delete_flow(swifi_data *data, uint16_t ring);
  * per-packet and must map to the same firmware FIFO as the selected ring. */
 swifi_result swifi_data_tx(swifi_data *data, uint16_t ring, uint8_t priority,
     const uint8_t header[SWIFI_ETH_HEADER_SIZE], uint64_t payload_dma,
+    uint16_t payload_length, void *cookie);
+/* v5 TXPOST flag bits 3:2 contain the per-packet cipher exemption (0..2). */
+swifi_result swifi_data_tx_with_exemption(swifi_data *data, uint16_t ring, uint8_t priority,
+    uint8_t exemption, const uint8_t header[SWIFI_ETH_HEADER_SIZE], uint64_t payload_dma,
     uint16_t payload_length, void *cookie);
 swifi_result swifi_data_post_rx(swifi_data *data, uint64_t buffer_dma,
     uint16_t capacity, void *cookie);

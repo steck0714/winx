@@ -35,7 +35,7 @@ The ARM64 `switchwifi.sys` binds to the opt-in WFI0 device. Its WiFiCx station
 creates NetAdapterCx transmit and receive queues and handles radio, scan and
 abort commands. A 22621.1 ARM64 Windows PE VM added the signed package to its
 driver store. The board still uses its BasicDisplay boot profile. Windows
-scan results on HDH-001, association, key handling and IP traffic remain open.
+scans, association and IP traffic on HDH-001 still require hardware acceptance.
 Skipping networking during OOBE only affects first setup.
 
 ## Packet ownership contract
@@ -327,12 +327,46 @@ A closed flow can be reused only after both indices have been reset.
 Queue notifications run outside the protocol lock. `core/station_frame.c`
 translates native 802.11 station MSDUs to and from the chip’s Ethernet
 payloads. Fixtures cover EAPOL, QoS, multicast, length-framed LLC, RFC1042
-and bridge-tunnel SNAP. The station does not advertise authentication or
-cipher pairs until the association and key paths are implemented.
+and bridge-tunnel SNAP. The TX descriptor carries the WiFiCx per-packet encryption exemption. The station advertises open infrastructure and WPA2-Personal with CCMP-128.
 
 [WiFiCx station initialization](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),
 [NetAdapterCx packet queues](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/transmit-and-receive-queues),
 [Receive MSDU format](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/wdi-receive-operations-and-offloads).
+
+## Association and keys
+
+The Windows station selects only host-listed BSSIDs and legal channels.
+It checks the SSID, RSN suites and management-protection requirements in
+the supplied beacon or probe response. When Windows omits the frame, it can
+reuse a recent result that this port actually reported on the same channel.
+The device holds at most 64 KiB of these results for up to one minute and
+clears them on port removal or D0 exit.
+
+`windows/join_firmware.c` configures the BCM4356 for Windows-owned authentication,
+uses a directed join, and verifies the selected BSSID, SSID, negotiated RSN
+request and association response from the chip. If Windows provides a PMKID,
+the request and readback must include it. Each attempted BSSID gets an
+association-result indication. The connect task completes on verified
+association, while Windows handles EAPOL and supplies pairwise/group keys.
+A disconnect, abort or failed readback gates traffic. The driver waits for
+the firmware disconnect event and an empty BSSID before reusing an aborted
+attempt. A missing fence triggers device recovery.
+
+`windows/station_keys.c` validates each key batch before programming the
+Broadcom `wsec_key` layout. It waits for submitted EAPOL frames, preserves
+firmware packet counters on an idempotent reinstall, and removes keys on
+disconnect. An ambiguous partial key change ends the session. RX requires
+firmware cleartext rejection for secured data. Once a receive key is active,
+an Ethernet-format EAPOL completion can lack the original 802.11 Protected
+bit. The driver drops that ambiguous frame. A verified clear native EAPOL
+frame can use the matching Windows exemption. Repeated handshakes and group
+rekeys need a board trace before longer connections can be accepted.
+
+[Switchroot association and keys](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c),
+[Broadcom TX exemption flags](https://android.googlesource.com/kernel/common/+/bcmdhd-3.10/drivers/net/wireless/bcmdhd/include/bcmmsgbuf.h),
+[Broadcom association frame layout](https://android.googlesource.com/platform/hardware/broadcom/wlan/+/ac2bc7e7aaad957f235992ff74d5f9af34dc5f88/bcmdhd/dhdutil/include/wlioctl.h),
+[Microsoft connect task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-connect),
+[Microsoft key parameters](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/wdi-tlv-set-cipher-key-info).
 
 ## Build and test
 
@@ -374,11 +408,26 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The test-signed package staged as `oem0.inf` in an isolated ARM64 Windows PE
-22621.1 guest. The VM had no BCM4356. Hardware acceptance requires a
-compatible firmware handoff, the private board files under
-`System32/drivers/SwitchWOA`, and an actual Windows scan on HDH-001. The
-runtime firmware and signed driver have not been deployed to WINARM.
+The `0.2.0.0` test package targets ARM64 Windows 22621 or newer. The
+Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
+`Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
+package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
+script. Supply this board's `brcmfmac4356A3-pcie.bin` and
+`brcmfmac4356A3-pcie.txt` privately. This mode installs just the wireless
+package. It copies the board files under `Windows/System32/drivers/SwitchWOA`
+and the EFI program to `SwitchWOA/Wifi` on the Windows volume. A complete existing board pair is preserved. A fresh install prepares
+both files together and can finish an interrupted move on the next run. The experimental runtime BL33 is
+a separate firmware update.
+
+A cardless ARM64 Windows PE 22621.1 guest accepted the signed 0.2 package
+as `oem0.inf` through the Wi-Fi-only installer. A retry completed a simulated
+interruption between the two board-file moves. Readback matched both source
+files and `WifiPrepare.efi`.
+
+The validated pre-Windows probe scanned on the Lite. Windows still needs to
+enumerate WFI0, show its own scan results, connect to a WPA2 network, get
+an IP address and sustain traffic through a reconnect and rekey. The current
+device boot profile is reserved for the display investigation.
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),
 [WiFiCx client model](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/writing-a-wificx-client-driver),

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 #include "requests.h"
 #include "scan.h"
+#include "join.h"
 #include <TlvGeneratorParser.hpp>
 
 struct SWIFI_WDI {
@@ -9,11 +10,13 @@ struct SWIFI_WDI {
     SWIFI_FIRMWARE_INFO *Info;
     TLV_CONTEXT Tlv;
     SWIFI_SCAN *Scan;
+    SWIFI_JOIN *Join;
     WDFWORKITEM Worker;
     KSPIN_LOCK Lock;
     LIST_ENTRY Pending;
     BOOLEAN Scheduled;
     BOOLEAN Accepting;
+    ULONG DisallowedBands;
 };
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWIFI_WDI, SwifiDeviceWdi);
 
@@ -65,6 +68,8 @@ NTSTATUS SwifiWdiCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control,
     Status = SwifiScanCreate(Device, Control, Info, State->Tlv.PeerVersion, Recover,
         RecoveryContext, &State->Scan);
     if (!NT_SUCCESS(Status)) return Status;
+    Status = SwifiJoinCreate(Device, Control, Info, State->Tlv.PeerVersion, State->Scan, &State->Join);
+    if (!NT_SUCCESS(Status)) return Status;
     *Wdi = State;
     return STATUS_SUCCESS;
 }
@@ -73,6 +78,7 @@ VOID SwifiWdiStart(SWIFI_WDI *Wdi)
 {
     KIRQL Irql;
     SwifiScanStartSession(Wdi->Scan);
+    SwifiJoinStartSession(Wdi->Join);
     KeAcquireSpinLock(&Wdi->Lock, &Irql);
     Wdi->Accepting = TRUE;
     KeReleaseSpinLock(&Wdi->Lock, Irql);
@@ -92,12 +98,19 @@ VOID SwifiWdiQuiesce(SWIFI_WDI *Wdi)
     if (Wdi) {
         WdfWorkItemFlush(Wdi->Worker);
         SwifiScanEndSession(Wdi->Scan);
+        SwifiJoinEndSession(Wdi->Join);
     }
+}
+
+VOID SwifiWdiAfterReset(SWIFI_WDI *Wdi)
+{
+    if (Wdi) SwifiJoinAfterReset(Wdi->Join);
 }
 
 VOID SwifiWdiStation(SWIFI_WDI *Wdi, WDI_PORT_ID Port, BOOLEAN Present)
 {
     SwifiScanStation(Wdi->Scan, Port, Present);
+    SwifiJoinStation(Wdi->Join, Port, Present);
 }
 
 BOOLEAN SwifiWdiFirmwareEvent(SWIFI_WDI *Wdi, const swifi_event_completion *Event)
@@ -194,7 +207,8 @@ static NTSTATUS SetSoftwareRadio(SWIFI_WDI *State, BOOLEAN Enabled)
     ULONG Value = (1u << 16) | (Enabled ? 0u : 1u);
     NTSTATUS Status;
     if (!Enabled) {
-        Status = SwifiScanCancelForRadio(State->Scan);
+        Status = SwifiScanDrain(State->Scan);
+        if (NT_SUCCESS(Status)) Status = SwifiJoinRadioOff(State->Join);
         if (!NT_SUCCESS(Status)) return Status;
     }
     Status = SwifiFirmwareCommand(State->Control, 0, 38, &Value, sizeof(Value), NULL, NULL);
@@ -227,7 +241,14 @@ static NTSTATUS ConfigureAdapter(SWIFI_WDI *State, WDI_MESSAGE_HEADER *Header, U
             if (Band == WDI_BAND_ID_5000) Disallowed |= SWIFI_BAND_5GHZ;
         }
     }
-    if (NT_SUCCESS(Status)) Status = SwifiScanSetDisallowedBands(State->Scan, Disallowed);
+    if (NT_SUCCESS(Status)) {
+        Status = SwifiJoinSetBands(State->Join, Disallowed);
+        if (NT_SUCCESS(Status)) {
+            Status = SwifiScanSetDisallowedBands(State->Scan, Disallowed);
+            if (!NT_SUCCESS(Status)) (VOID)SwifiJoinSetBands(State->Join, State->DisallowedBands);
+            else State->DisallowedBands = Disallowed;
+        }
+    }
     CleanupParsedWdiSetAdapterConfigurationToIhv(&P);
     return Status;
 }
@@ -250,6 +271,15 @@ static VOID Handle(SWIFI_WDI *State, WIFIREQUEST Request)
         SwifiCompleteWdiRequest(Request, ConfigureAdapter(State, Header, Input - sizeof(*Header)));
         return;
     }
+    if (Id == WDI_TASK_CONNECT) {
+        Status = SwifiScanDrain(State->Scan);
+        if (!NT_SUCCESS(Status)) { SwifiCompleteWdiRequest(Request, Status); return; }
+    }
+    if (Id == WDI_TASK_SCAN && !SwifiJoinMayScan(State->Join)) {
+        SwifiCompleteWdiRequest(Request, STATUS_DEVICE_BUSY);
+        return;
+    }
+    if (SwifiJoinCommand(State->Join, Request, Id, Header, Input - sizeof(*Header))) return;
     if (Id == WDI_TASK_SCAN || Id == WDI_ABORT_TASK) {
         SwifiScanRequest(State->Scan, Request, Id == WDI_ABORT_TASK);
         return;

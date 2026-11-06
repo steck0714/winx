@@ -181,10 +181,18 @@ swifi_result swifi_data_tx(swifi_data *d, uint16_t ring, uint8_t priority,
     const uint8_t header[SWIFI_ETH_HEADER_SIZE], uint64_t payload_dma,
     uint16_t payload_length, void *cookie)
 {
+    return swifi_data_tx_with_exemption(d, ring, priority, 0, header, payload_dma, payload_length, cookie);
+}
+
+swifi_result swifi_data_tx_with_exemption(swifi_data *d, uint16_t ring, uint8_t priority, uint8_t exemption,
+    const uint8_t header[SWIFI_ETH_HEADER_SIZE], uint64_t payload_dma,
+    uint16_t payload_length, void *cookie)
+{
     uint8_t item[SWIFI_TX_ITEM_SIZE] = {0};
     swifi_flow *flow = flow_at(d, ring);
     swifi_packet_slot *slot;
     swifi_result result;
+    if (exemption > 2) return SWIFI_INVALID;
     if (d->stopped)
         return SWIFI_STOPPED;
     if (!flow || !header || !cookie || priority > 7 ||
@@ -205,7 +213,7 @@ swifi_result swifi_data_tx(swifi_data *d, uint16_t ring, uint8_t priority,
     item[1] = flow->ifidx;
     put32(item + 4, slot->request_id);
     memcpy(item + 8, header, SWIFI_ETH_HEADER_SIZE);
-    item[22] = (uint8_t)(1u | (priority << 5)); /* 802.3, priority */
+    item[22] = (uint8_t)(1u | (exemption << 2) | (priority << 5)); /* 802.3, priority */
     item[23] = 1; /* One DMA payload segment. */
     put_address(item + 32, payload_dma);
     put16(item + 42, payload_length);
@@ -297,6 +305,7 @@ swifi_result swifi_data_complete(swifi_data *d, const uint8_t *p, size_t length)
             return SWIFI_PROTOCOL_ERROR;
         result.cookie = slot->cookie;
         result.offset = get16(p + 16);
+        result.rx_flags = get16(p + 18);
         if (!result.offset)
             result.offset = d->rx_data_offset;
         result.length = get16(p + 14);

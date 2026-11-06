@@ -52,6 +52,7 @@ static NTSTATUS Iovar(SWIFI_WIN_CONTROL *Control, UCHAR IfIndex, PCSTR Name,
         if (Copied) RtlCopyMemory(Output, Buffer, Copied);
         if (Returned) *Returned = Copied;
     }
+    RtlSecureZeroMemory(Buffer, Total);
     ExFreePoolWithTag(Buffer, 'iFwS');
     return Status;
 }

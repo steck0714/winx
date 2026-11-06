@@ -16,6 +16,7 @@ typedef struct SWIFI_SCAN_POLICY {
 
 /* All calls are serialized at PASSIVE_LEVEL by the scan task. Prepare may
  * partially apply policy on error. Always Restore or reset, then allow reuse. */
+NTSTATUS SwifiSetVendorIe(SWIFI_WIN_CONTROL *Control, const UCHAR *Ie, USHORT Size, BOOLEAN Add, ULONG Mask);
 NTSTATUS SwifiScanPrepare(SWIFI_WIN_CONTROL *Control, const SWIFI_FIRMWARE_INFO *Info,
     SWIFI_SCAN_SPEC *Spec, BOOLEAN ActiveOnly, const UCHAR *Vendor, ULONG VendorLength,
     ULONGLONG Deadline, SWIFI_SCAN_POLICY *Policy);

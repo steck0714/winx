@@ -80,3 +80,25 @@ size_t swifi_station_rx(const uint8_t *ethernet, size_t length, const uint8_t st
     memcpy(wifi, header, offset);
     return offset + payload;
 }
+
+size_t swifi_clear_eapol(uint8_t *f, size_t n, const uint8_t station[6], const uint8_t peer[6])
+{
+    if (!f || !station || !peer || n < 24 || (f[0] != 8 && f[0] != 0x88) ||
+        (f[1] & 0x47) != 2 || (f[22] & 15) || memcmp(f+10, peer, 6) ||
+        memcmp(f+16, peer, 6) || (!(f[4]&1) && memcmp(f+4, station, 6))) return 0;
+    size_t offset = 24;
+    if (f[0] == 0x88) {
+        if (n < 26 || (f[24] & 0x88)) return 0;
+        offset = f[1] & 0x80 ? 30 : 26;
+    }
+    const uint8_t snap[] = {0xaa,0xaa,3,0,0,0,0x88,0x8e};
+    if (n < offset + 12 || memcmp(f+offset,snap,sizeof(snap))) return 0;
+    const uint8_t *eapol = f+offset+8;
+    size_t payload = n-offset-8;
+    if ((((size_t)eapol[2] << 8) | eapol[3]) > payload-4) return 0;
+    uint8_t header[14];
+    memcpy(header,f+4,6); memcpy(header+6,peer,6); header[12]=0x88; header[13]=0x8e;
+    memmove(f+14,eapol,payload);
+    memcpy(f,header,sizeof(header));
+    return 14+payload;
+}

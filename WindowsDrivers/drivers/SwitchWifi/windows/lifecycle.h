@@ -15,8 +15,6 @@ typedef struct SWIFI_HARDWARE_CALLBACKS {
     VOID (*CancelDataAfterReset)(PVOID Context);
     /* PASSIVE_LEVEL, after cancellation and endpoint reset. */
     VOID (*ReleaseDataAfterReset)(PVOID Context);
-    /* PASSIVE_LEVEL; copy any event data that must outlive the callback. */
-    VOID (*Event)(PVOID Context, const swifi_event_completion *Event);
     /* <=DISPATCH_LEVEL, nonblocking. Queue owner recovery/PnP failure work.
      * That owner uses the same stop sequence as the power callbacks. */
     VOID (*ScheduleRecovery)(PVOID Context, NTSTATUS Reason);

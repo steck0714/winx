@@ -13,7 +13,7 @@ typedef struct SWIFI_TX_RECORD {
 } SWIFI_TX_RECORD;
 
 typedef struct SWIFI_TX_BUFFER {
-    BOOLEAN Owned;
+    BOOLEAN Owned, Eapol;
     SWIFI_TX_RECORD *Record; /* Detached during queue cancellation. */
 } SWIFI_TX_BUFFER;
 
@@ -21,6 +21,7 @@ typedef struct SWIFI_RX_BUFFER {
     LIST_ENTRY Link;
     ULONG Epoch, QueueEpoch;
     USHORT Offset, Length;
+    BOOLEAN Protected;
     enum { SwifiRxFree, SwifiRxPosted, SwifiRxReady } State;
 } SWIFI_RX_BUFFER;
 
@@ -37,7 +38,11 @@ typedef struct SWIFI_STATION_DATA {
     LIST_ENTRY ReadyRx;
     USHORT Sequence;
     UCHAR Address[6], Peer[6];
-    BOOLEAN Enabled, Associated, KeysInstalled, FlowFault;
+    BOOLEAN Enabled, Joining, Associated, Secure, Pairwise, Group, FlowFault;
+    BOOLEAN HeadEapol, ExcludeUnencrypted, UpdatingKeys;
+    UCHAR EapolExemption[2]; /* unicast, multicast */
+    ULONG EapolPending;
+    KEVENT EapolIdle;
     ULONG Epoch, RxQueueEpoch, TxProgress;
     ULONG64 TxErrors, RxDrops;
 } SWIFI_STATION_DATA;
@@ -46,7 +51,7 @@ struct SWIFI_QUEUE {
     NETPACKETQUEUE Handle;
     SWIFI_STATION_DATA *Data;
     NET_RING *Packets, *Fragments;
-    NET_EXTENSION Va;
+    NET_EXTENSION Va, TxExemption;
     EX_RUNDOWN_REF Notifications;
     SWIFI_TX_RECORD *Records;
     ULONG SeenProgress;
@@ -81,7 +86,10 @@ VOID SwifiDataReset(PVOID Context);
 VOID SwifiDataRelease(PVOID Context);
 /* The association owner calls this only on confirmed firmware state changes.
  * A null peer disconnects. A key update for the same peer keeps its flows. */
-VOID SwifiDataLink(SWIFI_DEVICE *Device, const UCHAR *Peer, BOOLEAN KeysInstalled);
+VOID SwifiDataBeginJoin(SWIFI_DEVICE *Device, const UCHAR Peer[6], BOOLEAN Secure, BOOLEAN ExcludeUnencrypted);
+VOID SwifiDataLink(SWIFI_DEVICE *Device, const UCHAR *Peer, BOOLEAN Secure, BOOLEAN Pairwise, BOOLEAN Group);
+VOID SwifiDataKeyUpdate(SWIFI_DEVICE *Device, BOOLEAN Updating);
+NTSTATUS SwifiDataDrainEapol(SWIFI_DEVICE *Device);
 VOID SwifiDataRequestStop(SWIFI_DEVICE *Device);
 VOID SwifiPnpFailure(PVOID Context, NTSTATUS Reason);
 

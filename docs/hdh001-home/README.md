@@ -124,6 +124,13 @@ For installation, add the signed `switchbt` directory beside `Install-LiteSystem
 
 The combined firmware and ARM64 Bluetooth driver build. Signed package checks and native Windows staging pass. The BasicDisplay/audio/Bluetooth update is deployed, with the Bluetooth INF/CAT/SYS and patch read back and matched; radio discovery, keyboard/gamepad pairing, range, and restart behavior await physical testing. Upstream reports limited range without Wi-Fi-side antenna initialization, so a successful package install is not evidence of radio performance.
 
+The Wi-Fi-only mode accepts `Install-LiteSystem.cmd online wifi` or
+`Install-LiteSystem.cmd offline W:\ wifi`. It stages the signed station driver,
+private A3 firmware/NVRAM pair and `WifiPrepare.efi` on WINARM. The runtime
+BL33 is separate. The display-isolation card retains its existing profile.
+[Wi-Fi package and hardware status](WIFI.md#windows-connection-package).
+
+
 Switchroot's Lite device tree explicitly disables the host SPI4 controller because SIO owns it. The Erista `SwitchSensor` SPI4 profile is therefore left disabled; the Lite's built-in controls and motion data need the SIO transport. The native framebuffer orientation is retained.
 
 References: [Lite SIO ownership](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/tegra210b01-vali.dts), [UART-D Bluetooth wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Switchroot patch provenance](https://gitlab.com/switchroot/android/proprietary_vendor_firmware/-/blob/main/README.md), and [upstream Bluetooth source and recovery tool](https://github.com/hayato41200/Windows-for-Switch-Drivers/tree/main/kits/Switch-Bluetooth).

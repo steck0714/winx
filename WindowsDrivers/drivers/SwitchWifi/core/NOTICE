@@ -28,3 +28,10 @@ It contains no Linux kernel calls, firmware binary, calibration data or keys.
 
 The escan v1 command and v109 BSS handling follow the same Switchroot brcmfmac
 cfg80211.c and brcmutil/d11.c sources, Copyright (c) 2010–2014 Broadcom Corporation.
+
+Broadcom TXPOST encryption exemption and RX completion flags:
+  https://android.googlesource.com/kernel/common/+/bcmdhd-3.10/drivers/net/wireless/bcmdhd/include/bcmmsgbuf.h
+Switchroot infrastructure join and CCMP key format:
+  https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+Broadcom fixed association-frame headers:
+  https://android.googlesource.com/platform/hardware/broadcom/wlan/+/ac2bc7e7aaad957f235992ff74d5f9af34dc5f88/bcmdhd/dhdutil/include/wlioctl.h

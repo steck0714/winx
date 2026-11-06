@@ -2,8 +2,8 @@
 
 An HDH-001 completed a pre-Windows scan. The Windows station driver now builds
 as `switchwifi.sys` and its signed package staged in ARM64 Windows PE 22621.1.
-Testing on the Lite remains pending. WPA association, key handling and IP
-connectivity are still in development.
+Version 0.2 implements open and WPA2-Personal association, CCMP keys and
+disconnect in Windows. Physical Windows networking on the Lite remains pending.
 
 ## Verified source facts
 
@@ -142,9 +142,9 @@ The probe reported endpoint reset and DMA release before exit. Network names,
 BSSIDs and device calibration are not copied into this public record.
 
 The temporary `wifi_check=1` line has been removed from the returned card,
-restoring normal **Windows 11 Lite** launch. No Windows Wi-Fi adapter has
-been installed. Association/key management, packet transmit/receive and the
-Windows network interface remain the next implementation work.
+restoring normal **Windows 11 Lite** launch. R6 was the firmware-only scan.
+The Windows driver has since gained station queues, association and CCMP
+keys. Its hardware activation is pending the BasicDisplay boot check.
 
 ## Build and focused checks
 
@@ -175,7 +175,7 @@ For the standalone application, enable `SWITCH_WIFI_PROBE=1` and build `Drivers/
 
 The firmware blob, board calibration, MAC address and credentials are not committed. The PCIe radio path runs only in the explicit pre-Windows diagnostic; no Windows Wi-Fi driver is installed yet.
 
-The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. The driver publishes firmware capabilities, dispatches scans and implements packet queues. Association and key requests are the remaining control tasks.
+The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for the current 22631 system. The driver publishes firmware capabilities, dispatches scans and implements packet queues. Version 0.2 adds directed association, CCMP keys and disconnect.
 
 ## Primary references
 
@@ -285,7 +285,7 @@ assumed. The Windows loader refuses backplane-window changes while runtime acces
 is pinned; only the quiesced stop path releases that constraint.
 
 Windows firmware startup, station creation and data queues have yet to run on
-the physical board. Association and key management remain unfinished. This update contains
+the physical board. Association and key management now have Windows implementations. This update contains
 no firmware binary, calibration data or network credentials and has not been
 copied to the card.
 
@@ -327,5 +327,16 @@ The [Windows Wi-Fi lifecycle](../../WindowsDrivers/drivers/SwitchWifi/README.md#
 the signed driver. The runtime-only `WIRS` method checks PCIEX/PEX/AFI reset
 state and can hold these dedicated reset lines if both endpoint halt and port
 reset fail. The Windows package staged in an isolated PE VM. The Lite has not
-received this runtime build. Authentication, key management and physical
-Windows radio/scan acceptance remain pending.
+received this runtime build. The Windows station now handles directed WPA2-Personal association and CCMP
+key installation. Physical scanning, authentication, DHCP and rekey remain pending.
+
+## Windows connection package
+
+The [station driver](../../WindowsDrivers/drivers/SwitchWifi/README.md#association-and-keys)
+uses Windows for the WPA2 handshake. It verifies the associated BSSID, SSID
+and negotiated request before reporting success. The firmware checks receive
+protection and the driver gates traffic during key changes. Protected-bit
+provenance for post-key Ethernet EAPOL is still a hardware acceptance item.
+The optional `wifi` installer mode stages only this driver, the board's two
+private A3 files and the matching `WifiPrepare.efi` on WINARM. Loading the
+runtime BL33 remains a separate step through the existing Windows boot entry.

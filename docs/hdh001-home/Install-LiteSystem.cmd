@@ -2,13 +2,22 @@
 setlocal EnableExtensions
 rem Add shared system drivers to an existing Stage 6 Home installation.
 rem Place this script beside the five shared system/audio packages.
-rem Optional switchbt also requires Firmware\BCM4356A3.hcd.
+rem Optional switchbt requires Firmware\BCM4356A3.hcd.
+rem Optional switchwifi requires WifiPrepare.efi and the target board's A3 files in Firmware.
 set "drivers=switchfan switchpwrbtn switchbattery switchrtc switchaudio"
 if exist "%~dp0switchbt\switchbt.inf" set "drivers=%drivers% switchbt"
+if exist "%~dp0switchwifi\switchwifi.inf" set "drivers=%drivers% switchwifi"
+set "wifiOnly="
+if /i "%~1"=="online" if /i "%~2"=="wifi" set "wifiOnly=1"
+if /i "%~1"=="offline" if /i "%~3"=="wifi" set "wifiOnly=1"
+if defined wifiOnly (
+ if not exist "%~dp0switchwifi\switchwifi.inf" exit /b 2
+ set "drivers=switchwifi"
+)
 if /i "%~1"=="online" goto online
 if /i "%~1"=="offline" goto offline
-echo Install-LiteSystem.cmd online
-echo Install-LiteSystem.cmd offline W:\
+echo Install-LiteSystem.cmd online [wifi]
+echo Install-LiteSystem.cmd offline W:\ [wifi]
 echo W: must be the drive assigned to the offline WINARM Windows installation.
 exit /b 2
 
@@ -17,8 +26,12 @@ for %%S in (ROOT TrustedPublisher) do (
  reg query "HKLM\SOFTWARE\Microsoft\SystemCertificates\%%S\Certificates\99C510FC6160C2294603EAD48DA8831210BBC56D" >nul 2>&1
  if errorlevel 1 goto trust
 )
-call :bluetooth "%SystemRoot%"
+call :wifi "%SystemRoot%" "%SystemDrive%"
 if errorlevel 1 exit /b 1
+if not defined wifiOnly (
+ call :bluetooth "%SystemRoot%"
+ if errorlevel 1 exit /b 1
+)
 set "reboot=0"
 for %%N in (%drivers%) do (
  pnputil /add-driver "%~dp0%%N\%%N.inf" /install
@@ -27,10 +40,12 @@ for %%N in (%drivers%) do (
   set "reboot=1"
  ) else if errorlevel 1 exit /b 1
 )
+if defined wifiOnly goto installed
 pnputil /scan-devices
 if errorlevel 1 exit /b 1
 call :tools "%PUBLIC%\Desktop"
 if errorlevel 1 exit /b 1
+:installed
 if "%reboot%"=="1" exit /b 3010
 exit /b 0
 
@@ -50,8 +65,12 @@ for %%S in (ROOT TrustedPublisher) do (
 )
 reg unload "HKLM\%hive%" >nul || exit /b 1
 if "%trusted%"=="0" goto trust
-call :bluetooth "%vol%\Windows"
+call :wifi "%vol%\Windows" "%vol%"
 if errorlevel 1 exit /b 1
+if not defined wifiOnly (
+ call :bluetooth "%vol%\Windows"
+ if errorlevel 1 exit /b 1
+)
 set "reboot=0"
 for %%N in (%drivers%) do (
  dism /Image:%vol%\ /Add-Driver /Driver:"%~dp0%%N\%%N.inf"
@@ -60,6 +79,7 @@ for %%N in (%drivers%) do (
   set "reboot=1"
  ) else if errorlevel 1 exit /b 1
 )
+if defined wifiOnly goto installed
 for %%H in (SWOA0402 SWOA0C01) do (
  call :device-rebind "%vol%" %%H
  if errorlevel 1 exit /b 1
@@ -82,6 +102,59 @@ if not exist "%~dp0Firmware\BCM4356A3.hcd" (
 if not exist "%~1\System32\drivers\SwitchWOA" mkdir "%~1\System32\drivers\SwitchWOA"
 copy /y "%~dp0Firmware\BCM4356A3.hcd" "%~1\System32\drivers\SwitchWOA\BCM4356A3.hcd" >nul || exit /b 1
 exit /b 0
+
+:wifi
+if not exist "%~dp0switchwifi\switchwifi.inf" exit /b 0
+setlocal
+set "board=%~1\System32\drivers\SwitchWOA"
+set "efi=%~2\SwitchWOA\Wifi"
+set "pending=%~1\System32\drivers\SwitchWOA\switchwifi.pending"
+if not exist "%~dp0WifiPrepare.efi" goto wifi-missing
+if not exist "%board%" mkdir "%board%" || exit /b 1
+if not exist "%efi%" mkdir "%efi%" || exit /b 1
+if exist "%pending%\" goto wifi-publish
+if exist "%board%\brcmfmac4356A3-pcie.bin" (
+ if exist "%board%\brcmfmac4356A3-pcie.txt" goto wifi-efi
+ goto wifi-partial
+)
+if exist "%board%\brcmfmac4356A3-pcie.txt" goto wifi-partial
+for %%F in (brcmfmac4356A3-pcie.bin brcmfmac4356A3-pcie.txt) do (
+ if not exist "%~dp0Firmware\%%F" goto wifi-missing
+ for %%G in ("%~dp0Firmware\%%F") do if %%~zG LEQ 0 goto wifi-missing
+)
+rem Publish a complete pair on the same volume. A retry finishes this pair
+rem even if the source kit has since changed. Preserve an existing board pair.
+set "incoming=%board%\switchwifi-%RANDOM%-%RANDOM%.tmp"
+mkdir "%incoming%" || exit /b 1
+for %%F in (brcmfmac4356A3-pcie.bin brcmfmac4356A3-pcie.txt) do (
+ copy /b /y "%~dp0Firmware\%%F" "%incoming%\%%F" >nul || goto wifi-copy-fail
+)
+ren "%incoming%" switchwifi.pending || goto wifi-copy-fail
+:wifi-publish
+for %%F in (brcmfmac4356A3-pcie.bin brcmfmac4356A3-pcie.txt) do if not exist "%board%\%%F" (
+ if not exist "%pending%\%%F" goto wifi-partial
+ move /y "%pending%\%%F" "%board%\%%F" >nul || exit /b 1
+)
+for %%F in (brcmfmac4356A3-pcie.bin brcmfmac4356A3-pcie.txt) do if exist "%pending%\%%F" del /q "%pending%\%%F" || exit /b 1
+rmdir "%pending%" || exit /b 1
+:wifi-efi
+set "tmp=%efi%\wifi-%RANDOM%-%RANDOM%.tmp"
+copy /b /y "%~dp0WifiPrepare.efi" "%tmp%" >nul || goto wifi-efi-fail
+move /y "%tmp%" "%efi%\WifiPrepare.efi" >nul || goto wifi-efi-fail
+exit /b 0
+:wifi-missing
+echo Wi-Fi needs WifiPrepare.efi and both private A3 board files for a new installation.
+exit /b 2
+:wifi-partial
+echo An incomplete board pair is present. Complete the board files before installing Wi-Fi.
+exit /b 2
+:wifi-copy-fail
+for %%F in (brcmfmac4356A3-pcie.bin brcmfmac4356A3-pcie.txt) do if exist "%incoming%\%%F" del /q "%incoming%\%%F"
+rmdir "%incoming%" 2>nul
+exit /b 1
+:wifi-efi-fail
+if exist "%tmp%" del /q "%tmp%"
+exit /b 1
 
 :tools
 if not exist "%~dp0LitePerformanceCheck.exe" exit /b 0

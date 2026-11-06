@@ -21,18 +21,6 @@ VOID SwifiPnpFailure(PVOID Context, NTSTATUS Reason)
     }
 }
 
-static VOID OtherEvent(PVOID Context, const swifi_event_completion *Event)
-{
-    /* Only the WDI association task may establish a Windows link. A known
-     * link-down event on interface 0 always invalidates outstanding frames. */
-    SWIFI_DEVICE *D = Context;
-    const UCHAR *P = Event->data;
-    if (!Event->firmware_status && !Event->ifidx && Event->length >= 72 &&
-        P[12] == 0x88 && P[13] == 0x6c && !P[70] && !P[19] && P[20] == 0x10 && P[21] == 0x18 && !P[22] && P[23] == 1 &&
-        P[28] == 0 && P[29] == 0 && P[30] == 0 && P[31] == 16 && !(P[27] & 1))
-        SwifiDataLink(D, NULL, FALSE);
-}
-
 static NTSTATUS Prepare(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated)
 {
     return SwifiHardwarePrepare(&SwifiDeviceContext(Device)->Hw, Raw, Translated);
@@ -84,7 +72,7 @@ static NTSTATUS DeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
 {
     static const SWIFI_HARDWARE_CALLBACKS Callbacks = {
         SwifiCreateAdapter, SwifiDataDispatch, SwifiDataNotify, SwifiDataReset, SwifiDataRelease,
-        OtherEvent, SwifiPnpFailure};
+        SwifiPnpFailure};
     WDF_PNPPOWER_EVENT_CALLBACKS Power;
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDFDEVICE Device;

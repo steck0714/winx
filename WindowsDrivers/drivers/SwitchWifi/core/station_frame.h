@@ -14,4 +14,7 @@ size_t swifi_station_tx(const uint8_t *wifi, size_t length, const uint8_t statio
 size_t swifi_station_rx(const uint8_t *ethernet, size_t length, const uint8_t station[6],
     const uint8_t peer[6], uint16_t sequence, int protected_msdu, uint8_t *wifi, size_t capacity);
 
+/* Accept only an explicitly clear, complete FromDS EAPOL frame from this AP.
+ * Native protected payloads need verified decryption metadata before use. */
+size_t swifi_clear_eapol(uint8_t *frame, size_t length, const uint8_t station[6], const uint8_t peer[6]);
 #endif

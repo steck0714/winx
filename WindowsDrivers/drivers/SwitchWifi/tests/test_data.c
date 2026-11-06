@@ -136,7 +136,7 @@ static void test_wire_layout_and_flow_lifetime(void)
     static const uint8_t transmit[48] = {
         0x0f, 1, 0, 0, 1, 0, 1, 0,
         2, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 1, 8, 0,
-        0xa1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0xa9, 1, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0x30, 0x12, 0x80, 0, 0, 0, 0, 0, 0, 0xdc, 5, 0, 0, 0, 0
     };
     init(&f);
@@ -146,7 +146,8 @@ static void test_wire_layout_and_flow_lifetime(void)
     assert(!memcmp(f.published, create, sizeof(create)));
     assert(swifi_data_tx(&f.data, 2, 5, ethernet, 0x80123000, 1500, &cookies[0]) == SWIFI_RETRY);
     assert(flow_reply(&f, 4, 2, 0) == SWIFI_OK);
-    assert(swifi_data_tx(&f.data, 2, 5, ethernet, 0x80123000, 1500, &cookies[0]) == SWIFI_OK);
+    assert(swifi_data_tx_with_exemption(&f.data, 2, 5, 3, ethernet, 0x80123000, 1500, &cookies[0]) == SWIFI_INVALID);
+    assert(swifi_data_tx_with_exemption(&f.data, 2, 5, 2, ethernet, 0x80123000, 1500, &cookies[0]) == SWIFI_OK);
     assert(f.published_ring == 2 && f.published_length == sizeof(transmit));
     assert(!memcmp(f.published, transmit, sizeof(transmit)));
     assert(swifi_data_delete_flow(&f.data, 2) == SWIFI_RETRY);

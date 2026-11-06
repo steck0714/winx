@@ -10,6 +10,7 @@ typedef struct SCAN_ENTRY {
     LIST_ENTRY Link;
     WDI_BSS_ENTRY_CONTAINER Wdi;
     ULONG Size;
+    ULONGLONG Observed;
     UCHAR Body[1];
 } SCAN_ENTRY;
 
@@ -22,6 +23,7 @@ struct SWIFI_SCAN {
     TLV_CONTEXT Tlv;
     WDFWAITLOCK Lock;
     WDFTIMER Timer;
+    KEVENT Idle;
     BOOLEAN Online, Poisoned, Draining, Live;
     WDI_PORT_ID Port;
     USHORT Sync;
@@ -32,8 +34,8 @@ struct SWIFI_SCAN {
     WDI_MESSAGE_HEADER *Done;
     SWIFI_SCAN_SPEC Spec;
     SWIFI_SCAN_POLICY Policy;
-    LIST_ENTRY Entries;
-    ULONG Count, Bytes;
+    LIST_ENTRY Entries, Reported;
+    ULONG Count, Bytes, ReportedBytes;
 };
 
 typedef struct SCAN_TIMER_CONTEXT { SWIFI_SCAN *Scan; } SCAN_TIMER_CONTEXT;
@@ -53,6 +55,7 @@ NTSTATUS SwifiScanCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control, SWIFI_FIR
     if (!NT_SUCCESS(Status)) return Status;
     RtlZeroMemory(S, sizeof(*S));
     S->Device = Device;
+    KeInitializeEvent(&S->Idle, NotificationEvent, TRUE);
     S->Control = Control;
     S->Info = Info;
     S->Recover = Recover;
@@ -60,6 +63,7 @@ NTSTATUS SwifiScanCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control, SWIFI_FIR
     S->Tlv.PeerVersion = PeerVersion;
     S->Port = WDI_PORT_ID_ADAPTER;
     InitializeListHead(&S->Entries);
+    InitializeListHead(&S->Reported);
     Status = WdfWaitLockCreate(&A, &S->Lock);
     if (!NT_SUCCESS(Status)) return Status;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&A, SCAN_TIMER_CONTEXT);
@@ -90,6 +94,61 @@ static void Discard(SWIFI_SCAN *S)
     }
     S->Count = S->Bytes = 0;
     S->BatchEnd = 0;
+}
+
+static VOID ForgetReported(SWIFI_SCAN *S, SCAN_ENTRY *Entry)
+{
+    RemoveEntryList(&Entry->Link);
+    S->ReportedBytes -= Entry->Size;
+    ExFreePoolWithTag(Entry, 'bFwS');
+}
+
+static VOID RememberReported(SWIFI_SCAN *S, SCAN_ENTRY *Entry)
+{
+    for (PLIST_ENTRY Link = S->Reported.Flink; Link != &S->Reported; Link = Link->Flink) {
+        SCAN_ENTRY *Old = CONTAINING_RECORD(Link, SCAN_ENTRY, Link);
+        if (Old->Wdi.ChannelInfo.ChannelNumber == Entry->Wdi.ChannelInfo.ChannelNumber &&
+            RtlEqualMemory(Old->Wdi.BSSID.Address, Entry->Wdi.BSSID.Address, 6) &&
+            Old->Wdi.Optional.BeaconFrame_IsPresent == Entry->Wdi.Optional.BeaconFrame_IsPresent) {
+            ForgetReported(S, Old);
+            break;
+        }
+    }
+    InsertTailList(&S->Reported, &Entry->Link);
+    S->ReportedBytes += Entry->Size;
+    while (S->ReportedBytes > 65536)
+        ForgetReported(S, CONTAINING_RECORD(S->Reported.Flink, SCAN_ENTRY, Link));
+}
+
+/* WDI may return a candidate with no frame. Only reuse a BSS this port
+ * actually indicated. Copy it while locked, so a later scan can evict it. */
+ULONG SwifiScanLookup(SWIFI_SCAN *S, WDI_PORT_ID Port, const UCHAR *Peer, ULONG Channel,
+    BOOLEAN Probe, UCHAR *Body, ULONG Capacity)
+{
+    ULONG Length = 0;
+    WdfWaitLockAcquire(S->Lock, NULL);
+    if (S->Online && Port == S->Port) {
+        for (PLIST_ENTRY Link = S->Reported.Blink; Link != &S->Reported; Link = Link->Blink) {
+            SCAN_ENTRY *E = CONTAINING_RECORD(Link, SCAN_ENTRY, Link);
+            if (E->Wdi.ChannelInfo.ChannelNumber != Channel || !RtlEqualMemory(E->Wdi.BSSID.Address, Peer, 6) ||
+                !!E->Wdi.Optional.ProbeResponseFrame_IsPresent != Probe ||
+                KeQueryInterruptTime()-E->Observed > SCAN_MS(60000)) continue;
+            const WDI_BYTE_BLOB *Frame = Probe ? &E->Wdi.ProbeResponseFrame : &E->Wdi.BeaconFrame;
+            if (Frame->ElementCount <= Capacity) {
+                Length = Frame->ElementCount;
+                RtlCopyMemory(Body,E->Body,Length);
+            }
+            break;
+        }
+    }
+    WdfWaitLockRelease(S->Lock);
+    return Length;
+}
+
+static VOID ClearReported(SWIFI_SCAN *S)
+{
+    while (!IsListEmpty(&S->Reported))
+        ForgetReported(S, CONTAINING_RECORD(S->Reported.Flink, SCAN_ENTRY, Link));
 }
 
 static NTSTATUS IndicateBatch(SWIFI_SCAN *S)
@@ -123,7 +182,7 @@ static NTSTATUS IndicateBatch(SWIFI_SCAN *S)
                 PLIST_ENTRY Link = RemoveHeadList(&S->Entries);
                 SCAN_ENTRY *Old = CONTAINING_RECORD(Link, SCAN_ENTRY, Link);
                 S->Bytes -= Old->Size;
-                ExFreePoolWithTag(Old, 'bFwS');
+                RememberReported(S, Old);
             }
             S->Count -= Count;
             S->BatchEnd = S->Count && S->Live ? KeQueryInterruptTime() + SCAN_MS(BatchMs) : 0;
@@ -160,6 +219,7 @@ static NTSTATUS KeepBss(SWIFI_SCAN *S, const SWIFI_SCAN_BSS *B)
     SCAN_ENTRY *Entry = ExAllocatePool2(POOL_FLAG_PAGED, Size, 'bFwS');
     if (!Entry) return STATUS_INSUFFICIENT_RESOURCES;
     Entry->Size = Size;
+    Entry->Observed = KeQueryInterruptTime();
     RtlCopyMemory(Entry->Wdi.BSSID.Address, B->Bssid, 6);
     Entry->Wdi.ChannelInfo.ChannelNumber = B->Channel;
     Entry->Wdi.ChannelInfo.BandId = B->Channel <= 14 ? WDI_BAND_ID_2400 : WDI_BAND_ID_5000;
@@ -232,6 +292,7 @@ static VOID Finish(SWIFI_SCAN *S, NTSTATUS Status, BOOLEAN Restore)
         S->DoneMemory = NULL;
         S->Done = NULL;
     }
+    KeSetEvent(&S->Idle, IO_NO_INCREMENT, FALSE);
 }
 
 static NTSTATUS AbortLocked(SWIFI_SCAN *S, NTSTATUS Reason)
@@ -387,6 +448,7 @@ static NTSTATUS Begin(SWIFI_SCAN *S, const WDI_MESSAGE_HEADER *Header, UINT Inpu
     *Done = *Header;
     S->DoneMemory = Completion;
     S->Done = Done;
+    KeClearEvent(&S->Idle);
     return STATUS_SUCCESS;
 }
 
@@ -469,10 +531,20 @@ static VOID ScanTimer(WDFTIMER Timer)
     WdfWaitLockRelease(S->Lock);
 }
 
-NTSTATUS SwifiScanCancelForRadio(SWIFI_SCAN *S)
+NTSTATUS SwifiScanDrain(SWIFI_SCAN *S)
 {
     WdfWaitLockAcquire(S->Lock, NULL);
     NTSTATUS Status = AbortLocked(S, STATUS_CANCELLED);
+    BOOLEAN Wait = NT_SUCCESS(Status) && S->DoneMemory;
+    WdfWaitLockRelease(S->Lock);
+    if (Wait) {
+        LARGE_INTEGER Timeout;
+        Timeout.QuadPart = -(LONGLONG)SCAN_MS(AbortMs+250);
+        Status = KeWaitForSingleObject(&S->Idle, Executive, KernelMode, FALSE, &Timeout);
+        if (Status == STATUS_TIMEOUT) return STATUS_IO_TIMEOUT;
+    }
+    WdfWaitLockAcquire(S->Lock, NULL);
+    if (S->Poisoned || !S->Online || S->DoneMemory) Status = STATUS_DEVICE_NOT_READY;
     WdfWaitLockRelease(S->Lock);
     return Status;
 }
@@ -483,6 +555,7 @@ VOID SwifiScanStation(SWIFI_SCAN *S, WDI_PORT_ID Port, BOOLEAN Present)
     if (Present) S->Port = Port;
     else if (S->Port == Port) {
         if (S->Online && S->Control->Running) AbortLocked(S, STATUS_CANCELLED);
+        ClearReported(S);
         S->Port = WDI_PORT_ID_ADAPTER;
     }
     WdfWaitLockRelease(S->Lock);
@@ -501,6 +574,7 @@ VOID SwifiScanEndSession(SWIFI_SCAN *S)
 {
     WdfWaitLockAcquire(S->Lock, NULL);
     S->Online = FALSE;
+    ClearReported(S);
     Finish(S, STATUS_CANCELLED, FALSE);
     WdfWaitLockRelease(S->Lock);
     WdfTimerStop(S->Timer, TRUE);

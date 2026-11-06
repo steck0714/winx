@@ -21,6 +21,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 VOID SwifiWdiRequestStop(SWIFI_WDI *Wdi);
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID SwifiWdiQuiesce(SWIFI_WDI *Wdi);
+VOID SwifiWdiAfterReset(SWIFI_WDI *Wdi);
 /* The real station adapter supplies the port obtained from WifiAdapterGetPortId. */
 VOID SwifiWdiStation(SWIFI_WDI *Wdi, WDI_PORT_ID Port, BOOLEAN Present);
 BOOLEAN SwifiWdiFirmwareEvent(SWIFI_WDI *Wdi, const swifi_event_completion *Event);

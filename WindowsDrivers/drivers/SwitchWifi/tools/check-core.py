@@ -18,9 +18,9 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 args.out.mkdir(parents=True, exist_ok=True)
 sources = [root / "core/msgbuf_data.c", root / "core/msgbuf_ring.c", root / "core/msgbuf_control.c",
-           root / "core/phy_rates.c", root / "core/station_frame.c"]
+           root / "core/phy_rates.c", root / "core/station_frame.c", root / "core/station_security.c"]
 common = [args.cc, "-std=c11", "-Wall", "-Wextra", "-Werror"]
-for name in ("data", "ring", "control", "erom", "nvram", "rates", "escan", "frame"):
+for name in ("data", "ring", "control", "erom", "nvram", "rates", "escan", "frame", "security"):
     test = args.out / f"test-msgbuf-{name}"
     subprocess.run(common + ["-g", "-O1", "-fsanitize=address,undefined",
         "-fno-sanitize-recover=all", *map(str, sources), str(root / f"tests/test_{name}.c"),
@@ -49,7 +49,8 @@ for source in sources + [root / "windows/transport.c", root / "windows/resources
                         root / "windows/firmware.c", root / "windows/capabilities.c",
                         root / "windows/requests.c", root / "windows/tlv_memory.cpp",
                         root / "windows/scan.c", root / "windows/scan_firmware.c",
-                        root / "windows/station_data.c", root / "windows/adapter.c", root / "windows/device.c"]:
+                        root / "windows/station_data.c", root / "windows/adapter.c", root / "windows/device.c",
+                        root / "windows/join.c", root / "windows/join_firmware.c", root / "windows/station_keys.c"]:
     obj = args.out / (source.stem + ".obj")
     # On macOS, an absolute /Users/... path otherwise looks like clang-cl /U.
     cxx_flags = ["/GR-"] if source.suffix == ".cpp" else []

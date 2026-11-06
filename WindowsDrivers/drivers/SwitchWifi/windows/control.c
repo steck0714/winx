@@ -44,6 +44,13 @@ static VOID CommandComplete(PVOID Context, const swifi_command_completion *Reply
     if (Reply->length)
         RtlCopyMemory(C->ReplyData, Reply->response, Reply->length);
     C->Reply.response = Reply->length ? C->ReplyData : NULL;
+    if ((Reply->reason == SWIFI_COMMAND_COMPLETED || Reply->reason == SWIFI_COMMAND_TRUNCATED ||
+         Reply->reason == SWIFI_COMMAND_FIRMWARE_ERROR) && Reply->command == 263 &&
+        RtlEqualMemory(C->Core.input.memory, "wsec_key", sizeof("wsec_key"))) {
+        /* Only a matched completion returns the common buffers to the host. */
+        RtlSecureZeroMemory(C->Core.input.memory, SWIFI_CONTROL_BUFFER_SIZE);
+        RtlSecureZeroMemory(C->Core.response.memory, SWIFI_CONTROL_BUFFER_SIZE);
+    }
     KeSetEvent(&C->ReplyReady, IO_NO_INCREMENT, FALSE);
 }
 
@@ -234,9 +241,17 @@ NTSTATUS SwifiControlExecute(SWIFI_WIN_CONTROL *C, UCHAR IfIndex, ULONG Command,
     default: Status = STATUS_CANCELLED; break;
     }
 Unlock:
+    if (Command == 263) {
+        KeAcquireSpinLock(C->Transport->DataLock, &Irql);
+        RtlSecureZeroMemory(C->ReplyData, sizeof(C->ReplyData));
+        KeReleaseSpinLock(C->Transport->DataLock, Irql);
+    }
     WdfWaitLockRelease(C->CommandLock);
 Done:
-    if (InputCopy) ExFreePoolWithTag(InputCopy, 'cFwS');
+    if (InputCopy) {
+        RtlSecureZeroMemory(InputCopy, InputLength);
+        ExFreePoolWithTag(InputCopy, 'cFwS');
+    }
     if (!NT_SUCCESS(Fault)) ReportFault(C, Fault);
     return Status;
 }
@@ -369,6 +384,9 @@ VOID SwifiControlStoppedAfterReset(SWIFI_WIN_CONTROL *C)
     NT_ASSERT(!C->Running && !C->EventQueued && !C->MailboxQueued);
     KeAcquireSpinLock(C->Transport->DataLock, &Irql);
     swifi_control_stopped_after_reset(&C->Core);
+    RtlSecureZeroMemory(C->Core.input.memory, SWIFI_CONTROL_BUFFER_SIZE);
+    RtlSecureZeroMemory(C->Core.response.memory, SWIFI_CONTROL_BUFFER_SIZE);
+    RtlSecureZeroMemory(C->ReplyData, sizeof(C->ReplyData));
     /* Workers are flushed and their callback contract never lends a pointer
      * past return. This also releases a retained slot after a queue fault. */
     for (I = 0; I < SWIFI_EVENT_COUNT; ++I)

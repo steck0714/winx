@@ -3,9 +3,10 @@
 
 /* Bsscfg 0 uses the ordinary iovar form. WPA and WME probe IEs are handled
  * by the firmware, as in Switchroot's brcmf_vif_set_mgmt_ie. */
-static NTSTATUS VendorIe(SWIFI_WIN_CONTROL *Control, const UCHAR *Ie, USHORT Size, BOOLEAN Add)
+NTSTATUS SwifiSetVendorIe(SWIFI_WIN_CONTROL *Control, const UCHAR *Ie, USHORT Size, BOOLEAN Add, ULONG Mask)
 {
     UCHAR Command[12 + 257] = {0};
+    if (!Ie || Size < 6 || Size != 2u + Ie[1] || Ie[0] != 221 || (Mask != 0x10 && Mask != 0x20)) return STATUS_INVALID_PARAMETER;
     if (Ie[2] == 0 && Ie[3] == 0x50 && Ie[4] == 0xf2 && (Ie[5] == 1 || Ie[5] == 2))
         return STATUS_SUCCESS;
     /* A station scan must not send Wi-Fi Direct IEs. */
@@ -13,7 +14,7 @@ static NTSTATUS VendorIe(SWIFI_WIN_CONTROL *Control, const UCHAR *Ie, USHORT Siz
         return STATUS_SUCCESS;
     RtlCopyMemory(Command, Add ? "add" : "del", 3);
     SwifiScanPut32(Command + 4, 1);
-    SwifiScanPut32(Command + 8, 0x10); /* Probe requests. */
+    SwifiScanPut32(Command + 8, Mask);
     RtlCopyMemory(Command + 12, Ie, Size);
     return SwifiFirmwareIovarSet(Control, 0, "vndr_ie", Command, (USHORT)(12 + Size), NULL);
 }
@@ -88,7 +89,7 @@ NTSTATUS SwifiScanPrepare(SWIFI_WIN_CONTROL *Control, const SWIFI_FIRMWARE_INFO 
     while (Policy->Added < VendorLength) {
         UCHAR *Ie = Policy->Vendor + Policy->Added;
         USHORT Length = (USHORT)(2 + Ie[1]);
-        Status = VendorIe(Control, Ie, Length, TRUE);
+        Status = SwifiSetVendorIe(Control, Ie, Length, TRUE, 0x10);
         if (!NT_SUCCESS(Status)) return Status;
         Policy->Added += Length;
     }
@@ -117,7 +118,7 @@ NTSTATUS SwifiScanRestore(SWIFI_WIN_CONTROL *Control, SWIFI_SCAN_POLICY *Policy)
     while (Policy->Removed < Policy->Added) {
         UCHAR *Ie = Policy->Vendor + Policy->Removed;
         USHORT Length = (USHORT)(2 + Ie[1]);
-        Status = VendorIe(Control, Ie, Length, FALSE);
+        Status = SwifiSetVendorIe(Control, Ie, Length, FALSE, 0x10);
         if (!NT_SUCCESS(Status)) return Status;
         Policy->Removed += Length;
     }

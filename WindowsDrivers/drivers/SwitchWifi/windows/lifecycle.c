@@ -50,7 +50,7 @@ static VOID RecoverControl(PVOID Context, NTSTATUS Reason)
 static VOID FirmwareEvent(PVOID Context, const swifi_event_completion *Event)
 {
     SWIFI_HARDWARE *H = Context;
-    if (!SwifiWdiFirmwareEvent(H->Wdi, Event)) H->Callbacks.Event(H->Context, Event);
+    (VOID)SwifiWdiFirmwareEvent(H->Wdi, Event);
 }
 
 NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
@@ -60,7 +60,7 @@ NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
     WDF_WORKITEM_CONFIG Config;
     NTSTATUS Status;
     if (!H || !Callbacks || !Callbacks->CreateAdapter || !Callbacks->DispatchData || !Callbacks->NotifyData ||
-        !Callbacks->CancelDataAfterReset || !Callbacks->ReleaseDataAfterReset || !Callbacks->Event || !Callbacks->ScheduleRecovery)
+        !Callbacks->CancelDataAfterReset || !Callbacks->ReleaseDataAfterReset || !Callbacks->ScheduleRecovery)
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(H, sizeof(*H));
     KeInitializeSpinLock(&H->ProtocolLock);
@@ -224,6 +224,7 @@ NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
     }
     if (H->ControlCreated)
         SwifiControlStoppedAfterReset(&H->Control);
+    SwifiWdiAfterReset(H->Wdi);
     SwifiSharedDeleteAfterReset(&H->Shared);
     if (H->Transport.Interrupt) {
         H->Transport.H2d = NULL;

@@ -12,6 +12,7 @@ struct SWIFI_RADIO_CAPS {
     SWIFI_FIRMWARE_INFO Identity;
     WIFI_DEVICE_CAPABILITIES Device;
     WIFI_STATION_CAPABILITIES Station;
+    DOT11_AUTH_CIPHER_PAIR Suites[2];
     WIFI_BAND_CAPABILITIES Bands;
     WIFI_PHY_CAPABILITIES Phys;
     WIFI_BAND_INFO Band[MaxBands];
@@ -92,8 +93,16 @@ static NTSTATUS Build(SWIFI_RADIO_CAPS *Caps, const SWIFI_FIRMWARE_INFO *Info)
     /* The 22621/22631 WiFiCx 1.0 structure ends before the later MLO fields. */
     Caps->Station.Size = FIELD_OFFSET(WIFI_STATION_CAPABILITIES, MaxMultiLinkConnectionsSupported);
     Caps->Station.ScanSSIDListSize = SwifiScanSsids;
-    /* This build implements station discovery. Publish authentication/key
-     * pairs only together with their WDI association and key tasks. */
+    Caps->Station.DesiredSSIDListSize = 1;
+    Caps->Station.KeyMappingTableSize = 1;
+    Caps->Station.DefaultKeyTableSize = 4;
+    Caps->Station.PrivacyExemptionListSize = 2; /* EAPOL, unicast and multicast. */
+    Caps->Suites[0].AuthAlgoId = DOT11_AUTH_ALGO_80211_OPEN;
+    Caps->Suites[0].CipherAlgoId = DOT11_CIPHER_ALGO_NONE;
+    Caps->Suites[1].AuthAlgoId = DOT11_AUTH_ALGO_RSNA_PSK;
+    Caps->Suites[1].CipherAlgoId = DOT11_CIPHER_ALGO_CCMP;
+    Caps->Station.NumSupportedUnicastAlgorithms = Caps->Station.NumSupportedMulticastDataAlgorithms = 2;
+    Caps->Station.UnicastAlgorithmsList = Caps->Station.MulticastDataAlgorithmsList = Caps->Suites;
     Caps->Bands.Size = sizeof(Caps->Bands);
     Caps->Bands.BandInfoList = Caps->Band;
     Caps->Phys.Size = sizeof(Caps->Phys);

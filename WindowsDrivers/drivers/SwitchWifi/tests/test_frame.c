@@ -43,6 +43,14 @@ int main(void)
     eth[12]=0; eth[13]=3; eth[14]=0x42; eth[15]=0x42; eth[16]=3;
     assert(swifi_station_rx(eth,60,sta,ap,1,0,wifi,sizeof(wifi))==27 && !memcmp(wifi+24,eth+14,3));
     eth[13]=47; assert(!swifi_station_rx(eth,60,sta,ap,1,0,wifi,sizeof(wifi)));
+    uint8_t native[40] = {8,2};
+    memcpy(native+4,sta,6); memcpy(native+10,ap,6); memcpy(native+16,ap,6);
+    const uint8_t pae[] = {0xaa,0xaa,3,0,0,0,0x88,0x8e,2,3,0,2,0xab,0xcd};
+    memcpy(native+24,pae,sizeof(pae));
+    native[1]|=0x40; assert(!swifi_clear_eapol(native,38,sta,ap)); native[1]=2;
+    assert(!swifi_clear_eapol(native,37,sta,ap));
+    assert(swifi_clear_eapol(native,38,sta,ap)==20);
+    assert(!memcmp(native,sta,6) && !memcmp(native+6,ap,6) && native[12]==0x88 && native[19]==0xcd);
     puts("station frame fixtures passed");
     return 0;
 }
