@@ -1,5 +1,5 @@
 From: ruje0504-2
-Subject: [PATCH] tegra: implement T210B01 PSCI power reset and shutdown
+Subject: [PATCH] tegra: adapt Switchroot B01 restart and MAX77620 shutdown
 
 Base: LineageOS/android_hardware_nintendo_arm-trusted-firmware
 85081cab2050051ea6e93206ef0f80bc0676e613 (lineage-22.2).
@@ -22,37 +22,39 @@ Build with the Nintendo NX parameters in the companion build script.
  $(eval $(call add_define,TZDRAM_BASE))
 --- a/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
 +++ b/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
-@@ -42,6 +42,9 @@
+@@ -42,6 +42,10 @@
  static bool tegra_bpmp_available = true;
  
  extern void r2p_reboot_to_payload();
 +#if SWITCH_LITE_PMIC_RESET
-+extern int tegra_lite_pmic_power(bool reboot);
++extern int tegra_lite_prepare_reset(void);
++extern int tegra_lite_pmic_off(void);
 +#endif
  
  int32_t tegra_soc_validate_power_state(unsigned int power_state,
  					psci_power_state_t *req_state)
-@@ -629,6 +632,13 @@
+@@ -629,6 +633,14 @@
  	/* Wait 1 ms to make sure clock source/device logic is stabilized. */
  	mdelay(1);
  
 +#if SWITCH_LITE_PMIC_RESET
 +	if (tegra_chipid_is_t210_b01()) {
-+		int error = tegra_lite_pmic_power(true);
-+		ERROR("Lite PMIC reboot returned %d; falling back to PMC reset\n", error);
++		int error = tegra_lite_prepare_reset();
++		if (error != 0)
++			ERROR("Lite Switchroot reset preparation failed: %d\n", error);
 +	}
 +#endif
 +
  	/* R2P: Try to reboot to payload if T210. */
  	scratch0 = tegra_pmc_read_32(PMC_SCRATCH0);
  	if (!(scratch0 & PMC_SCRATCH0_MODE_RCM) &&
-@@ -646,6 +656,12 @@
+@@ -646,6 +658,12 @@
  
  __dead2 void tegra_soc_prepare_system_off(void)
  {
 +#if SWITCH_LITE_PMIC_RESET
 +	if (tegra_chipid_is_t210_b01()) {
-+		int error = tegra_lite_pmic_power(false);
++		int error = tegra_lite_pmic_off();
 +		ERROR("Lite PMIC power-off returned %d\n", error);
 +	}
 +#endif
@@ -61,11 +63,15 @@ Build with the Nintendo NX parameters in the companion build script.
  }
 --- /dev/null
 +++ b/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,166 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
-+ * T210B01 MAX77620 power reset/off for the Switch Lite PSCI path.
-+ * Adapted from Hekate bdk/soc/i2c.c and bdk/utils/util.c.
++ * T210B01 Switchroot restart preparation and MAX77620 shutdown.
++ * Adapted from Switchroot pmc.c, pmc-r2p.c, max77620-poweroff.c,
++ * tegra210b01-nx-common.dtsi, and Hekate bdk/soc/i2c.c.
++ * Copyright (c) 2010 Google, Inc.
++ * Copyright (c) 2012-2019 NVIDIA CORPORATION
++ * Copyright (c) 2019 Ezekiel Bethel
 + * Copyright (c) 2018 naehrwert
 + * Copyright (c) 2018-2026 CTCaer
 + *
@@ -78,6 +84,8 @@ Build with the Nintendo NX parameters in the companion build script.
 +#include <lib/mmio.h>
 +
 +#define CAR              0x60006000U
++#define PMC              0x7000E400U
++#define BOOTROM_COMMAND  0x908U
 +#define I2C5             0x7000D000U
 +#define I2C5_BIT         (1U << 15)
 +#define PMIC_ADDRESS     0x3cU
@@ -90,7 +98,50 @@ Build with the Nintendo NX parameters in the companion build script.
 +#define ONOFFCNFG2       0x42U
 +#define SOFT_RESET       0x80U
 +#define RESET_WAKE       0x80U
-+#define ALARM_WAKE       0x06U
++
++/* Switchroot B01 uses PMC reset and BootROM I2C commands, not a live ARM
++ * write to SD0. BootROM first drops the core rail and then resets the PMIC.
++ * The RTC block encodes REBOOT_REASON_MENU (2), as pmc_r2p.action=bootloader.
++ * controller_id is zero in the pinned Linux parser; copy its wire format. */
++int tegra_lite_prepare_reset(void)
++{
++	static const uint32_t commands[] = {
++		0x00005252U, 0x80c80568U, 0x001a0213U, 0x77187711U,
++		0x00000104U, 0x806f033cU, 0x99422016U, 0x00008041U
++	};
++	uint32_t value;
++	unsigned int i;
++
++	/* tegra_pmc_init(), with the B01 NX active-high request polarities. */
++	value = mmio_read_32(PMC);
++	value |= 1U << 16; /* CPU_PWRREQ_OE */
++	mmio_write_32(PMC, value);
++	value &= ~((1U << 10) | (1U << 8));
++	mmio_write_32(PMC, value);
++	value |= 1U << 11; /* SYSCLK_OE */
++	mmio_write_32(PMC, value);
++	/* NX core good times 13100/7800 us; core off time 44160 us.
++	 * Preserve Linux's rounded 8-bit good-time encoding, including wrap. */
++	mmio_write_32(PMC + 0x3cU, 0x6c00U);
++	mmio_write_32(PMC + 0xe0U, 0x5a8U);
++	if (mmio_read_32(PMC) != value)
++		return -1;
++
++	/* Invalidate the header until both complete, checksummed blocks exist. */
++	mmio_write_32(PMC + BOOTROM_COMMAND, 0U);
++	for (i = 1; i < sizeof(commands) / sizeof(commands[0]); i++)
++		mmio_write_32(PMC + BOOTROM_COMMAND + i * 4U, commands[i]);
++	mmio_write_32(PMC + BOOTROM_COMMAND, commands[0]);
++	for (i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
++		if (mmio_read_32(PMC + BOOTROM_COMMAND + i * 4U) != commands[i])
++			return -2;
++	}
++	/* tegra_pmc_program_reboot_reason(): clear stale recovery/RCM flags. */
++	value = mmio_read_32(PMC + 0x50U);
++	value = (value & ~0xe0000002U) | 0x20000000U;
++	mmio_write_32(PMC + 0x50U, value);
++	return mmio_read_32(PMC + 0x50U) == value ? 0 : -3;
++}
 +
 +static int wait_clear(uint32_t reg, uint32_t mask, unsigned int timeout_us)
 +{
@@ -122,17 +173,18 @@ Build with the Nintendo NX parameters in the companion build script.
 +	return 0;
 +}
 +
-+static int read_config(uint32_t *value)
++static int read_register(uint32_t reg, uint32_t *value)
 +{
-+	*value = ONOFFCNFG2;
++	*value = reg;
 +	if (transfer(false, 1U, value) != 0)
 +		return -1;
 +	return transfer(true, 1U, value);
 +}
 +
-+/* Success removes power and cannot return. Negative results retain the
-+ * platform's existing reset/error fallback. No regulator voltage is changed. */
-+int tegra_lite_pmic_power(bool reboot)
++/* Switchroot's max77620_pm_power_off(): clear latched interrupts, clear
++ * SFT_RST_WK, then set SFT_RST without changing the other ONOFFCNFG1 bits.
++ * Success removes power. No regulator voltage is written by the running CPU. */
++int tegra_lite_pmic_off(void)
 +{
 +	uint32_t value, expected, command;
 +	unsigned int i;
@@ -162,13 +214,17 @@ Build with the Nintendo NX parameters in the companion build script.
 +	(void)mmio_read_32(I2C5 + 0x88U);
 +	mmio_write_32(I2C5 + 0x68U, mmio_read_32(I2C5 + 0x68U));
 +
-+	if (read_config(&value) != 0)
++	if (read_register(0x0bU, &value) != 0 || /* ONOFFIRQ */
++	    read_register(0x05U, &value) != 0 || /* IRQTOP */
++	    read_register(ONOFFCNFG2, &value) != 0)
 +		return -2;
-+	expected = reboot ? (value | RESET_WAKE) : (value & ~(RESET_WAKE | ALARM_WAKE));
++	expected = value & ~RESET_WAKE;
 +	command = ONOFFCNFG2 | (expected << 8);
-+	if (transfer(false, 2U, &command) != 0 || read_config(&value) != 0 || value != expected)
++	if (transfer(false, 2U, &command) != 0 ||
++	    read_register(ONOFFCNFG2, &value) != 0 || value != expected ||
++	    read_register(ONOFFCNFG1, &value) != 0)
 +		return -3;
-+	command = ONOFFCNFG1 | (SOFT_RESET << 8);
++	command = ONOFFCNFG1 | ((value | SOFT_RESET) << 8);
 +	result = transfer(false, 2U, &command);
 +	/* The PMIC may remove power before acknowledging the final I2C write. */
 +	mdelay(500);

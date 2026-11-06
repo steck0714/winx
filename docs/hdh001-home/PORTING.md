@@ -26,7 +26,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Wi-Fi | B01 PHY/clock/radio adaptation and NVRAM loader build; PCIe module remains outside the Home package | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
-| Power lifecycle | Owner confirms black-screen shutdown without power-off; replacement BL31 failed pre-Windows boot and was rolled back | Repeatable shutdown/restart and supported display power transitions |
+| Power lifecycle | R3 boots but restart black-screens with the fan running; R3 shutdown is untested. Switchroot-based R4 also boots but restart still hangs; R4 shutdown is untested | Trace late shutdown and establish repeatable power-off/restart |
 
 ## Execution order
 

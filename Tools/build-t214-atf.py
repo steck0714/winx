@@ -32,7 +32,7 @@ def main():
     make = shutil.which("gmake") or shutil.which("make")
     if not make:
         raise SystemExit("GNU make is required")
-    build_base = "build-lite-power-r3"
+    build_base = "build-lite-power-r4"
     # LineageOS android_device_nintendo_nx/vendor/nx-vendor.mk. Hekate loads
     # at 0xFFF00000 and supplies the reset-to-BL31 parameters through IRAM.
     flags = [make, f"-j{args.jobs}", "PLAT=tegra", "TARGET_SOC=t210",
@@ -42,7 +42,7 @@ def main():
              "SDEI_SUPPORT=0", "CRASH_REPORTING=1", "PLAT_LOG_LEVEL_ASSERT=0",
              f"CROSS_COMPILE={args.cross_prefix}", "DEBUG=0", "LOG_LEVEL=0",
              "ENABLE_ASSERTIONS=1", "SWITCH_LITE_PMIC_RESET=1",
-             "BUILD_STRING=85081ca-lite-power-r3"]
+             "BUILD_STRING=85081ca-lite-power-r4"]
     help_text = subprocess.check_output([args.cross_prefix + "ld", "--help"], text=True)
     if "--no-warn-rwx-segments" in help_text:
         # TF-A 2.6's ELF layout predates this binutils diagnostic. Runtime MMU

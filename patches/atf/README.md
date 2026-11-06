@@ -1,6 +1,6 @@
 # T214 PSCI PMIC power patch
 
-Apply `0001-t214-psci-pmic-power.patch` to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adds Lite shutdown/restart power control in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the PMIC-specific helper is under `soc/t210/t214`.
+Apply `0001-t214-psci-pmic-power.patch` to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
 
 ## Build
 
@@ -28,8 +28,8 @@ The unmodified reset-to-BL31 entrypoint obtains Hekate's parameters through the 
 
 ## Validation and deployment state
 
-The focused host test simulates I2C/PMIC register transactions. It checks shutdown versus restart wake policy, configuration-read failure, configuration-readback failure, and a missing acknowledgement on the final reset command. It does not simulate actual rail power or establish that Windows reaches PSCI.
+The focused host test simulates PMC and I2C/PMIC registers. It decodes the BootROM blocks, checks their byte checksums and the RTC Hekate-menu request, verifies the active-high PMC requests and NX timers, and confirms that restart preparation performs no live I2C rail writes. Shutdown tests cover interrupt-latch reads, configuration preservation and I2C failures. These checks do not emulate physical power or establish that Windows reaches PSCI.
 
-R2 failed before Windows because its build did not follow the NX address/startup contract. It was withdrawn and the known-good BL31 restored. R3 has been rebuilt with the official parameters; physical boot, actual power-off and restart remain pending. Deployment replaces only the Home `bl31.bin` and retains its backup and the existing Hekate entry. See [power status](../../docs/hdh001-home/power-performance.md).
+R2 failed before Windows because it did not follow the NX startup contract. R3 boots but its owner-tested restart still leaves a black screen with the fan running; R3 shutdown was not tested. R4 replaces the direct PMIC restart attempt with Switchroot's PMC/BootROM route and preserves the R3 entrypoint/build contract. R4 is built and deployed. The owner confirms Windows boots but restart still black-screens with the fan running. R4 shutdown is untested. See [power status](../../docs/hdh001-home/power-performance.md).
 
-The new helper is GPL-2.0-only, derived from Hekate's I2C and power-state code; original copyright is retained in its source. The remaining ATF source retains its upstream notices.
+The new helper is GPL-2.0-only, derived from Switchroot's PMC/PMIC power code and Hekate's I2C code; original copyright is retained in its source. The remaining ATF source retains its upstream notices.
