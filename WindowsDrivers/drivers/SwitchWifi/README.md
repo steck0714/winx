@@ -361,6 +361,13 @@ request and association response from the chip. If Windows provides a PMKID,
 the request and readback must include it. Each attempted BSSID gets an
 association-result indication. The connect task completes on verified
 association, while Windows handles EAPOL and supplies pairwise/group keys.
+Version 0.5.1 delivers firmware notifications from the passive control-ring
+worker to both station state machines. Escan claims its scan results. The
+association handler receives SET_SSID, link loss, deauthentication and roam
+events, and retains its peer and association-frame readback checks. In 0.5.0
+only the scan handler was reachable, so a successful SET_SSID could leave a
+Windows connect waiting until its deadline. Failed association also ends the
+active receive-filter session before another attempt.
 A disconnect, abort or failed readback gates traffic. The driver waits for
 the firmware disconnect event and an empty BSSID before reusing an aborted
 attempt. A missing fence triggers device recovery.
@@ -493,7 +500,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.5.0.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.5.1.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -545,6 +552,12 @@ Windows ran `WIRS`, registered the interrupt and reported
 `hw=3/C0000182 irq=0 ring=0` when it checked for those memory ranges.
 The fixture exercises resource registration. Only a real Lite can exercise
 the endpoint, deliver a hardware interrupt and return traffic through the rings.
+
+The 0.5.1 regression uses control-ring event completions and the Windows
+event router with instrumented consumers. It checks scan, SET_SSID success
+and failure, link loss, deauthentication, an unknown event, the wrong interface
+and a failed buffer completion. This covers event delivery without exercising
+a physical association or WPA2 handshake.
 
 The validated pre-Windows probe scanned on the Lite. Windows still needs to
 enumerate WFI0, show its own scan results, connect to a WPA2 network, get

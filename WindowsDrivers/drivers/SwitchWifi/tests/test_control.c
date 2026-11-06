@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: ISC */
 #include "../core/msgbuf_control.h"
 #include "../core/msgbuf_ring.h"
+#include "../core/WifiEscan.h"
+#include "../windows/firmware_events.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -256,12 +258,84 @@ static void test_event_lifetime(void)
     assert(swifi_control_refill_events(&m.control) == SWIFI_STOPPED);
 }
 
+/* Stand-ins for the two Windows state machines. The input comes through the
+ * actual msgbuf event completion and the same router as the passive worker. */
+struct SWIFI_SCAN { unsigned calls; };
+struct SWIFI_JOIN { unsigned calls, type, status; };
+
+uint8_t SwifiScanFirmwareEvent(SWIFI_SCAN *scan, const swifi_event_completion *event)
+{
+    ++scan->calls;
+    return event->length >= 72 && SwifiScanBe32(event->data + 28) == 69;
+}
+
+uint8_t SwifiJoinEvent(SWIFI_JOIN *join, const swifi_event_completion *event)
+{
+    ++join->calls;
+    assert(event->length >= 72);
+    join->type = SwifiScanBe32(event->data + 28);
+    join->status = SwifiScanBe32(event->data + 32);
+    return join->type == 0 || join->type == 16 || join->type == 6;
+}
+
+static void test_station_event_delivery(void)
+{
+    enum { ignored, scan_owner, join_owner };
+    static const struct {
+        uint8_t type, status, ifidx;
+        int16_t completion_status;
+        unsigned owner;
+    } cases[] = {
+        {69, 8, 0, 0, scan_owner},  /* escan result */
+        {0, 0, 0, 0, join_owner},  /* SET_SSID success */
+        {0, 3, 0, 0, join_owner},  /* AP no longer visible */
+        {16, 0, 0, 0, join_owner}, /* link down */
+        {6, 0, 0, 0, join_owner},  /* peer deauthentication */
+        {127, 0, 0, 0, ignored},   /* neither consumer claims it */
+        {0, 0, 1, 0, ignored},     /* another interface */
+        {69, 0, 0, -1, ignored},   /* failed buffer completion */
+    };
+    model m;
+    SWIFI_SCAN scan = {0};
+    SWIFI_JOIN join = {0};
+    init(&m);
+    assert(swifi_control_refill_events(&m.control) == SWIFI_OK);
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        uint8_t post[40], completion[24] = {14};
+        read_item(&m, post);
+        unsigned slot = post[4];
+        uint8_t *frame = m.buffers[slot + 2] + m.control.rx_data_offset;
+        frame[12] = 0x88; frame[13] = 0x6c;
+        frame[20] = 0x10; frame[21] = 0x18; frame[23] = 1;
+        frame[31] = cases[i].type;
+        frame[35] = cases[i].status;
+        completion[1] = cases[i].ifidx;
+        memcpy(completion + 4, post + 4, 4);
+        put16(completion + 8, (uint16_t)cases[i].completion_status);
+        put16(completion + 12, 72);
+        put16(completion + 14, 100 + i);
+        assert(swifi_control_complete(&m.control, completion, sizeof(completion)) == SWIFI_OK);
+        assert(m.event_count == i + 1 && m.event[i].sequence == 100 + i);
+        unsigned old_scan = scan.calls, old_join = join.calls;
+        int accepted = SwifiRouteFirmwareEvent(&scan, &join, &m.event[i]);
+        int deliver = !cases[i].ifidx && !cases[i].completion_status;
+        assert(accepted == (cases[i].owner != ignored));
+        assert(scan.calls == old_scan + deliver);
+        assert(join.calls == old_join + (deliver && cases[i].owner != scan_owner));
+        if (cases[i].owner == join_owner) {
+            assert(join.type == cases[i].type && join.status == cases[i].status);
+        }
+        assert(swifi_control_release_event(&m.control, m.event[i].request_id) == SWIFI_OK);
+    }
+}
+
 int main(void)
 {
     test_commands();
     test_backpressure_timeout_and_cancel();
     test_wrong_and_short_completions();
     test_event_lifetime();
-    puts("msgbuf control: wire fixtures, atomic command submission, stale replies, deadlines and event ownership passed");
+    test_station_event_delivery();
+    puts("msgbuf control: command lifetime, event ownership and scan/association delivery passed");
     return 0;
 }

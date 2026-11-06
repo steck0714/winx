@@ -2,6 +2,7 @@
 #include "requests.h"
 #include "scan.h"
 #include "join.h"
+#include "firmware_events.h"
 #include <TlvGeneratorParser.hpp>
 
 struct SWIFI_WDI {
@@ -115,7 +116,7 @@ VOID SwifiWdiStation(SWIFI_WDI *Wdi, WDI_PORT_ID Port, BOOLEAN Present)
 
 BOOLEAN SwifiWdiFirmwareEvent(SWIFI_WDI *Wdi, const swifi_event_completion *Event)
 {
-    return Wdi && SwifiScanFirmwareEvent(Wdi->Scan, Event);
+    return Wdi && SwifiRouteFirmwareEvent(Wdi->Scan, Wdi->Join, Event);
 }
 
 /* A successful M3 releases the WIFIREQUEST. The caller saves the input

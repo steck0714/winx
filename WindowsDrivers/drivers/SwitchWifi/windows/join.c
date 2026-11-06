@@ -912,6 +912,7 @@ BOOLEAN SwifiJoinEvent(SWIFI_JOIN *J, const swifi_event_completion *E)
     if (Status) {
         NTSTATUS Report = AssocResult(J, WDI_ASSOC_STATUS_FAILURE, Status);
         if (NT_SUCCESS(Report)) Report = Vendors(J, FALSE);
+        SwifiFilterStop(J->Owner, FALSE);
         SwifiDataLink(J->Owner, NULL, FALSE, FALSE, FALSE);
         if (!NT_SUCCESS(Report)) { Poison(J, Report); goto Done; }
         FreeActive(J);

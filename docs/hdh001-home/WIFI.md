@@ -4,8 +4,13 @@ An HDH-001 completed a pre-Windows scan. The signed Windows driver implements
 open/WPA2-Personal association, CCMP keys, disconnect and receive filtering.
 Version 0.5.0.0 bound to an ACPI-enumerated device in ARM64 Windows PE
 22621.2861. The guest executed the isolation method and registered the board
-interrupt. Windows scanning, association and IP traffic still need a physical
-HDH-001 run.
+interrupt. Driver 0.5.1 fixes firmware event delivery after that point.
+Previously the control worker passed events only to the escan handler. A
+SET_SSID success, failure or disconnect could therefore never reach the
+Windows association handler. A control-ring fixture exercises the corrected
+dispatch. The same Home firmware and external preparation EFI are used with
+this driver. Windows scanning, association and IP traffic still need a
+physical HDH-001 run.
 
 ## Verified source facts
 

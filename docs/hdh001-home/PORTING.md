@@ -23,7 +23,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed | Discovery, pairing, data exchange and usable range |
 | USB | Upstream firmware paths exist; Lite Windows support unfinished | Device enumeration and keyboard/storage operation through the supported host path |
 | Built-in controls / motion | Lite SIO owns SPI4; Erista direct-SPI sensor profile is unsuitable | Lite SIO transport, button/stick input and sensor reports |
-| Wi-Fi | Physical UEFI scan with six records. Windows PE 22621.2861 bound 0.5.0.0 to an ACPI instance, evaluated WIRS, registered GSI 130 and stopped at the expected missing PCIe memory windows. The station includes Windows receive-filter and CCMP key handling. | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
+| Wi-Fi | Physical UEFI scan with six records. Windows PE 22621.2861 bound 0.5.0.0 to an ACPI instance, evaluated WIRS, registered GSI 130 and stopped at the expected missing PCIe memory windows. Version 0.5.1 forwards scan and association events to their respective handlers. | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
 | Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |
