@@ -618,9 +618,10 @@ The hexadecimal `path` field records the first observation of each step:
 | 100 / 200 / 400 / 800 / 1000 | Bad completion / native frame rejected / destination filtered / malformed EAPOL / key policy denied |
 | 2000 / 4000 / 8000 / 10000 | RX queue started / TX queue started / separate authenticator source / private RX free list exhausted |
 
-`credits` is the negotiated RX buffer count. The report contains no frame
-contents. Key exchange, a DHCP lease and traffic through a rekey still need
-hardware results.
+`credits` is the negotiated RX buffer count. The owner confirmed working Internet access on the Lite after installing
+0.5.5.0. The saved WPA2 profile connected successfully. The owner's report
+covers end-to-end connectivity. A DHCP lease record, sustained traffic and
+key rotation have not been checked independently.
 
 
 References: [Switchroot msgbuf](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c),

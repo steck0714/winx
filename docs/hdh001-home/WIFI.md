@@ -27,8 +27,8 @@ associated. The driver reported `join=15/00000000 select=0/2/1/2/2/0`.
 The saved profile was used automatically. Security events reported a dynamic
 key exchange timeout (0x00048005), and the driver recorded zero key
 installations. Version 0.5.5.0 primes the firmware receive ring and handles
-bridged and length-encapsulated EAPOL. A DHCP lease and working network
-traffic still require a physical connection.
+bridged and length-encapsulated EAPOL. The owner confirmed Internet access on the Lite after this update.
+DHCP lease details, sustained throughput and group rekey remain unmeasured.
 The trimmed image includes the Windows on-screen keyboard at
 `%SystemRoot%\System32\osk.exe` for entering network credentials.
 [Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
