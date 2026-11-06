@@ -17,7 +17,27 @@ R4 keeps the official NX ATF build contract and changes the final B01 reset prep
 
 The existing UEFI BootROM setup remains compatible. R4 refreshes the table at the final reset action and sets the Switchroot Hekate-menu reason. It replaces only `switchroot/woa-lite-home/bl31.bin`; the entry remains **Lite Windows 11 Home**.
 
-R4 was built and deployed with a readback match. The owner reached Windows and tested restart: it still leaves a black screen with the fan running. R4 shutdown is untested. Matching Switchroot's sequence did not resolve the observed restart failure; there is still no direct evidence that Windows reaches the final PSCI handler. Further late-shutdown/firmware-boundary diagnosis remains open while Wi-Fi development continues.
+R4 was built and deployed with a readback match. The owner reached Windows and tested restart: it still leaves a black screen with the fan running. R4 shutdown also fails with the fan running; the owner reports a recognizable Windows sound after the screen goes black. Matching Switchroot's sequence did not resolve the observed restart failure; there is still no direct evidence that Windows reaches the final PSCI handler. Further late-shutdown/firmware-boundary diagnosis remains open while Wi-Fi development continues.
+
+## Pre-Windows boundary check
+
+PowerCheck R2 uses a Hekate BL33 environment setting instead of a held volume
+button. Hekate intercepts volume-minus itself, so the previous immediate return
+to Hekate did not execute the firmware check and is not a reset result.
+
+With `power_check=2`, the Home boot manager displays
+`FIRMWARE POWER-OFF CHECK / CONFIG 2`, counts down five seconds and calls
+`ResetSystem(EfiResetShutdown)` before loading Windows Boot Manager. The owner
+confirmed normal automatic shutdown with the same R4 BL31. This establishes
+pre-Windows power-off, not Windows shutdown. Windows may stall before the final
+firmware call or leave hardware in a different state; the failing boundary has
+not yet been identified.
+
+For an explicit diagnostic run, `power_check=1` selects pre-Windows cold reset;
+that action remains untested. Missing/zero selects the normal Windows path.
+These options require the B01 Home touch/performance profile and its reserved
+Hekate environment. The temporary `power_check=2` line was removed from the
+physical card after the successful test, restoring normal Home launch.
 
 ## Build and evidence
 

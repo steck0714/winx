@@ -26,21 +26,20 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Wi-Fi | B01 PHY/clock/radio adaptation and NVRAM loader build; PCIe module remains outside the Home package | Enumerate chip, load board firmware/NVRAM, scan, associate, DHCP and sustained traffic |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display | BasicDisplay reaches desktop | Preserve working output; CPU-rendered rotation and its PE trial remain cancelled |
-| Power lifecycle | R3 boots but restart black-screens with the fan running; R3 shutdown is untested. Switchroot-based R4 also boots but restart still hangs; R4 shutdown is untested | Trace late shutdown and establish repeatable power-off/restart |
+| Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |
 
 ## Execution order
 
-1. Diagnose the confirmed speaker-silence path against Switchroot codec,
-   I2S, clock and pad setup; accept the deployed shared backlight and paging fixes.
-2. Close input, power and existing-driver gaps using physical traces.
-3. Bring up the Wi-Fi PCIe transport, then its firmware protocol and Windows
-   networking integration. Keep Bluetooth coexistence and the shared chip's
-   power/reset state intact.
+1. Continue Wi-Fi PCIe, firmware messaging and Windows networking integration.
+   Keep Bluetooth coexistence and the shared chip's power/reset state intact.
+2. Trace the remaining Windows shutdown/restart failure. Pre-Windows shutdown
+   has passed; do not treat that as Windows power-lifecycle acceptance.
+3. Close input and existing-driver gaps using focused physical evidence.
+   Speaker output and brightness buttons are already owner-confirmed.
 4. Complete USB and Lite SIO/control/sensor integration according to their
    hardware prerequisites; do not load the Erista sensor profile on Lite.
-5. Run focused physical acceptance for each device and document remaining
-   limitations. Update the existing firmware and driver PRs rather than
-   creating parallel Lite source trees or replacement review branches.
+5. Record physical acceptance and update the existing firmware and driver PRs.
+   Keep shared sources in their upstream locations.
 
 Detailed Wi-Fi dependencies are tracked in [WIFI.md](WIFI.md).
 

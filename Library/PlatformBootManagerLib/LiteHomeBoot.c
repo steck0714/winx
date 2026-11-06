@@ -1,10 +1,54 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBm.h"
 #include <Library/UefiBootManagerLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/IoLib.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <winarm-target.h>
 
 #define WINDOWS_LOADER L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
+
+#if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
+/* The Hekate BL33 environment is reserved by the performance profile.
+ * Configuration avoids VOL- being consumed by Hekate before BL33 starts. */
+STATIC UINT32
+PowerCheckMode (VOID)
+{
+  CONST CHAR8 *Text = (CONST CHAR8 *)0xA9FC0000UL;
+  STATIC CONST CHAR8 Key[] = "power_check=";
+  UINTN Pos = 0;
+  if (MmioRead32 (0xA9FBFFFCUL) != 0x33334C42U) return 0;
+  while (Pos < 0x40000U && Text[Pos] != 0) {
+    UINTN End = Pos;
+    while (End < 0x40000U && Text[End] != 0 && Text[End] != '\n') End++;
+    if (End - Pos == sizeof (Key) && CompareMem (Text + Pos, Key, sizeof (Key) - 1) == 0) {
+      CHAR8 Value = Text[End - 1];
+      return Value == '1' || Value == '2' ? (UINT32)(Value - '0') : 0;
+    }
+    Pos = End + 1;
+  }
+  return 0;
+}
+
+STATIC VOID
+CheckPowerBeforeWindows (VOID)
+{
+  UINT32 Mode = PowerCheckMode ();
+  UINTN I;
+  EFI_RESET_TYPE Action;
+  if (!Mode || (MmioRead32 (0x70000804) & 0xFFF0) != 0x2120) return;
+  Action = Mode == 1 ? EfiResetCold : EfiResetShutdown;
+  Print (L"FIRMWARE %s CHECK / CONFIG %u\r\n",
+         Action == EfiResetCold ? L"RESTART" : L"POWER-OFF", Mode);
+  Print (L"Windows has not started. Do not hold volume keys.\r\n");
+  Print (L"Calling the firmware power path in 5 seconds.\r\n");
+  for (I = 5; I > 0; I--) { Print (L"%u ", I); gBS->Stall (1000000); }
+  Print (L"\r\nResetSystem called now.\r\n");
+  gRT->ResetSystem (Action, EFI_SUCCESS, 0, NULL);
+  Print (L"FAILED: ResetSystem returned.\r\n");
+  for (;;) __asm__ volatile ("wfi");
+}
+#endif
 
 STATIC BOOLEAN
 IsWindowsPartition (EFI_HANDLE Handle)
@@ -82,6 +126,9 @@ PlatformBootManagerAfterConsole (VOID)
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"SWITCH LITE / WINDOWS 11 HOME\r\n");
   EfiBootManagerConnectAll ();
+#if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
+  CheckPowerBeforeWindows ();
+#endif
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
   if (!EFI_ERROR (Status)) {
     for (UINTN Index = 0; Index < Count; ++Index) {
