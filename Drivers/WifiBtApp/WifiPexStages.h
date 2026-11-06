@@ -16,6 +16,7 @@
 **/
 
 #include "WifiErom.h"
+#include "WifiPciLayout.h"
 
 STATIC UINT32  mChipId     = 0;
 STATIC UINT32  mArmBase    = 0;            // discovered from EROM
@@ -221,6 +222,7 @@ PexEnum (
   UINT32  A2;
   UINT32  Cmd;
   UINT32  Probe;
+  UINT32  BridgeWindow;
 
   if (!mPexUp) {
     Log (L"enum: run `pex` first");
@@ -228,9 +230,9 @@ PexEnum (
   }
   Id = PexCfgRd (0, PEX_PORT + 1, 0, 0);
   Log (L"enum: root port id=%08x class=%08x", Id, PexCfgRd (0, PEX_PORT + 1, 0, 8));
-  Log (L"enum: root port bus numbers pri0 sec1 sub1; memory window %08x..%08x", PEX_MEM_BASE, PEX_MEM_BASE + 0x3FFFFF);
+  Log (L"enum: root port bus numbers pri0 sec1 sub1; size BARs before opening memory window");
   PexCfgWr (0, PEX_PORT + 1, 0, 0x18, 0x00010100);
-  PexCfgWr (0, PEX_PORT + 1, 0, 0x20, 0x13301300);
+  PexCfgWr (0, PEX_PORT + 1, 0, 0x20, 0x0000FFF0);
   PexCfgWr (0, PEX_PORT + 1, 0, 0x24, 0x0000FFF0);               // prefetch window closed (base > limit)
   Cmd = PexCfgRd (0, PEX_PORT + 1, 0, 4) & 0xFFFF;
   PexCfgWr (0, PEX_PORT + 1, 0, 4, Cmd | 0x6);
@@ -254,6 +256,8 @@ PexEnum (
   }
   PexCfgDump (1, 0, 16);
 
+  Cmd = PexCfgRd (1, 0, 0, 4) & 0xFFFF;
+  PexCfgWr (1, 0, 0, 4, Cmd & ~6U);
   Sz0 = PexBarSize (0x10);
   Sz2 = PexBarSize (0x18);
   Log (L"enum: BAR0 sizing readback=%08x  BAR2 sizing readback=%08x (bit2:1 = 10b means 64-bit BAR)", Sz0, Sz2);
@@ -263,10 +267,10 @@ PexEnum (
     Log (L"enum: implausible BAR sizes %08x / %08x", S0, S2);
     return FALSE;
   }
-  A0 = PEX_MEM_BASE;
-  A2 = (A0 + S0 + S2 - 1) & ~(S2 - 1);
-  if (A2 < A0 + S0) {
-    A2 += S2;
+  if ((Sz0 & 1) || (Sz2 & 1) ||
+      !PexMemoryLayout (PEX_MEM_BASE, PEX_MEM_SIZE, S0, S2, &A0, &A2, &BridgeWindow)) {
+    Log (L"enum: BARs do not fit the outbound memory aperture");
+    return FALSE;
   }
   Log (L"enum: BAR0 size %08x -> %08x, BAR2 size %08x -> %08x", S0, A0, S2, A2);
   PexCfgWr (1, 0, 0, 0x10, A0 | (Sz0 & 0xF));
@@ -277,8 +281,18 @@ PexEnum (
   if ((Sz2 & 6) == 4) {
     PexCfgWr (1, 0, 0, 0x1C, 0);
   }
-  Cmd = PexCfgRd (1, 0, 0, 4) & 0xFFFF;
-  PexCfgWr (1, 0, 0, 4, Cmd | 0x6);                              // memory space + bus master
+  PexCfgWr (0, PEX_PORT + 1, 0, 0x20, BridgeWindow);
+  if ((PexCfgRd (1, 0, 0, 0x10) & ~0xFU) != A0 ||
+      (PexCfgRd (1, 0, 0, 0x18) & ~0xFU) != A2 ||
+      (PexCfgRd (0, PEX_PORT + 1, 0, 0x20) & 0xFFF0FFF0U) != BridgeWindow) {
+    Log (L"enum: BAR or bridge memory-window readback mismatch");
+    return FALSE;
+  }
+  // Restore the existing endpoint command policy after BAR assignment.
+  // MsgInitialize separately quiesces bus mastering while publishing rings.
+  PexCfgWr (1, 0, 0, 4, Cmd | 6U);
+  Log (L"enum: bridge memory base/limit=%08x, covering BAR2 through %08x",
+       BridgeWindow, A2 + S2 - 1U);
   Log (L"enum: BAR0=%08x BAR2=%08x cmd=%08x", PexCfgRd (1, 0, 0, 0x10), PexCfgRd (1, 0, 0, 0x18), PexCfgRd (1, 0, 0, 4));
 
   mBar0     = A0;

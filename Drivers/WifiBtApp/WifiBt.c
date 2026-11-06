@@ -1699,7 +1699,7 @@ WifiProbeMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
   (VOID)SystemTable;
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
-  Print (L"WIFI PCIE / FIRMWARE / PASSIVE SCAN CHECK R2\r\n");
+  Print (L"WIFI PCIE / FIRMWARE / PASSIVE SCAN CHECK R6\r\n");
   Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Loaded);
   if (EFI_ERROR (Status)) return Status;
   Status = gBS->HandleProtocol (Loaded->DeviceHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);

@@ -114,7 +114,25 @@ acquired supply. This also covers failure before the child marks PEX up.
 R5 changes only Home BL33 and is deployed. The probe application/data on WINARM
 are unchanged. The supply policy builds and its focused model covers ramp,
 shared-rail preservation, restoration and I2C failures; physical power-good,
-calibration and link results remain pending.
+calibration and link results are now recorded below.
+
+R5's physical readback is **LDO1 0x0A -> 0xC8, power status 0xC8**. UPHY,
+PCIe link, endpoint and chip discovery progressed successfully. CR4 reports
+`0xC0000` bytes at `0x180000`. The remaining stage-4 failure is the first TCM
+firmware-word readback: `0xFFFFFFFF` instead of `0xB83EF180`.
+
+The existing root-port bridge memory window ended at `0x133FFFFF`. BAR2 needs
+at least 4 MiB to contain that TCM range, and the allocator places it outside
+the fixed bridge limit. R6 computes the bridge memory base/limit after BAR
+sizing, covers the full aligned BAR0/BAR2 allocation and verifies configuration
+readback before memory access. Endpoint memory/bus mastering are disabled while
+sizing/programming BARs, then the existing command policy is restored. The
+outbound AFI aperture is unchanged. The focused layout fixture decodes the
+bridge register and checks coverage of both BARs and the firmware TCM interval.
+
+R6 is deployed and read back as an application-only update on WINARM; R5 BL33 and the Ubuntu board data
+remain in place. Firmware startup, msgbuf exchange and scan acceptance still
+require a physical result.
 
 ## Build and focused checks
 
