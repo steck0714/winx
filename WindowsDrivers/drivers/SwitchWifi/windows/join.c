@@ -2,6 +2,7 @@
 #include "join.h"
 #include "join_firmware.h"
 #include "station_keys.h"
+#include "station_filter.h"
 
 typedef struct JOIN_CANDIDATE {
     LIST_ENTRY Link;
@@ -296,6 +297,7 @@ static VOID FreeActive(SWIFI_JOIN *J)
 static VOID Poison(SWIFI_JOIN *J, NTSTATUS Reason)
 {
     J->Poisoned = TRUE;
+    SwifiFilterStop(J->Owner, FALSE);
     J->Deadline = 0;
     SwifiDataLink(J->Owner, NULL, FALSE, FALSE, FALSE);
     DropPending(J);
@@ -460,7 +462,7 @@ static VOID NextCandidate(SWIFI_JOIN *J)
         JOIN_CANDIDATE *C = J->Active;
         SwifiDataBeginJoin(J->Owner, C->Peer, C->Profile.auth == SWIFI_AUTH_PSK_CCMP, C->ExcludeUnencrypted);
         NTSTATUS Status = Vendors(J, TRUE);
-        if (NT_SUCCESS(Status)) Status = SwifiJoinFirmware(J->Control, J->Info, &C->Profile,
+        if (NT_SUCCESS(Status)) Status = SwifiJoinFirmware(J->Owner, J->Info, &C->Profile,
             C->Peer, C->Channel, C->HavePmkid ? C->Pmkid : NULL);
         if (NT_SUCCESS(Status)) {
             ULONGLONG Now = KeQueryInterruptTime();
@@ -469,6 +471,7 @@ static VOID NextCandidate(SWIFI_JOIN *J)
             Arm(J, max(AttemptMs,1u));
             return;
         }
+        SwifiFilterStop(J->Owner, FALSE);
         SwifiDataLink(J->Owner, NULL, FALSE, FALSE, FALSE);
         if (!NT_SUCCESS(Vendors(J, FALSE)) || !NT_SUCCESS(AssocResult(J, WDI_ASSOC_STATUS_FAILURE, (ULONG)Status))) {
             Poison(J, STATUS_DEVICE_PROTOCOL_ERROR);
@@ -499,6 +502,7 @@ static NTSTATUS LinkIsDown(SWIFI_JOIN *J, BOOLEAN *Confirmed)
 static VOID Down(SWIFI_JOIN *J, WDI_ASSOC_STATUS Reason)
 {
     NTSTATUS Status = STATUS_SUCCESS;
+    SwifiFilterStop(J->Owner, FALSE);
     SwifiDataLink(J->Owner, NULL, FALSE, FALSE, FALSE);
     if (J->Active) {
         Status = SwifiKeysClear(&J->Keys, J->Owner, J->Active->Peer);
@@ -617,6 +621,7 @@ VOID SwifiJoinEndSession(SWIFI_JOIN *J)
 {
     WdfWaitLockAcquire(J->Lock, NULL);
     J->Online = FALSE;
+    SwifiFilterStop(J->Owner, FALSE);
     J->Deadline = 0;
     Finish(J, &J->Connect, STATUS_CANCELLED);
     Finish(J, &J->Leave, STATUS_CANCELLED);
@@ -655,6 +660,7 @@ VOID SwifiJoinStation(SWIFI_JOIN *J, WDI_PORT_ID Port, BOOLEAN Present)
     if (Present) J->Port = Port;
     else if (J->Port == Port) {
         if (J->Online && J->Control->Running && J->Active && !J->Poisoned) (VOID)BeginLeave(J, 3, STATUS_CANCELLED, FALSE);
+        SwifiFilterStop(J->Owner, TRUE);
         J->Announced = J->ResetNotice = FALSE;
         J->Port = WDI_PORT_ID_ADAPTER;
     }
@@ -721,6 +727,7 @@ static VOID SetEapolRules(SWIFI_JOIN *J, const UCHAR Rules[2]);
 static NTSTATUS LeaveTask(SWIFI_JOIN *J, UINT16 Id, WDI_MESSAGE_HEADER *H, ULONG Bytes, USHORT *Reason)
 {
     NTSTATUS Status;
+    BOOLEAN DefaultMib = FALSE;
     *Reason = 3;
     if (Id == WDI_TASK_DISCONNECT) {
         WDI_TASK_DISCONNECT_PARAMETERS P = {0};
@@ -735,13 +742,21 @@ static NTSTATUS LeaveTask(SWIFI_JOIN *J, UINT16 Id, WDI_MESSAGE_HEADER *H, ULONG
         if (NT_SUCCESS(Status) && P.Optional.ResetMACAddress_IsPresent &&
             !RtlEqualMemory(P.ResetMACAddress.Address, J->Info->Address, 6)) Status = STATUS_NOT_SUPPORTED;
         if (NT_SUCCESS(Status) && P.Optional.ResetMloLinkMACAddresses_IsPresent) Status = STATUS_NOT_SUPPORTED;
-        if (NT_SUCCESS(Status) && P.Dot11ResetParameters.SetDefaultMIB && !J->Leave.Memory) {
+        if (NT_SUCCESS(Status)) DefaultMib = P.Dot11ResetParameters.SetDefaultMIB;
+        CleanupParsedWdiTaskDot11ResetToIhv(&P);
+    }
+    if (NT_SUCCESS(Status)) Status = NewTask(J, &J->Leave, Id, H);
+    if (NT_SUCCESS(Status) && Id == WDI_TASK_DOT11_RESET) {
+        Status = SwifiFilterResetList(J->Owner);
+        if (!NT_SUCCESS(Status)) {
+            WdfObjectDelete(J->Leave.Memory);
+            RtlZeroMemory(&J->Leave, sizeof(J->Leave));
+        } else if (DefaultMib) {
             static const UCHAR Default[2] = {0};
             SetEapolRules(J, Default);
         }
-        CleanupParsedWdiTaskDot11ResetToIhv(&P);
     }
-    return NT_SUCCESS(Status) ? NewTask(J, &J->Leave, Id, H) : Status;
+    return Status;
 }
 
 static NTSTATUS ChangeKeys(SWIFI_JOIN *J, UINT16 Id, WDI_MESSAGE_HEADER *H, ULONG Bytes)
@@ -827,7 +842,8 @@ BOOLEAN SwifiJoinCommand(SWIFI_JOIN *J, WIFIREQUEST Request, UINT16 Id, WDI_MESS
     BOOLEAN Leave = Id == WDI_TASK_DISCONNECT || Id == WDI_TASK_DOT11_RESET;
     BOOLEAN Key = Id == WDI_SET_ADD_CIPHER_KEYS || Id == WDI_SET_DELETE_CIPHER_KEYS;
     BOOLEAN Exempt = Id == WDI_SET_PRIVACY_EXEMPTION_LIST;
-    if (!ConnectTask && !Leave && !Key && !Exempt) return FALSE;
+    BOOLEAN Filter = Id == WDI_SET_RECEIVE_PACKET_FILTER || Id == WDI_SET_MULTICAST_LIST;
+    if (!ConnectTask && !Leave && !Key && !Exempt && !Filter) return FALSE;
     USHORT Reason = 3;
     NTSTATUS Status;
     WdfWaitLockAcquire(J->Lock, NULL);
@@ -836,6 +852,7 @@ BOOLEAN SwifiJoinCommand(SWIFI_JOIN *J, WIFIREQUEST Request, UINT16 Id, WDI_MESS
     else if (ConnectTask) Status = Connect(J, H, Bytes);
     else if (Leave) Status = LeaveTask(J, Id, H, Bytes, &Reason);
     else if (Exempt) Status = Privacy(J, H, Bytes);
+    else if (Filter) Status = SwifiFilterWdi(J->Owner, Id, &J->Tlv, H, Bytes);
     else Status = ChangeKeys(J, Id, H, Bytes);
     if (ConnectTask && !NT_SUCCESS(Status)) SwifiReportJoin(&J->Owner->Report, Status);
     /* All input was copied or consumed. Publish M3 before a firmware event

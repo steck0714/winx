@@ -5,6 +5,7 @@
 #include "lifecycle.h"
 #include "report.h"
 #include "../core/rx_metadata.h"
+#include "../core/receive_filter.h"
 #include <net/virtualaddress.h>
 
 enum { SwifiNumTx = 24, SwifiNumRx = 32, SwifiNumFifo = 4 };
@@ -21,7 +22,7 @@ typedef struct SWIFI_TX_BUFFER {
 
 typedef struct SWIFI_RX_BUFFER {
     LIST_ENTRY Link;
-    ULONG Epoch, QueueEpoch, KeyEpoch;
+    ULONG Epoch, QueueEpoch, KeyEpoch, AcceptedKeyEpoch;
     BOOLEAN KeyInFlight;
     USHORT Offset, Length;
     BOOLEAN Protected, DerivedClear;
@@ -73,6 +74,10 @@ typedef struct SWIFI_DEVICE {
     SWIFI_REPORT Report;
     SWIFI_STATION_DATA Data;
     NETADAPTER Station;
+    WDFWAITLOCK FilterLock;
+    /* Writers take FilterLock, RX reads the published policy under ProtocolLock. */
+    swifi_receive_filter Filter;
+    BOOLEAN FilterLive;
     WDI_PORT_ID Port;
     volatile LONG Failing;
 } SWIFI_DEVICE;

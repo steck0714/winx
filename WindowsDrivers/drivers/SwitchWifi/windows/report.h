@@ -18,13 +18,14 @@ typedef struct SWIFI_REPORT_DATA {
     ULONG Session, Step, FailedStep;
     NTSTATUS StepStatus, FailureStatus, ScanStatus, JoinStatus;
     ULONG Scans, Attempts, KeyInstalls, KeyRemovals, KeyMask;
+    ULONG FilterFlags, FilterCount, FilterMode;
+    NTSTATUS FilterStatus;
     ULONG Count[SwifiRxCases];
 } SWIFI_REPORT_DATA;
 
 typedef struct SWIFI_REPORT {
     KSPIN_LOCK Lock;
     WDFWORKITEM Worker;
-    WDFKEY Key;
     BOOLEAN Scheduled, Dirty;
     SWIFI_REPORT_DATA Data;
 } SWIFI_REPORT;
@@ -33,6 +34,7 @@ VOID SwifiReportOpen(WDFDEVICE Device, SWIFI_REPORT *Report);
 VOID SwifiReportStep(SWIFI_REPORT *R, SWIFI_BOOT_STEP Step, NTSTATUS Status);
 VOID SwifiReportScan(SWIFI_REPORT *R, NTSTATUS Status);
 VOID SwifiReportJoin(SWIFI_REPORT *R, NTSTATUS Status);
+VOID SwifiReportFilter(SWIFI_REPORT *R, ULONG Flags, ULONG Count, ULONG Mode, NTSTATUS Status);
 VOID SwifiReportKeys(SWIFI_REPORT *R, ULONG Mask, ULONG Adds, ULONG Removes);
 VOID SwifiReportRx(SWIFI_REPORT *R, SWIFI_RX_CASE Case);
 VOID SwifiReportFlush(SWIFI_REPORT *R);

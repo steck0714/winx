@@ -12,7 +12,7 @@ The first Home media run went black during display-device restart. The Home inst
 
 An optional Bluetooth profile reuses the upstream UART-D driver and Switch-specific patch. The combined BasicDisplay/audio/Bluetooth update is built and deployed; the next boot confirmed patch loading, 3 Mbaud transport and the BthMini child. Pairing and range remain unconfirmed. The Erista SPI4 sensor profile stays disabled because Lite SIO owns that bus.
 
-A physical pre-Windows Wi-Fi probe now completes passive scanning with BCM4356A3 firmware: six scan records, terminal status 0 and UEFI return Success. The B01 PCIe supply and bridge BAR window fixes are in the shared firmware source. The temporary diagnostic setting was removed, restoring normal Home boot. The signed Windows station driver staged in an ARM64 PE VM. The driver implements Windows scan, open/WPA2-Personal association and CCMP keys. These paths, DHCP and sustained traffic await hardware testing.
+The Lite's BCM4356A3 completed a passive scan in UEFI and returned six records. The B01 PCIe supply and bridge BAR changes are in the shared firmware. The temporary probe was removed from **Windows 11 Lite**. In an isolated ARM64 Windows PE 22621.2861 guest, the signed 0.4.2.0 driver reached its first platform ACPI request. Windows scanning, WPA2 association, DHCP and sustained traffic through a group rekey still need physical acceptance.
 
 - [Driver porting goal and Wi-Fi roadmap](docs/hdh001-home/PORTING.md)
 - [Stage 6 builds and first-boot troubleshooting](docs/hdh001-home/README.md)

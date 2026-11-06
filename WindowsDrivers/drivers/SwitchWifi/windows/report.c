@@ -2,12 +2,23 @@
 #include "report.h"
 #include <ntstrsafe.h>
 
-typedef struct REPORT_WORK { SWIFI_REPORT *Report; } REPORT_WORK;
+typedef struct REPORT_WORK { WDFDEVICE Device; SWIFI_REPORT *Report; } REPORT_WORK;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(REPORT_WORK, ReportWork);
 
 static VOID WriteReport(WDFWORKITEM Work)
 {
-    SWIFI_REPORT *R = ReportWork(Work)->Report;
+    REPORT_WORK *Context = ReportWork(Work);
+    SWIFI_REPORT *R = Context->Report;
+    WDFKEY Key;
+    if (!NT_SUCCESS(WdfDeviceOpenRegistryKey(Context->Device, PLUGPLAY_REGKEY_DEVICE,
+        KEY_SET_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+        /* Prepare or the next explicit flush retries after an early open. */
+        KIRQL Irql;
+        KeAcquireSpinLock(&R->Lock, &Irql);
+        R->Scheduled = FALSE;
+        KeReleaseSpinLock(&R->Lock, Irql);
+        return;
+    }
     UNICODE_STRING Name;
     RtlInitUnicodeString(&Name, L"SwitchWifiReport");
     for (;;) {
@@ -16,25 +27,27 @@ static VOID WriteReport(WDFWORKITEM Work)
         if (!R->Dirty) {
             R->Scheduled = FALSE;
             KeReleaseSpinLock(&R->Lock,Irql);
+            WdfRegistryClose(Key);
             return;
         }
         R->Dirty = FALSE;
         SWIFI_REPORT_DATA D = R->Data;
         KeReleaseSpinLock(&R->Lock,Irql);
-        WCHAR Text[384];
+        WCHAR Text[512];
         NTSTATUS Status = RtlStringCchPrintfW(Text, RTL_NUMBER_OF(Text),
-            L"v=3 session=%u step=%u/%08X failure=%u/%08X scan=%u/%08X join=%u/%08X "
+            L"v=4 session=%u step=%u/%08X failure=%u/%08X scan=%u/%08X join=%u/%08X "
             L"keys=%u add=%u del=%u eth_pre=%u eth_unknown=%u native_clear=%u "
-            L"native_protected=%u meta=%u rssi=%u malformed=%u",
+            L"native_protected=%u meta=%u rssi=%u malformed=%u filter=%X/%u/%u/%08X",
             D.Session,D.Step,(ULONG)D.StepStatus,D.FailedStep,(ULONG)D.FailureStatus,
             D.Scans,(ULONG)D.ScanStatus,D.Attempts,(ULONG)D.JoinStatus,D.KeyMask,
             D.KeyInstalls,D.KeyRemovals,D.Count[SwifiRxEtherBeforeKey],D.Count[SwifiRxEtherUncertain],
             D.Count[SwifiRxNativeClear],D.Count[SwifiRxNativeProtected],D.Count[SwifiRxMetaSeen],
-            D.Count[SwifiRxRssiSeen],D.Count[SwifiRxMetaInvalid]);
+            D.Count[SwifiRxRssiSeen],D.Count[SwifiRxMetaInvalid],
+            D.FilterFlags,D.FilterCount,D.FilterMode,(ULONG)D.FilterStatus);
         if (NT_SUCCESS(Status)) {
             UNICODE_STRING Value;
             RtlInitUnicodeString(&Value, Text);
-            (VOID)WdfRegistryAssignUnicodeString(R->Key, &Name, &Value);
+            (VOID)WdfRegistryAssignUnicodeString(Key, &Name, &Value);
         }
     }
 }
@@ -44,16 +57,14 @@ VOID SwifiReportOpen(WDFDEVICE Device, SWIFI_REPORT *R)
     WDF_OBJECT_ATTRIBUTES A;
     WDF_WORKITEM_CONFIG Config;
     KeInitializeSpinLock(&R->Lock);
-    WDF_OBJECT_ATTRIBUTES_INIT(&A);
-    A.ParentObject = Device;
-    if (!NT_SUCCESS(WdfDeviceOpenRegistryKey(Device, PLUGPLAY_REGKEY_DEVICE, KEY_SET_VALUE,
-        &A, &R->Key))) return;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&A, REPORT_WORK);
     A.ParentObject = Device;
     WDF_WORKITEM_CONFIG_INIT(&Config, WriteReport);
     Config.AutomaticSerialization = FALSE;
-    if (NT_SUCCESS(WdfWorkItemCreate(&Config, &A, &R->Worker)))
+    if (NT_SUCCESS(WdfWorkItemCreate(&Config, &A, &R->Worker))) {
+        ReportWork(R->Worker)->Device = Device;
         ReportWork(R->Worker)->Report = R;
+    }
 }
 
 static VOID ScheduleLocked(SWIFI_REPORT *R)
@@ -100,6 +111,18 @@ VOID SwifiReportJoin(SWIFI_REPORT *R, NTSTATUS Status)
     KeAcquireSpinLock(&R->Lock,&Irql);
     ++R->Data.Attempts;
     R->Data.JoinStatus = Status;
+    ScheduleLocked(R);
+    KeReleaseSpinLock(&R->Lock,Irql);
+}
+
+VOID SwifiReportFilter(SWIFI_REPORT *R, ULONG Flags, ULONG Count, ULONG Mode, NTSTATUS Status)
+{
+    KIRQL Irql;
+    KeAcquireSpinLock(&R->Lock,&Irql);
+    R->Data.FilterFlags = Flags;
+    R->Data.FilterCount = Count;
+    R->Data.FilterMode = Mode;
+    R->Data.FilterStatus = Status;
     ScheduleLocked(R);
     KeReleaseSpinLock(&R->Lock,Irql);
 }

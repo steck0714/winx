@@ -2,6 +2,10 @@
 #include "station_data.h"
 #include <net/wifi/exemptionaction.h>
 #include "../core/station_frame.h"
+#include "../core/station_security.h"
+
+C_ASSERT(WDI_EXEMPT_NO_EXEMPTION == 0 && WDI_EXEMPT_ALWAYS == 1 &&
+    WDI_EXEMPT_ON_KEY_MAPPING_KEY_UNAVAILABLE == 2);
 
 static swifi_result Submit(void *Context, uint16_t Ring, const uint8_t *Item, size_t Length)
 {
@@ -107,7 +111,8 @@ static VOID RxComplete(void *Context, const swifi_packet_completion *Completion)
     UCHAR *Frame = D->RxMemory.Memory + (Slot - D->Rx) * SWIFI_PACKET_SIZE + Completion->offset;
     USHORT Length = Completion->length;
     BOOLEAN Native = (Completion->rx_flags & 2) != 0;
-    SWIFI_REPORT *Report = &SwifiDeviceContext(D->Hardware->Device)->Report;
+    SWIFI_DEVICE *Owner = CONTAINING_RECORD(D, SWIFI_DEVICE, Data);
+    SWIFI_REPORT *Report = &Owner->Report;
     if (Native) {
         if ((Completion->rx_flags & 1) != 0) { ++D->RxDrops; return; }
         if (Length >= 24 && (Frame[0] == 8 || Frame[0] == 0x88) &&
@@ -121,6 +126,7 @@ static VOID RxComplete(void *Context, const swifi_packet_completion *Completion)
         Length = (USHORT)swifi_clear_eapol(Frame, Length, D->Address, D->Peer);
         if (!Length) { ++D->RxDrops; return; }
     }
+    if (!swifi_filter_accepts(&Owner->Filter, D->Address, Frame)) { ++D->RxDrops; return; }
     BOOLEAN Eapol = IsEapol(Frame), Group = (Frame[0] & 1) != 0;
     if (Eapol && (!RtlEqualMemory(Frame + 6, D->Peer, 6) || Length < 18 ||
         (((USHORT)Frame[16] << 8) | Frame[17]) > Length - 18)) { ++D->RxDrops; return; }
@@ -142,12 +148,12 @@ static VOID RxComplete(void *Context, const swifi_packet_completion *Completion)
             SwifiReportRx(Report, Native ? SwifiRxNativeClear :
                 (PreKey ? SwifiRxEtherBeforeKey : SwifiRxEtherUncertain));
             if ((!Native && !PreKey) ||
-                (Rule == WDI_EXEMPT_ON_KEY_MAPPING_KEY_UNAVAILABLE && D->Pairwise) ||
-                (!Rule && D->ExcludeUnencrypted)) { ++D->RxDrops; return; }
+                !swifi_clear_eapol_allowed(Rule, D->Pairwise, D->ExcludeUnencrypted)) { ++D->RxDrops; return; }
         } else {
             /* Secure join required wsec_restrict readback before submitting. */
             if (D->UpdatingKeys || !D->Pairwise || (Group && !D->Group)) { ++D->RxDrops; return; }
             Slot->Protected = TRUE;
+            Slot->AcceptedKeyEpoch = D->KeyEpoch;
         }
     }
     Slot->Epoch = D->Epoch;
@@ -504,6 +510,16 @@ static VOID AdvanceRx(SWIFI_QUEUE *Q)
         NET_FRAGMENT *F = NetRingGetFragmentAtIndex(Fragments, Id);
         PUCHAR Target = NetExtensionGetFragmentVirtualAddress(&Q->Va, Id)->VirtualAddress;
         PUCHAR Frame = D->RxMemory.Memory + (Slot - D->Rx) * SWIFI_PACKET_SIZE + Slot->Offset;
+        SWIFI_DEVICE *Owner = CONTAINING_RECORD(D, SWIFI_DEVICE, Data);
+        BOOLEAN Group = (Frame[0] & 1) != 0;
+        if (!swifi_filter_accepts(&Owner->Filter, D->Address, Frame) ||
+            (Slot->Protected && (D->UpdatingKeys || !D->Pairwise || (Group && !D->Group) ||
+                Slot->AcceptedKeyEpoch != D->KeyEpoch)) ||
+            (D->Secure && IsEapol(Frame) && !swifi_clear_eapol_allowed(
+                D->EapolExemption[Group], D->Pairwise, D->ExcludeUnencrypted))) {
+            ++D->RxDrops;
+            continue;
+        }
         SIZE_T Length = Target && Slot->Epoch == D->Epoch && D->Associated ?
             swifi_station_rx(Frame, Slot->Length, D->Address, D->Peer, D->Sequence,
                 Slot->Protected, Target, (SIZE_T)F->Capacity) : 0;

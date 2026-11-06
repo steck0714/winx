@@ -26,6 +26,10 @@ libraries = [wdf / "wdfdriverentry.lib", wdf / "wdfldr.lib",
 driver = args.out / "switchwifi.sys"
 subprocess.run([args.linker, "/nologo", "/driver", "/subsystem:native,10.0", "/machine:arm64",
                 "/entry:FxDriverEntry", "/nodefaultlib", "/release", "/opt:ref", "/opt:icf",
+                # Use the same kernel section protections as tools/Build-Driver.ps1.
+                # The WDF/Cx bind records in .data are writable at load time.
+                "/section:.text,ERP", "/section:.rdata,RP", "/section:.data,RWP",
+                "/section:.pdata,RP", "/section:INIT,ERD", "/tsaware:no",
                 "/integritycheck", "/timestamp:0", f"/out:{driver}",
                 str(thunk), str(args.objects / "SwitchWifiTransport.lib"), *map(str, libraries)], check=True)
 print(f"Unsigned ARM64 driver: {driver}")

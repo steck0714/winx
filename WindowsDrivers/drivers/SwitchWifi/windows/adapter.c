@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#include "station_data.h"
+#include "station_filter.h"
 
 static VOID AdapterCleanup(WDFOBJECT Object)
 {
@@ -66,6 +66,7 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
     NetAdapterSetPermanentLinkLayerAddress(Adapter, &Mac);
     NetAdapterSetCurrentLinkLayerAddress(Adapter, &Mac);
     NetAdapterSetLinkLayerMtuSize(Adapter, 1500);
+    SwifiFilterRegister(Adapter);
     NET_ADAPTER_TX_CAPABILITIES_INIT(&Tx, 1);
     NET_ADAPTER_RX_CAPABILITIES_INIT_SYSTEM_MANAGED(&Rx, SWIFI_PACKET_SIZE, 1);
     NetAdapterSetDataPathCapabilities(Adapter, &Tx, &Rx);

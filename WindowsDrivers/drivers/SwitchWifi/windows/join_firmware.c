@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include "join_firmware.h"
+#include "station_filter.h"
 
-NTSTATUS SwifiJoinFirmware(SWIFI_WIN_CONTROL *C, const SWIFI_FIRMWARE_INFO *Info,
+NTSTATUS SwifiJoinFirmware(SWIFI_DEVICE *D, const SWIFI_FIRMWARE_INFO *Info,
     const swifi_bss_profile *Profile, const UCHAR Peer[6], UCHAR Channel, const UCHAR *Pmkid)
 {
+    SWIFI_WIN_CONTROL *C = &D->Hw.Control;
     UCHAR Join[SWIFI_JOIN_LEN], Rsn[SWIFI_RSN_MAX], Events[18] = {0};
     const BOOLEAN Secure = Profile->auth == SWIFI_AUTH_PSK_CCMP;
     USHORT Returned;
@@ -49,6 +51,8 @@ NTSTATUS SwifiJoinFirmware(SWIFI_WIN_CONTROL *C, const SWIFI_FIRMWARE_INFO *Info
         One = 1;
         Status = SwifiFirmwareCommand(C, 0, 2, &One, sizeof(One), NULL, NULL);
     }
+    if (!NT_SUCCESS(Status)) return Status;
+    Status = SwifiFilterStart(D);
     if (!NT_SUCCESS(Status)) return Status;
     Status = SwifiFirmwareIovarSet(C, 0, "join", Join, sizeof(Join), NULL);
     if ((Status == STATUS_NOT_SUPPORTED || Status == STATUS_NOT_FOUND) && Join[36] != 1) {

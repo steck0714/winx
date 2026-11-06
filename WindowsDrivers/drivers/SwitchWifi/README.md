@@ -31,7 +31,7 @@ handles at most 32 entries per completion ring, rotating which ring goes first;
 more work queues another DPC. Runtime traffic uses hardware interrupts, not a
 periodic polling timer. Upper-stack notifications run outside the protocol lock.
 
-The ARM64 `switchwifi.sys` binds to the opt-in WFI0 device. Its WiFiCx station
+The ARM64 `switchwifi.sys` targets the opt-in WFI0 device. Windows PE 22621.2861 loaded version 0.4.2.0 on a software-enumerated test node and reached hardware preparation. Its WiFiCx station
 creates NetAdapterCx transmit and receive queues and handles radio, scan and
 abort commands. A 22621.1 ARM64 Windows PE VM added the signed package to its
 driver store. The board still uses its BasicDisplay boot profile. Windows
@@ -392,6 +392,24 @@ quality measurement are available. Refreshes run at association and at most
 once per five seconds of subsequent receive activity. The worker drains
 before device release. [Microsoft link indication and units](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/wdi-tlv-link-state-change-parameters).
 
+### Receive filters
+
+The station advertises directed, broadcast, listed multicast and all-multicast
+reception before calling `NetAdapterStart`. NetAdapterCx filter changes and
+the two WDI port commands use the same receive policy. The driver retains up to
+32 multicast addresses per port and programs `mcast_list` and `allmulti`
+after `WLC_UP`, before requesting association. Firmware that rejects a
+requested list can deliver all multicast while the driver enforces the
+Windows list in software. Broadcast has its own flag. Changing ports clears
+the policy, and an 802.11 reset clears the multicast list. A resumed station
+reapplies its current policy before joining.
+
+RX checks the destination at completion and again when Windows takes the frame.
+A queued protected frame can no longer cross a key change, and a queued clear
+EAPOL must still meet the current exemption. Raw monitor and promiscuous capture
+remain outside the station capabilities. See the [NetAdapterCx filter contract](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/netadapter/ne-netadapter-net_packet_filter_flags)
+and [Switchroot's BCM multicast initialization](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c).
+
 ### On-device status
 
 The driver writes `SwitchWifiReport` under its PnP device parameters. Read it
@@ -408,7 +426,9 @@ NTSTATUS. Scan and connect fields count finished or rejected requests;
 `keys` is the last acknowledged slot mask (GTK bits 0–3, PTK bit 4).
 `eth_pre`, `eth_unknown` and `native_clear` count EAPOL observations.
 `native_protected`, `meta`, `rssi` and `malformed` count datapath starts in
-which each kind was first observed. A passive work item saves a single value
+which each kind was first observed. The four `filter` fields hold the requested flag mask, address count, firmware
+mode and NTSTATUS. Modes 0 through 4 mean pending, hardware list, software-filtered
+wide reception, requested all-multicast and no requested group addresses, respectively. A passive work item saves a single value
 on first observations, state changes and teardown. The report contains counters and status codes. Device addresses, network names, payloads and keys stay private. Windows association, DHCP and group rekey still need a board
 result.
 
@@ -452,7 +472,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.3.0.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.4.2.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -467,6 +487,31 @@ A cardless ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package
 as `oem0.inf` through the Wi-Fi-only installer. A retry completed a simulated
 interruption between the two board-file moves. Readback matched both source
 files and `WifiPrepare.efi`.
+
+### ARM64 Windows load regression
+
+In an isolated ARM64 Windows PE 22621.2861 guest, the Net setup class,
+WiFiCx and NetAdapterCx were present when the driver was loaded. A root
+fixture supplied the hardware ID `ACPI\SWOA0D01` and had no Switch platform
+methods or PCIe radio. The earlier image staged successfully, then failed to
+load with PnP problem 39 and status `0xC0000018`. The Wi-Fi linker now applies
+the same resident section flags as the other Switch kernel drivers, including
+a writable WDF class-binding data section and discardable INIT code.
+
+With the signed 0.4.2.0 package, Windows selected `switchwifi` and invoked
+device preparation. The actual driver report contained
+`step=2/C0000010 failure=2/C0000010`. The root node rejected the first
+Switch-specific ACPI request (`WIRS`), producing the expected PnP problem 10.
+The hardware-key report persisted through failed device startup. The INF
+initializes the value to `v=4 pending` only if absent. That initial value
+alone does not indicate that the driver ran.
+
+To reproduce this boundary in a disposable ARM64 guest with the inbox Net
+setup class and test signing, stage the signed package with PnPUtil and run
+`devcon install switchwifi.inf "ACPI\SWOA0D01"` using the ARM64 WDK tool.
+Read `SwitchWifiReport` from the created `ROOT\NET` instance. On the
+physical Lite, Windows enumerates the real ACPI instance and the next stages
+exercise the Tegra resources and BCM firmware.
 
 The validated pre-Windows probe scanned on the Lite. Windows still needs to
 enumerate WFI0, show its own scan results, connect to a WPA2 network, get

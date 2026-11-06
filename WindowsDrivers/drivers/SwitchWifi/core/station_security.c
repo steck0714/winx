@@ -158,6 +158,13 @@ int swifi_ccmp_key(uint8_t out[SWIFI_KEY_LEN], unsigned id, const uint8_t *peer,
     return 1;
 }
 
+int swifi_clear_eapol_allowed(unsigned rule, int pairwise, int exclude_unencrypted)
+{
+    if (rule == 1) return 1;
+    if (rule == 2) return !pairwise;
+    return rule == 0 && !exclude_unencrypted;
+}
+
 int swifi_keep_key_on_retry(int same_slot, int present,
     const uint8_t requested_pn[6], const uint8_t initial_pn[6])
 {

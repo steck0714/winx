@@ -3,7 +3,7 @@ Signature="$WINDOWS NT$"
 Class=Net
 ClassGuid={4d36e972-e325-11ce-bfc1-08002be10318}
 Provider=%Provider%
-DriverVer=11/06/2026,0.3.0.0
+DriverVer=11/06/2026,0.4.2.0
 CatalogFile=switchwifi.cat
 PnpLockdown=1
 
@@ -31,6 +31,13 @@ AddReg=StationInterfaces
 HKR,Ndi,Service,0,"switchwifi"
 HKR,Ndi\Interfaces,UpperRange,0,"ndis5"
 HKR,Ndi\Interfaces,LowerRange,0,"wlan,ethernet"
+
+[Station.NT.HW]
+AddReg=StationParameters
+
+[StationParameters]
+; Preserve an earlier report if Windows restages this package.
+HKR,,SwitchWifiReport,0x00000002,"v=4 pending"
 
 [Station.NT.Services]
 AddService=switchwifi,0x2,StationService

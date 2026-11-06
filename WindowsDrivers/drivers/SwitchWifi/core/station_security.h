@@ -29,6 +29,8 @@ int swifi_join_request(uint8_t out[SWIFI_JOIN_LEN], const swifi_bss_profile *pro
 int swifi_ccmp_key(uint8_t out[SWIFI_KEY_LEN], unsigned id, const uint8_t *peer,
     const uint8_t *key, const uint8_t *receive_pn);
 
+/* Windows exemption values: no exemption (0), always (1), key unavailable (2). */
+int swifi_clear_eapol_allowed(unsigned rule, int pairwise, int exclude_unencrypted);
 /* Once this association has seen a TK, an idempotent retry keeps hardware
  * counters intact. A higher requested floor cannot be applied by reinstall. */
 int swifi_keep_key_on_retry(int same_slot, int present,

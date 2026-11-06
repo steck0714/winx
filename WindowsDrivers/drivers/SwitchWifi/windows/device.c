@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#include "station_data.h"
+#include "station_filter.h"
 
 DRIVER_INITIALIZE DriverEntry;
 static EVT_WDF_DRIVER_DEVICE_ADD DeviceAdd;
@@ -27,6 +27,7 @@ static NTSTATUS Prepare(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Transla
     SwifiReportStep(&D->Report, SwifiPrepare, STATUS_PENDING);
     NTSTATUS Status = SwifiHardwarePrepare(&D->Hw, Raw, Translated);
     SwifiReportStep(&D->Report, SwifiPrepare, Status);
+    if (!NT_SUCCESS(Status)) SwifiReportFlush(&D->Report);
     return Status;
 }
 
@@ -105,7 +106,8 @@ static NTSTATUS DeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     D->Data.Hardware = &D->Hw;
     SwifiReportOpen(Device, &D->Report);
-    Status = SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D);
+    Status = SwifiFilterCreate(Device, D);
+    if (NT_SUCCESS(Status)) Status = SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D);
     SwifiReportStep(&D->Report, SwifiDeviceAdd, Status);
     if (!NT_SUCCESS(Status)) SwifiReportFlush(&D->Report);
     return Status;

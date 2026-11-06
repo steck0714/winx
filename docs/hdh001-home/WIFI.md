@@ -2,8 +2,9 @@
 
 An HDH-001 completed a pre-Windows scan. The Windows station driver now builds
 as `switchwifi.sys` and its signed package staged in ARM64 Windows PE 22621.1.
-Version 0.3 implements open and WPA2-Personal association, CCMP keys,
-disconnect, peer link measurements and PnP status reporting in Windows. Physical Windows networking on the Lite remains pending.
+Version 0.4.2 implements open and WPA2-Personal association, CCMP keys,
+disconnect, peer link measurements, broadcast/multicast filtering and PnP
+status reporting in Windows. Physical Windows networking on the Lite remains pending.
 
 ## Verified source facts
 
@@ -351,3 +352,19 @@ acknowledged key slots and observed frame types. See the
 [status fields and read command](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).
 An isolated ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package as `oem0.inf`. The existing 22631.2861 ARM64 installation media includes WiFiCx, NetAdapterCx and the WLAN service. Acceptance on the physical Windows
 adapter, including DHCP and rekey, remains pending.
+
+The station now registers the four ordinary data filters with NetAdapterCx
+before adapter startup and handles WDI filter/list changes on the station port.
+It programs Switchroot's BCM multicast controls after bringing the interface
+up, tracks active policy in `SwitchWifiReport`, and rechecks queued frames
+when Windows changes its filter or keys. DHCP and IPv6 neighbor discovery
+still require physical traffic on HDH-001.
+
+An isolated ARM64 Windows PE 22621.2861 guest selected and loaded the signed
+0.4.2.0 package for a software-enumerated device. It reported
+`step=2/C0000010 failure=2/C0000010` when the synthetic device rejected the
+Switch-specific ACPI isolation request. The previous image had stopped at
+driver load with problem 39 and `0xC0000018`. The link now applies the
+Switch drivers' kernel section protections. The device-key diagnostic is
+flushed on failed preparation. The current hardware acceptance item is the
+real WFI0 node followed by a Windows scan, association, IP traffic and rekey.
