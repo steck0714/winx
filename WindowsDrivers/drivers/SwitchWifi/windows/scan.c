@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: ISC */
 #include "scan.h"
+#include "station_data.h"
 #include "scan_firmware.h"
 #include <TlvGeneratorParser.hpp>
 
@@ -286,6 +287,7 @@ static VOID Finish(SWIFI_SCAN *S, NTSTATUS Status, BOOLEAN Restore)
     Discard(S);
     S->Draining = FALSE;
     if (S->DoneMemory) {
+        SwifiReportScan(&SwifiDeviceContext(S->Device)->Report, Status);
         S->Done->Status = (NDIS_STATUS)Status;
         WifiDeviceReceiveIndication(S->Device, WDI_TASK_SCAN, S->DoneMemory);
         WdfObjectDelete(S->DoneMemory);
@@ -472,7 +474,10 @@ VOID SwifiScanRequest(SWIFI_SCAN *S, WIFIREQUEST Request, BOOLEAN Abort)
             else Status = AbortLocked(S, STATUS_CANCELLED);
         }
         CleanupParsedWdiAbortTaskToIhv(&P);
-    } else Status = Begin(S, H, Input);
+    } else {
+        Status = Begin(S, H, Input);
+        if (!NT_SUCCESS(Status)) SwifiReportScan(&SwifiDeviceContext(S->Device)->Report, Status);
+    }
     /* An event can race the IOCTL reply. Complete M3 before releasing the
      * lock so an early BSS/terminal can never overtake it. */
     SwifiCompleteWdiRequest(Request, Status);

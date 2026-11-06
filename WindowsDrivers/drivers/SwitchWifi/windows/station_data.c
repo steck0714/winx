@@ -32,6 +32,7 @@ VOID SwifiDataKeyUpdate(SWIFI_DEVICE *D, BOOLEAN Updating)
 {
     KIRQL Irql;
     KeAcquireSpinLock(&D->Hw.ProtocolLock, &Irql);
+    if (Updating && !D->Data.UpdatingKeys) ++D->Data.KeyEpoch;
     D->Data.UpdatingKeys = Updating;
     ++D->Data.TxProgress;
     KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
@@ -54,6 +55,44 @@ static VOID TxComplete(void *Context, const swifi_packet_completion *Completion)
     ++D->TxProgress;
 }
 
+/* RX runs under ProtocolLock. Only the passive worker talks to the firmware.
+ * A datapath slot and its optional metadata stay owned together until completion. */
+static VOID ReadMetadata(SWIFI_STATION_DATA *D, SWIFI_RX_BUFFER *Slot, USHORT Length)
+{
+    SWIFI_REPORT *Report = &SwifiDeviceContext(D->Hardware->Device)->Report;
+    if (Length) {
+        swifi_rx_metadata Fields;
+        UCHAR *Bytes = D->RxMeta.Memory + (Slot - D->Rx) * SWIFI_RX_METADATA_SIZE;
+        if (!swifi_parse_rx_metadata(Bytes, Length, &Fields)) {
+            if (!D->BadMetadataSeen) {
+                D->BadMetadataSeen = TRUE;
+                SwifiReportRx(Report, SwifiRxMetaInvalid);
+            }
+        } else {
+            if (!D->MetadataSeen) {
+                D->MetadataSeen = TRUE;
+                SwifiReportRx(Report, SwifiRxMetaSeen);
+            }
+            if (Fields.have_rssi && D->Associated && Slot->Epoch == D->Epoch) {
+                if (!D->RssiSeen) {
+                    D->RssiSeen = TRUE;
+                    SwifiReportRx(Report, SwifiRxRssiSeen);
+                }
+                D->SampleDbm = Fields.rssi_dbm;
+                D->SampleTime = KeQueryInterruptTime();
+                D->SampleValid = TRUE;
+            }
+        }
+    }
+    if (D->Associated && Slot->Epoch == D->Epoch && D->LinkWorker) {
+        ULONGLONG Now = KeQueryInterruptTime();
+        if (Now >= D->NextLinkCheck) {
+            D->NextLinkCheck = Now + 50000000; /* Five seconds of active traffic. */
+            WdfWorkItemEnqueue(D->LinkWorker);
+        }
+    }
+}
+
 static VOID RxComplete(void *Context, const swifi_packet_completion *Completion)
 {
     SWIFI_STATION_DATA *D = Context;
@@ -68,23 +107,41 @@ static VOID RxComplete(void *Context, const swifi_packet_completion *Completion)
     UCHAR *Frame = D->RxMemory.Memory + (Slot - D->Rx) * SWIFI_PACKET_SIZE + Completion->offset;
     USHORT Length = Completion->length;
     BOOLEAN Native = (Completion->rx_flags & 2) != 0;
+    SWIFI_REPORT *Report = &SwifiDeviceContext(D->Hardware->Device)->Report;
     if (Native) {
+        if ((Completion->rx_flags & 1) != 0) { ++D->RxDrops; return; }
+        if (Length >= 24 && (Frame[0] == 8 || Frame[0] == 0x88) &&
+            (Frame[1] & 0x43) == 0x42 && RtlEqualMemory(Frame + 10, D->Peer, 6) &&
+            ((Frame[4] & 1) || RtlEqualMemory(Frame + 4, D->Address, 6)) &&
+            !D->NativeProtectedSeen) {
+            /* A protected data header from this AP. Its inner type is unknown. */
+            D->NativeProtectedSeen = TRUE;
+            SwifiReportRx(Report, SwifiRxNativeProtected);
+        }
         Length = (USHORT)swifi_clear_eapol(Frame, Length, D->Address, D->Peer);
-        if (!Length || (Completion->rx_flags & 1)) { ++D->RxDrops; return; }
+        if (!Length) { ++D->RxDrops; return; }
     }
     BOOLEAN Eapol = IsEapol(Frame), Group = (Frame[0] & 1) != 0;
+    if (Eapol && (!RtlEqualMemory(Frame + 6, D->Peer, 6) || Length < 18 ||
+        (((USHORT)Frame[16] << 8) | Frame[17]) > Length - 18)) { ++D->RxDrops; return; }
     if ((!D->Associated || Slot->Epoch != D->Epoch) && (!Eapol || !RtlEqualMemory(Frame+6,D->Peer,6))) {
         ++D->RxDrops;
         return;
     }
+    ReadMetadata(D, Slot, Completion->metadata_length);
     Slot->Protected = FALSE;
+    Slot->DerivedClear = D->Secure && Eapol && !Native;
     if (D->Secure) {
         if (Eapol) {
             UCHAR Rule = D->EapolExemption[Group];
             /* An Ethernet completion loses the original Protected bit. After
              * a receive key is live we can accept verified clear native EAPOL,
              * but cannot label an ambiguous Ethernet EAPOL as clear. */
-            if ((!Native && (Group ? D->Group : D->Pairwise)) ||
+            BOOLEAN PreKey = swifi_prekey_ethernet(Slot->KeyEpoch, D->KeyEpoch,
+                Slot->KeyInFlight, D->Pairwise || D->Group || D->UpdatingKeys);
+            SwifiReportRx(Report, Native ? SwifiRxNativeClear :
+                (PreKey ? SwifiRxEtherBeforeKey : SwifiRxEtherUncertain));
+            if ((!Native && !PreKey) ||
                 (Rule == WDI_EXEMPT_ON_KEY_MAPPING_KEY_UNAVAILABLE && D->Pairwise) ||
                 (!Rule && D->ExcludeUnencrypted)) { ++D->RxDrops; return; }
         } else {
@@ -129,6 +186,8 @@ NTSTATUS SwifiDataBind(SWIFI_DEVICE *Device)
     NTSTATUS Status = SwifiSharedCreateBuffer(H->Dma, SwifiNumTx * SWIFI_PACKET_SIZE, &D->TxMemory);
     if (NT_SUCCESS(Status))
         Status = SwifiSharedCreateBuffer(H->Dma, RxCount * SWIFI_PACKET_SIZE, &D->RxMemory);
+    if (NT_SUCCESS(Status))
+        Status = SwifiSharedCreateBuffer(H->Dma, RxCount * SWIFI_RX_METADATA_SIZE, &D->RxMeta);
     for (USHORT I = 0; NT_SUCCESS(Status) && I < Flows; ++I)
         Status = SwifiSharedAllocateFlow(&H->Shared, (USHORT)(2 + I));
     if (!NT_SUCCESS(Status)) {
@@ -144,6 +203,9 @@ NTSTATUS SwifiDataBind(SWIFI_DEVICE *Device)
     RtlZeroMemory(D->FlowEpoch, sizeof(D->FlowEpoch));
     D->FlowFault = D->HeadEapol = D->UpdatingKeys = FALSE;
     D->EapolPending = 0;
+    D->MetadataSeen = D->RssiSeen = D->BadMetadataSeen = D->NativeProtectedSeen = FALSE;
+    D->SampleValid = FALSE;
+    D->NextLinkCheck = 0;
     KeInitializeEvent(&D->EapolIdle, NotificationEvent, TRUE);
     if (swifi_data_init(&D->Core, &Ops, D, D->Flows, Flows, D->TxIds, SwifiNumTx,
         D->RxIds, RxCount, (USHORT)H->Chip.RxDataOffset) == SWIFI_OK) {
@@ -158,6 +220,7 @@ NTSTATUS SwifiDataBind(SWIFI_DEVICE *Device)
 VOID SwifiDataRelease(PVOID Context)
 {
     SWIFI_STATION_DATA *D = &((SWIFI_DEVICE *)Context)->Data;
+    SwifiSharedDeleteBuffer(&D->RxMeta);
     SwifiSharedDeleteBuffer(&D->RxMemory);
     SwifiSharedDeleteBuffer(&D->TxMemory);
 }
@@ -193,13 +256,18 @@ static VOID Service(SWIFI_STATION_DATA *D)
         SWIFI_RX_BUFFER *Slot = &D->Rx[I];
         if (Slot->State != SwifiRxFree) continue;
         ULONGLONG Address = D->RxMemory.Logical.QuadPart + (SIZE_T)I * SWIFI_PACKET_SIZE;
-        swifi_result R = swifi_data_post_rx(&D->Core, Address, SWIFI_PACKET_SIZE, Slot);
+        SIZE_T MetaOffset = (SIZE_T)I * SWIFI_RX_METADATA_SIZE;
+        RtlZeroMemory(D->RxMeta.Memory + MetaOffset, SWIFI_RX_METADATA_SIZE);
+        swifi_result R = swifi_data_post_rx_meta(&D->Core, Address, SWIFI_PACKET_SIZE,
+            D->RxMeta.Logical.QuadPart + MetaOffset, SWIFI_RX_METADATA_SIZE, Slot);
         if (R != SWIFI_OK) {
             if (R != SWIFI_RETRY) D->FlowFault = TRUE;
             break;
         }
         Slot->Epoch = D->Epoch;
         Slot->QueueEpoch = D->RxQueueEpoch;
+        Slot->KeyEpoch = D->KeyEpoch;
+        Slot->KeyInFlight = D->Pairwise || D->Group || D->UpdatingKeys;
         Slot->State = SwifiRxPosted;
     }
 }
@@ -208,6 +276,8 @@ VOID SwifiDataReset(PVOID Context)
 {
     SWIFI_STATION_DATA *D = &((SWIFI_DEVICE *)Context)->Data;
     D->Enabled = D->Joining = D->Associated = D->Pairwise = D->Group = D->HeadEapol = FALSE;
+    D->SampleValid = FALSE;
+    SwifiReportKeys(&((SWIFI_DEVICE *)Context)->Report, 0, 0, 0);
     swifi_data_stopped_after_reset(&D->Core);
     DropReady(D);
 }
@@ -231,6 +301,8 @@ VOID SwifiDataBeginJoin(SWIFI_DEVICE *Device, const UCHAR Peer[6], BOOLEAN Secur
     if (D->Enabled) {
         ++D->Epoch;
         D->Joining = TRUE;
+        D->SampleValid = FALSE;
+        D->NextLinkCheck = 0;
         D->Associated = D->Pairwise = D->Group = FALSE;
         D->Secure = Secure;
         D->ExcludeUnencrypted = ExcludeUnencrypted;
@@ -253,6 +325,8 @@ VOID SwifiDataLink(SWIFI_DEVICE *Device, const UCHAR *Peer, BOOLEAN Secure, BOOL
     }
     if ((!D->Associated && !D->Joining) || !Peer || !RtlEqualMemory(Peer, D->Peer, 6)) {
         ++D->Epoch;
+        D->SampleValid = FALSE;
+        D->NextLinkCheck = 0;
         DropReady(D);
         D->Sequence = 0;
     }
@@ -421,6 +495,11 @@ static VOID AdvanceRx(SWIFI_QUEUE *Q)
         Fragments->BeginIndex != Fragments->EndIndex) {
         SWIFI_RX_BUFFER *Slot = CONTAINING_RECORD(RemoveHeadList(&D->ReadyRx), SWIFI_RX_BUFFER, Link);
         Slot->State = SwifiRxFree;
+        if (Slot->DerivedClear && !swifi_prekey_ethernet(Slot->KeyEpoch, D->KeyEpoch,
+            Slot->KeyInFlight, D->Pairwise || D->Group || D->UpdatingKeys)) {
+            ++D->RxDrops;
+            continue;
+        }
         ULONG Id = Fragments->BeginIndex;
         NET_FRAGMENT *F = NetRingGetFragmentAtIndex(Fragments, Id);
         PUCHAR Target = NetExtensionGetFragmentVirtualAddress(&Q->Va, Id)->VirtualAddress;

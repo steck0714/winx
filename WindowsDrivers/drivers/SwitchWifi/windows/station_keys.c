@@ -15,6 +15,15 @@ BOOLEAN SwifiKeysHaveGroup(const SWIFI_STATION_KEYS *Keys)
     return FALSE;
 }
 
+/* Bits 0..3 identify group slots; bit 4 identifies the pairwise slot. */
+static ULONG KeyMask(const SWIFI_STATION_KEYS *Keys)
+{
+    ULONG Mask = 0;
+    for (ULONG I = 0; I < RTL_NUMBER_OF(Keys->Slot); ++I)
+        if (Keys->Slot[I].Present) Mask |= 1u << I;
+    return Mask;
+}
+
 static NTSTATUS Identify(WDI_CIPHER_KEY_TYPE_STRUCT Type, const WDI_MAC_ADDRESS *Address,
     const UCHAR Peer[6], BOOLEAN HasId, ULONG Id, KEY_CHANGE *Change)
 {
@@ -80,6 +89,7 @@ static NTSTATUS Apply(SWIFI_STATION_KEYS *Keys, SWIFI_DEVICE *D, const UCHAR Pee
             RtlCopyMemory(Slot->Key, C->Key, 16);
             RtlCopyMemory(Slot->Pn, C->Pn, 6);
         }
+        SwifiReportKeys(&D->Report, KeyMask(Keys), Add ? 1 : 0, Add ? 0 : 1);
     }
     return STATUS_SUCCESS;
 }
@@ -134,7 +144,12 @@ NTSTATUS SwifiKeysClear(SWIFI_STATION_KEYS *Keys, SWIFI_DEVICE *D, const UCHAR *
         SWIFI_KEY_SLOT *Slot = &Keys->Slot[I];
         if (Slot->Present) {
             NTSTATUS Status = SwifiJoinKey(&D->Hw.Control, Slot->Id, I == 4 ? Peer : NULL, NULL, NULL);
-            if (!NT_SUCCESS(Status) && Status != STATUS_NOT_FOUND) Result = Status;
+            if (!NT_SUCCESS(Status) && Status != STATUS_NOT_FOUND) {
+                Result = Status;
+            } else {
+                Slot->Present = FALSE;
+                SwifiReportKeys(&D->Report, KeyMask(Keys), 0, NT_SUCCESS(Status) ? 1 : 0);
+            }
         }
     }
     RtlSecureZeroMemory(Keys, sizeof(*Keys));

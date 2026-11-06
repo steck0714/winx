@@ -3,6 +3,8 @@
 #define SWIFI_STATION_DATA_H
 
 #include "lifecycle.h"
+#include "report.h"
+#include "../core/rx_metadata.h"
 #include <net/virtualaddress.h>
 
 enum { SwifiNumTx = 24, SwifiNumRx = 32, SwifiNumFifo = 4 };
@@ -19,16 +21,17 @@ typedef struct SWIFI_TX_BUFFER {
 
 typedef struct SWIFI_RX_BUFFER {
     LIST_ENTRY Link;
-    ULONG Epoch, QueueEpoch;
+    ULONG Epoch, QueueEpoch, KeyEpoch;
+    BOOLEAN KeyInFlight;
     USHORT Offset, Length;
-    BOOLEAN Protected;
+    BOOLEAN Protected, DerivedClear;
     enum { SwifiRxFree, SwifiRxPosted, SwifiRxReady } State;
 } SWIFI_RX_BUFFER;
 
 typedef struct SWIFI_STATION_DATA {
     SWIFI_HARDWARE *Hardware;
     SWIFI_QUEUE *TxQueue, *RxQueue;
-    SWIFI_SHARED_BUFFER TxMemory, RxMemory;
+    SWIFI_SHARED_BUFFER TxMemory, RxMemory, RxMeta;
     swifi_data Core;
     swifi_flow Flows[SwifiNumFifo];
     ULONG FlowEpoch[SwifiNumFifo];
@@ -43,7 +46,12 @@ typedef struct SWIFI_STATION_DATA {
     UCHAR EapolExemption[2]; /* unicast, multicast */
     ULONG EapolPending;
     KEVENT EapolIdle;
-    ULONG Epoch, RxQueueEpoch, TxProgress;
+    ULONG Epoch, RxQueueEpoch, KeyEpoch, TxProgress;
+    BOOLEAN MetadataSeen, RssiSeen, BadMetadataSeen, NativeProtectedSeen;
+    BOOLEAN SampleValid;
+    LONG SampleDbm;
+    ULONGLONG SampleTime, NextLinkCheck;
+    WDFWORKITEM LinkWorker;
     ULONG64 TxErrors, RxDrops;
 } SWIFI_STATION_DATA;
 
@@ -62,6 +70,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWIFI_QUEUE, SwifiQueueContext);
 
 typedef struct SWIFI_DEVICE {
     SWIFI_HARDWARE Hw;
+    SWIFI_REPORT Report;
     SWIFI_STATION_DATA Data;
     NETADAPTER Station;
     WDI_PORT_ID Port;

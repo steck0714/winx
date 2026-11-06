@@ -49,8 +49,7 @@ Skipping networking during OOBE only affects first setup.
 - Ring IDs are firmware H2D IDs: control 0, RX posting 1, TX flows 2 and above.
   Flow-ring storage and indices are zeroed before a create request. Flow DMA is
   retained until a matching delete completion or endpoint reset.
-- TX payload DMA starts after the inline 14-byte Ethernet header. RX metadata
-  buffers are disabled. The initial AFI mapping uses only 32-bit DMA addresses.
+- TX payload DMA starts after the inline 14-byte Ethernet header. Each RX post advertises a separate 128-byte metadata buffer. Firmware may leave its length at zero. The initial AFI mapping uses 32-bit DMA addresses.
 - Flow creation maps 802.1D priority to firmware FIFO (0/1/1/0/2/2/3/3);
   individual TX descriptors retain the original packet priority.
 - Packets stay owned until a matching completion; ring-full retries leave
@@ -368,6 +367,51 @@ rekeys need a board trace before longer connections can be accepted.
 [Microsoft connect task](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-wdi-task-connect),
 [Microsoft key parameters](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/wdi-tlv-set-cipher-key-info).
 
+## Receive metadata and link measurements
+
+Each v5 RX descriptor carries separate DMA addresses for the packet and its
+optional sideband. A completion may return zero metadata bytes. The driver
+checks both lengths against the original post. It decodes the signed WLFC
+RSSI byte only from a complete metadata record. The timestamp tag and unknown
+records convey no evidence of over-the-air encryption.
+[Broadcom RX descriptor](https://android.googlesource.com/kernel/common/+/bcmdhd-3.10/drivers/net/wireless/bcmdhd/include/bcmmsgbuf.h) ·
+[Broadcom metadata parser](https://android.googlesource.com/kernel/common/+/bcmdhd-3.10/drivers/net/wireless/bcmdhd/dhd_msgbuf.c).
+
+An Ethernet EAPOL can be treated as clear only when the RX buffer was posted
+and completed before a key transition. A buffer that spans a key change, was
+posted with any live key, or becomes ambiguous before Windows dequeues it
+is dropped. A native clear EAPOL must match the peer and frame layout.
+A protected native data header identifies a frame type only. Its inner payload
+and its authentication status cannot be inferred from that observation.
+
+The passive link worker uses the associated peer's `sta_info` for TX and RX
+rates. It can fall back to `WLC_GET_RATE` for TX and `WLC_GET_RSSI` for
+signal when fresh RX metadata is unavailable. Unknown directions stay unknown
+in NetAdapterCx. WiFiCx receives a link indication when both directions and a
+quality measurement are available. Refreshes run at association and at most
+once per five seconds of subsequent receive activity. The worker drains
+before device release. [Microsoft link indication and units](https://learn.microsoft.com/en-us/windows-hardware/drivers/netcx/wdi-tlv-link-state-change-parameters).
+
+### On-device status
+
+The driver writes `SwitchWifiReport` under its PnP device parameters. Read it
+in a running Windows session with:
+
+```cmd
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SWOA0D01" /s /v SwitchWifiReport
+```
+
+`step` identifies device creation (1), hardware preparation (2), D0 entry (3),
+radio online (4) or station startup (5). `failure` retains the first failure
+in the preparation session, including runtime (6) and stop (7), with its
+NTSTATUS. Scan and connect fields count finished or rejected requests;
+`keys` is the last acknowledged slot mask (GTK bits 0–3, PTK bit 4).
+`eth_pre`, `eth_unknown` and `native_clear` count EAPOL observations.
+`native_protected`, `meta`, `rssi` and `malformed` count datapath starts in
+which each kind was first observed. A passive work item saves a single value
+on first observations, state changes and teardown. The report contains counters and status codes. Device addresses, network names, payloads and keys stay private. Windows association, DHCP and group rekey still need a board
+result.
+
 ## Build and test
 
 With LLVM clang and extracted/installed WDK headers:
@@ -408,7 +452,7 @@ and `Lib/wdf/kmdf/ARM64/1.33`. Put the signed SYS beside `package/switchwifi.inf
 generate and sign the catalog using `package/switchwifi.cdf` after signing
 the SYS. Use the exact INF bytes that generated the catalog.
 
-The `0.2.0.0` test package targets ARM64 Windows 22621 or newer. The
+The `0.3.0.0` test package targets ARM64 Windows 22621 or newer. The
 Stage 6 installer accepts `Install-LiteSystem.cmd online wifi` and
 `Install-LiteSystem.cmd offline W:\ wifi`. Place the signed `switchwifi`
 package, matching `WifiPrepare.efi` and a `Firmware` directory beside the
@@ -419,7 +463,7 @@ and the EFI program to `SwitchWOA/Wifi` on the Windows volume. A complete existi
 both files together and can finish an interrupted move on the next run. The experimental runtime BL33 is
 a separate firmware update.
 
-A cardless ARM64 Windows PE 22621.1 guest accepted the signed 0.2 package
+A cardless ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package
 as `oem0.inf` through the Wi-Fi-only installer. A retry completed a simulated
 interruption between the two board-file moves. Readback matched both source
 files and `WifiPrepare.efi`.

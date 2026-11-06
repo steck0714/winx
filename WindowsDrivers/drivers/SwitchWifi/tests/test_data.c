@@ -281,8 +281,38 @@ static void test_failures_and_reset(void)
     assert(swifi_data_complete(&f.data, control, sizeof(control)) == SWIFI_STOPPED);
 }
 
+static void test_rx_metadata_dma(void)
+{
+    fixture f;
+    uint8_t reply[32];
+    init(&f);
+    assert(swifi_data_post_rx_meta(&f.data, 0x80200000, 2048, 0x80301000, 128, &cookies[0]) == SWIFI_OK);
+    static const uint8_t expected[32] = {
+        0x11,0,0,0,1,0,1,0, 128,0,0,8,0,0,0,0,
+        0,0x10,0x30,0x80,0,0,0,0, 0,0,0x20,0x80,0,0,0,0
+    };
+    assert(!memcmp(f.published,expected,sizeof(expected)));
+    rx_reply(&f,reply,16,64);
+    reply[12]=7;
+    assert(swifi_data_complete(&f.data, reply, sizeof(reply)) == SWIFI_OK);
+    assert(f.last_rx.metadata_length==7 && f.last_rx.offset==16 && f.last_rx.length==64);
+    assert(swifi_data_post_rx_meta(&f.data,0x80200000,2048,0x802007ff,128,&cookies[0])==SWIFI_INVALID);
+    assert(swifi_data_post_rx_meta(&f.data,0x80200000,2048,0xfffffff0,128,&cookies[0])==SWIFI_INVALID);
+    assert(swifi_data_post_rx_meta(&f.data,0x80200000,2048,0,128,&cookies[0])==SWIFI_INVALID);
+    assert(swifi_data_post_rx_meta(&f.data,0x80200000,2048,0x80301000,128,&cookies[1])==SWIFI_OK);
+    rx_reply(&f,reply,0,64);
+    reply[12]=129;
+    assert(swifi_data_complete(&f.data,reply,sizeof(reply))==SWIFI_PROTOCOL_ERROR);
+    assert(!f.last_rx.metadata_length && !f.last_rx.length && f.last_rx.reason==SWIFI_BAD_PACKET);
+    assert(swifi_data_post_rx(&f.data,0x80200000,2048,&cookies[1])==SWIFI_OK);
+    rx_reply(&f,reply,0,64);
+    reply[12]=1;
+    assert(swifi_data_complete(&f.data,reply,sizeof(reply))==SWIFI_PROTOCOL_ERROR);
+}
+
 int main(void)
 {
+    test_rx_metadata_dma();
     test_wire_layout_and_flow_lifetime();
     test_rx_layout_bounds_and_return();
     test_backpressure_stale_completion_and_wrong_ring();

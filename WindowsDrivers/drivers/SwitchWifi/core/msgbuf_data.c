@@ -229,6 +229,12 @@ swifi_result swifi_data_tx_with_exemption(swifi_data *d, uint16_t ring, uint8_t 
 swifi_result swifi_data_post_rx(swifi_data *d, uint64_t buffer_dma,
     uint16_t capacity, void *cookie)
 {
+    return swifi_data_post_rx_meta(d, buffer_dma, capacity, 0, 0, cookie);
+}
+
+swifi_result swifi_data_post_rx_meta(swifi_data *d, uint64_t buffer_dma,
+    uint16_t capacity, uint64_t metadata_dma, uint16_t metadata_capacity, void *cookie)
+{
     uint8_t item[SWIFI_RXPOST_ITEM_SIZE] = {0};
     swifi_packet_slot *slot;
     swifi_result result;
@@ -237,15 +243,22 @@ swifi_result swifi_data_post_rx(swifi_data *d, uint64_t buffer_dma,
     if (!cookie || capacity < d->rx_data_offset + SWIFI_ETH_HEADER_SIZE ||
         capacity > SWIFI_PACKET_SIZE || !dma_range(buffer_dma, capacity))
         return SWIFI_INVALID;
+    if ((metadata_dma == 0) != (metadata_capacity == 0) ||
+        (metadata_capacity && (!dma_range(metadata_dma, metadata_capacity) ||
+         (metadata_dma < buffer_dma + capacity && buffer_dma < metadata_dma + metadata_capacity))))
+        return SWIFI_INVALID;
     slot = reserve_slot(d->rx, d->rx_count, &d->rx_cursor, cookie);
     if (!slot)
         return SWIFI_RETRY;
     slot->capacity = capacity;
     slot->flow_ring = 0;
     slot->ifidx = 0;
-    item[0] = 0x11; /* RXBUF_POST; metadata buffer is unused. */
+    slot->metadata_capacity = metadata_capacity;
+    item[0] = 0x11; /* RXBUF_POST */
     put32(item + 4, slot->request_id);
+    put16(item + 8, metadata_capacity);
     put16(item + 10, capacity);
+    put_address(item + 16, metadata_dma);
     put_address(item + 24, buffer_dma);
     result = d->ops.submit(d->context, SWIFI_RXPOST_RING, item, sizeof(item));
     if (result != SWIFI_OK)
@@ -304,6 +317,7 @@ swifi_result swifi_data_complete(swifi_data *d, const uint8_t *p, size_t length)
         if (!slot)
             return SWIFI_PROTOCOL_ERROR;
         result.cookie = slot->cookie;
+        result.metadata_length = get16(p + 12);
         result.offset = get16(p + 16);
         result.rx_flags = get16(p + 18);
         if (!result.offset)
@@ -311,12 +325,12 @@ swifi_result swifi_data_complete(swifi_data *d, const uint8_t *p, size_t length)
         result.length = get16(p + 14);
         if (status) {
             result.length = 0;
-            result.offset = 0;
-        } else if (result.offset > slot->capacity ||
+            result.offset = result.metadata_length = 0;
+        } else if (result.metadata_length > slot->metadata_capacity || result.offset > slot->capacity ||
             result.length > slot->capacity - result.offset ||
             result.length < SWIFI_ETH_HEADER_SIZE) {
             result.reason = SWIFI_BAD_PACKET;
-            result.length = 0;
+            result.length = result.metadata_length = 0;
             result.offset = 0;
         }
         release_slot(slot);

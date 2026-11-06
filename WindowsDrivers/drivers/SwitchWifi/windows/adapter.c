@@ -28,14 +28,20 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
     NETADAPTER Adapter;
     KIRQL Irql;
     if (WifiAdapterInitGetType(Init) != WIFI_ADAPTER_EXTENSIBLE_STATION) return STATUS_NOT_SUPPORTED;
-    if (!Info->Bands) return STATUS_DEVICE_NOT_READY;
+    if (!Info->Bands) {
+        SwifiReportStep(&D->Report, SwifiStationStart, STATUS_DEVICE_NOT_READY);
+        return STATUS_DEVICE_NOT_READY;
+    }
     NET_ADAPTER_DATAPATH_CALLBACKS_INIT(&Callbacks, SwifiCreateTxQueue, SwifiCreateRxQueue);
     NetAdapterInitSetDatapathCallbacks(Init, &Callbacks);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWIFI_ADAPTER);
     Attributes.ExecutionLevel = WdfExecutionLevelPassive; /* Cleanup drains passive WDI operations. */
     Attributes.EvtCleanupCallback = AdapterCleanup;
     NTSTATUS Status = NetAdapterCreate(Init, &Attributes, &Adapter);
-    if (!NT_SUCCESS(Status)) return Status;
+    if (!NT_SUCCESS(Status)) {
+        SwifiReportStep(&D->Report, SwifiStationStart, Status);
+        return Status;
+    }
     SWIFI_ADAPTER *A = SwifiAdapterContext(Adapter);
     A->Device = D;
     Status = WifiAdapterInitialize(Adapter);
@@ -71,8 +77,12 @@ NTSTATUS SwifiCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *Init)
     A->Bound = TRUE;
     SwifiWdiStation(D->Hw.Wdi, D->Port, TRUE);
     Status = NetAdapterStart(Adapter);
-    if (NT_SUCCESS(Status)) return Status;
+    if (NT_SUCCESS(Status)) {
+        SwifiReportStep(&D->Report, SwifiStationStart, Status);
+        return Status;
+    }
 Failed:
+    SwifiReportStep(&D->Report, SwifiStationStart, Status);
     WdfObjectDelete(Adapter);
     return Status;
 }

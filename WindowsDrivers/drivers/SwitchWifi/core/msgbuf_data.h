@@ -43,6 +43,7 @@ typedef struct swifi_packet_completion {
     uint32_t request_id;
     uint16_t flow_ring;
     uint16_t offset;
+    uint16_t metadata_length;
     uint16_t rx_flags; /* v5 completion flags, including native 802.11 vs Ethernet. */
     uint16_t length;
     int16_t firmware_status;
@@ -73,6 +74,7 @@ typedef struct swifi_packet_slot {
     uint32_t request_id;
     uint16_t generation;
     uint16_t capacity;
+    uint16_t metadata_capacity;
     uint16_t flow_ring;
     uint8_t ifidx;
     uint8_t owned;
@@ -137,6 +139,11 @@ swifi_result swifi_data_tx_with_exemption(swifi_data *data, uint16_t ring, uint8
     uint16_t payload_length, void *cookie);
 swifi_result swifi_data_post_rx(swifi_data *data, uint64_t buffer_dma,
     uint16_t capacity, void *cookie);
+
+/* Optional metadata DMA is advertised by its own address and length in the
+ * same v5 RXPOST. Ownership is shared with the corresponding data cookie. */
+swifi_result swifi_data_post_rx_meta(swifi_data *data, uint64_t buffer_dma,
+    uint16_t capacity, uint64_t metadata_dma, uint16_t metadata_capacity, void *cookie);
 
 /* Call after an acquire barrier/cache synchronization. item points to the
  * common message header, after the firmware's completion-ring prefix. The

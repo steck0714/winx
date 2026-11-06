@@ -40,7 +40,12 @@ struct SWIFI_JOIN {
     JOIN_CANDIDATE *Active;
     SWIFI_STATION_KEYS Keys;
     SWIFI_ASSOC_FRAMES Frames;
+    ULONG TxKbps, RxKbps, IndicatedTx, IndicatedRx;
+    LONG IndicatedQuality;
+    WDFWORKITEM LinkWorker;
 };
+typedef struct LINK_WORK { SWIFI_JOIN *Join; } LINK_WORK;
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(LINK_WORK, LinkWorkContext);
 typedef struct JOIN_TIMER_CONTEXT { SWIFI_JOIN *Join; } JOIN_TIMER_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(JOIN_TIMER_CONTEXT, JoinTimerContext);
 static EVT_WDF_TIMER JoinTimeout;
@@ -64,6 +69,7 @@ static NTSTATUS NewTask(SWIFI_JOIN *J, JOIN_TASK *T, UINT16 Id, const WDI_MESSAG
 static VOID Finish(SWIFI_JOIN *J, JOIN_TASK *T, NTSTATUS Status)
 {
     if (T->Memory) {
+        if (T == &J->Connect) SwifiReportJoin(&J->Owner->Report, Status);
         T->Header->Status = (NDIS_STATUS)Status;
         WifiDeviceReceiveIndication(J->Owner->Hw.Device, T->Id, T->Memory);
         WdfObjectDelete(T->Memory);
@@ -186,16 +192,84 @@ static VOID MediaState(SWIFI_JOIN *J, BOOLEAN Connected)
     if (Adapter) WdfObjectReference(Adapter);
     KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
     if (!Adapter) return;
-    ULONG Rate = 0;
-    USHORT Returned = 0;
-    if (Connected && (!NT_SUCCESS(SwifiFirmwareCommand(J->Control, 0, 12, &Rate, sizeof(Rate), &Returned, NULL))
-        || Returned < sizeof(Rate) || Rate > 2000)) Rate = 0;
     NET_ADAPTER_LINK_STATE State;
-    NET_ADAPTER_LINK_STATE_INIT(&State, Rate ? (ULONG64)Rate * 500000 : NDIS_LINK_SPEED_UNKNOWN,
+    NET_ADAPTER_LINK_STATE_INIT(&State, NET_ADAPTER_LINK_SPEED_UNKNOWN,
         Connected ? MediaConnectStateConnected : MediaConnectStateDisconnected, MediaDuplexStateUnknown,
         NetAdapterPauseFunctionTypeUnsupported, NetAdapterAutoNegotiationFlagNone);
+    if (Connected && J->TxKbps) State.TxLinkSpeed = (ULONG64)J->TxKbps * 1000;
+    if (Connected && J->RxKbps) State.RxLinkSpeed = (ULONG64)J->RxKbps * 1000;
     NetAdapterSetLinkState(Adapter, &State);
     WdfObjectDereference(Adapter);
+}
+
+static VOID ReadLink(WDFWORKITEM Work)
+{
+    SWIFI_JOIN *J = LinkWorkContext(Work)->Join;
+    WdfWaitLockAcquire(J->Lock, NULL);
+    if (!J->Online || J->Poisoned || J->Leaving || !J->Announced || !J->Active ||
+        J->Port != J->PeerPort || !J->Control->Running) goto Done;
+
+    SWIFI_DEVICE *D = J->Owner;
+    KIRQL Irql;
+    KeAcquireSpinLock(&D->Hw.ProtocolLock, &Irql);
+    BOOLEAN Connected = D->Data.Enabled && D->Data.Associated && D->Station != NULL &&
+        RtlEqualMemory(D->Data.Peer, J->Active->Peer, 6);
+    LONG Dbm = D->Data.SampleValid && KeQueryInterruptTime() - D->Data.SampleTime < 50000000 ?
+        D->Data.SampleDbm : 0;
+    KeReleaseSpinLock(&D->Hw.ProtocolLock, Irql);
+    if (!Connected) goto Done;
+
+    /* sta_info is peer-specific. The rates describe the last successful
+     * frame in each direction. GET_RATE supplies only the station TX rate. */
+    UCHAR Sta[320] = {0};
+    USHORT Returned = 0;
+    uint32_t Tx = 0, Rx = 0;
+    RtlCopyMemory(Sta, J->Active->Peer, 6);
+    if (NT_SUCCESS(SwifiFirmwareIovarGet(J->Control, 0, "sta_info", Sta, sizeof(Sta), &Returned, NULL)))
+        (VOID)swifi_station_rates(Sta, Returned, J->Active->Peer, &Tx, &Rx);
+    if (!Tx) {
+        ULONG Rate = 0;
+        if (NT_SUCCESS(SwifiFirmwareCommand(J->Control, 0, 12, &Rate, sizeof(Rate), &Returned, NULL)) &&
+            Returned >= sizeof(Rate) && Rate <= 2000) Tx = Rate * 500;
+    }
+    if (!Dbm) {
+        /* Switchroot issues WLC_GET_RSSI for the associated station with a
+         * zero-filled brcmf_scb_val_le; the returned first word is signed. */
+        LONG Scb[3] = {0};
+        if (NT_SUCCESS(SwifiFirmwareCommand(J->Control, 0, 127, Scb, sizeof(Scb), &Returned, NULL)) &&
+            Returned >= sizeof(LONG) && Scb[0] >= -127 && Scb[0] < 0) Dbm = Scb[0];
+    }
+    /* Keep the last measured rate in this association if a later query
+     * omits a direction. Never substitute the TX rate for the RX rate. */
+    if ((Tx && J->TxKbps != Tx) || (Rx && J->RxKbps != Rx)) {
+        if (Tx) J->TxKbps = Tx;
+        if (Rx) J->RxKbps = Rx;
+        MediaState(J, TRUE);
+    }
+    if (Dbm && J->TxKbps && J->RxKbps) {
+        LONG Quality = swifi_signal_quality(Dbm);
+        LONG Delta = Quality - J->IndicatedQuality;
+        if (J->IndicatedTx != J->TxKbps || J->IndicatedRx != J->RxKbps || Delta > 5 || Delta < -5) {
+            WDI_INDICATION_LINK_STATE_CHANGE_PARAMETERS P = {0};
+            RtlCopyMemory(P.LinkStateChangeParameters.PeerMACAddress.Address, J->Active->Peer, 6);
+            P.LinkStateChangeParameters.TxLinkSpeed = J->TxKbps;
+            P.LinkStateChangeParameters.RxLinkSpeed = J->RxKbps;
+            P.LinkStateChangeParameters.LinkQuality = (UCHAR)Quality;
+            UINT8 *Generated = NULL;
+            ULONG Length;
+            NTSTATUS Status = (NTSTATUS)GenerateWdiIndicationLinkStateChangeFromIhv(&P,
+                sizeof(WDI_MESSAGE_HEADER), &J->Tlv, &Length, &Generated);
+            if (NT_SUCCESS(Status)) Status = Indicate(J, WDI_INDICATION_LINK_STATE_CHANGE, Generated, Length);
+            if (Generated) FreeGenerated(Generated);
+            if (NT_SUCCESS(Status)) {
+                J->IndicatedTx = J->TxKbps;
+                J->IndicatedRx = J->RxKbps;
+                J->IndicatedQuality = Quality;
+            }
+        }
+    }
+Done:
+    WdfWaitLockRelease(J->Lock);
 }
 
 static NTSTATUS Vendors(SWIFI_JOIN *J, BOOLEAN Add)
@@ -518,6 +592,15 @@ NTSTATUS SwifiJoinCreate(WDFDEVICE Device, SWIFI_WIN_CONTROL *Control, SWIFI_FIR
     Status = WdfTimerCreate(&Config, &A, &J->Timer);
     if (!NT_SUCCESS(Status)) return Status;
     JoinTimerContext(J->Timer)->Join = J;
+    WDF_WORKITEM_CONFIG LinkConfig;
+    WDF_WORKITEM_CONFIG_INIT(&LinkConfig, ReadLink);
+    LinkConfig.AutomaticSerialization = FALSE;
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&A, LINK_WORK);
+    A.ParentObject = Device;
+    Status = WdfWorkItemCreate(&LinkConfig, &A, &J->LinkWorker);
+    if (!NT_SUCCESS(Status)) return Status;
+    LinkWorkContext(J->LinkWorker)->Join = J;
+    J->Owner->Data.LinkWorker = J->LinkWorker;
     *Join = J;
     return STATUS_SUCCESS;
 }
@@ -552,6 +635,7 @@ VOID SwifiJoinEndSession(SWIFI_JOIN *J)
     WdfWaitLockRelease(J->Lock);
     KeSetEvent(&J->Left, IO_NO_INCREMENT, FALSE);
     WdfTimerStop(J->Timer, TRUE);
+    WdfWorkItemFlush(J->LinkWorker);
 }
 
 VOID SwifiJoinAfterReset(SWIFI_JOIN *J)
@@ -753,6 +837,7 @@ BOOLEAN SwifiJoinCommand(SWIFI_JOIN *J, WIFIREQUEST Request, UINT16 Id, WDI_MESS
     else if (Leave) Status = LeaveTask(J, Id, H, Bytes, &Reason);
     else if (Exempt) Status = Privacy(J, H, Bytes);
     else Status = ChangeKeys(J, Id, H, Bytes);
+    if (ConnectTask && !NT_SUCCESS(Status)) SwifiReportJoin(&J->Owner->Report, Status);
     /* All input was copied or consumed. Publish M3 before a firmware event
      * or immediate refusal can complete the M4. H is no longer owned here. */
     SwifiCompleteWdiRequest(Request, Status);
@@ -832,8 +917,11 @@ BOOLEAN SwifiJoinEvent(SWIFI_JOIN *J, const swifi_event_completion *E)
     if (NT_SUCCESS(Result)) Result = AssocResult(J, WDI_ASSOC_STATUS_SUCCESS, 0);
     if (!NT_SUCCESS(Result)) { Poison(J, Result); goto Done; }
     J->Announced = TRUE;
+    J->TxKbps = J->RxKbps = J->IndicatedTx = J->IndicatedRx = 0;
+    J->IndicatedQuality = -100;
     SwifiDataLink(J->Owner, J->Active->Peer, Secure, FALSE, FALSE);
     MediaState(J, TRUE);
+    WdfWorkItemEnqueue(J->LinkWorker);
     DropPending(J);
     Finish(J, &J->Connect, STATUS_SUCCESS);
 Done:

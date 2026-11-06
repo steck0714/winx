@@ -2,8 +2,8 @@
 
 An HDH-001 completed a pre-Windows scan. The Windows station driver now builds
 as `switchwifi.sys` and its signed package staged in ARM64 Windows PE 22621.1.
-Version 0.2 implements open and WPA2-Personal association, CCMP keys and
-disconnect in Windows. Physical Windows networking on the Lite remains pending.
+Version 0.3 implements open and WPA2-Personal association, CCMP keys,
+disconnect, peer link measurements and PnP status reporting in Windows. Physical Windows networking on the Lite remains pending.
 
 ## Verified source facts
 
@@ -340,3 +340,14 @@ provenance for post-key Ethernet EAPOL is still a hardware acceptance item.
 The optional `wifi` installer mode stages only this driver, the board's two
 private A3 files and the matching `WifiPrepare.efi` on WINARM. Loading the
 runtime BL33 remains a separate step through the existing Windows boot entry.
+
+
+Version 0.3 records the key state when each RX buffer is posted. The driver
+discards Ethernet EAPOL frames that cross a key change without evidence of
+air protection. Optional BCM metadata supplies receive signal strength.
+Windows link indications use the measured rates for the associated peer.
+The device's `SwitchWifiReport` value records initialization, scans, joins,
+acknowledged key slots and observed frame types. See the
+[status fields and read command](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).
+An isolated ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package as `oem0.inf`. The existing 22631.2861 ARM64 installation media includes WiFiCx, NetAdapterCx and the WLAN service. Acceptance on the physical Windows
+adapter, including DHCP and rekey, remains pending.

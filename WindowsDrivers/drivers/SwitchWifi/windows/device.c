@@ -14,8 +14,8 @@ static EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED Stop;
 VOID SwifiPnpFailure(PVOID Context, NTSTATUS Reason)
 {
     SWIFI_DEVICE *D = Context;
-    UNREFERENCED_PARAMETER(Reason);
     if (!InterlockedExchange(&D->Failing, 1)) {
+        SwifiReportStep(&D->Report, SwifiRuntimeFailure, Reason);
         SwifiDataRequestStop(D);
         WdfDeviceSetFailed(D->Hw.Device, WdfDeviceFailedNoRestart);
     }
@@ -23,7 +23,11 @@ VOID SwifiPnpFailure(PVOID Context, NTSTATUS Reason)
 
 static NTSTATUS Prepare(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated)
 {
-    return SwifiHardwarePrepare(&SwifiDeviceContext(Device)->Hw, Raw, Translated);
+    SWIFI_DEVICE *D = SwifiDeviceContext(Device);
+    SwifiReportStep(&D->Report, SwifiPrepare, STATUS_PENDING);
+    NTSTATUS Status = SwifiHardwarePrepare(&D->Hw, Raw, Translated);
+    SwifiReportStep(&D->Report, SwifiPrepare, Status);
+    return Status;
 }
 
 static NTSTATUS Release(WDFDEVICE Device, WDFCMRESLIST Translated)
@@ -31,7 +35,10 @@ static NTSTATUS Release(WDFDEVICE Device, WDFCMRESLIST Translated)
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     UNREFERENCED_PARAMETER(Translated);
     SwifiDataRequestStop(D);
-    return SwifiHardwareRelease(&D->Hw);
+    NTSTATUS Status = SwifiHardwareRelease(&D->Hw);
+    if (!NT_SUCCESS(Status)) SwifiReportStep(&D->Report, SwifiQuiesce, Status);
+    SwifiReportFlush(&D->Report);
+    return Status;
 }
 
 static NTSTATUS EnterD0(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Previous)
@@ -40,6 +47,7 @@ static NTSTATUS EnterD0(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Previous)
     UNREFERENCED_PARAMETER(Previous);
     NTSTATUS Status = SwifiHardwareEnterD0(&D->Hw);
     if (NT_SUCCESS(Status)) Status = SwifiDataBind(D);
+    SwifiReportStep(&D->Report, SwifiEnterD0, Status);
     if (!NT_SUCCESS(Status)) {
         NTSTATUS StopStatus = SwifiHardwareStop(&D->Hw);
         if (!NT_SUCCESS(StopStatus)) return StopStatus;
@@ -52,6 +60,7 @@ static NTSTATUS Online(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Previous)
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     UNREFERENCED_PARAMETER(Previous);
     NTSTATUS Status = SwifiHardwareOnline(&D->Hw);
+    SwifiReportStep(&D->Report, SwifiRadioOnline, Status);
     if (!NT_SUCCESS(Status)) {
         SwifiDataRequestStop(D);
         NTSTATUS StopStatus = SwifiHardwareStop(&D->Hw);
@@ -65,7 +74,10 @@ static NTSTATUS Stop(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Target)
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     UNREFERENCED_PARAMETER(Target);
     SwifiDataRequestStop(D);
-    return SwifiHardwareStop(&D->Hw);
+    NTSTATUS Status = SwifiHardwareStop(&D->Hw);
+    if (!NT_SUCCESS(Status)) SwifiReportStep(&D->Report, SwifiQuiesce, Status);
+    SwifiReportFlush(&D->Report);
+    return Status;
 }
 
 static NTSTATUS DeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
@@ -92,7 +104,11 @@ static NTSTATUS DeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT Init)
     if (!NT_SUCCESS(Status)) return Status;
     SWIFI_DEVICE *D = SwifiDeviceContext(Device);
     D->Data.Hardware = &D->Hw;
-    return SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D);
+    SwifiReportOpen(Device, &D->Report);
+    Status = SwifiHardwareCreate(Device, &D->Hw, &Callbacks, D);
+    SwifiReportStep(&D->Report, SwifiDeviceAdd, Status);
+    if (!NT_SUCCESS(Status)) SwifiReportFlush(&D->Report);
+    return Status;
 }
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT Driver, PUNICODE_STRING RegistryPath)
