@@ -1,8 +1,8 @@
-# winx (win nx) - UEFI (EDK2) bl33 for Nintendo Switch / Tegra210, launched from hekate
+# Original WinX notes for Nintendo Switch T210 (Erista)
 
-A fork-style patch set on top of [imbushuo/NintendoSwitchPkg](https://github.com/imbushuo/NintendoSwitchPkg)
-(commit `09c3ade`, EDK2 `edk2-stable202402`). Goal: boot Windows on ARM on a Tegra210 Switch.
-**Work in progress.** Windows 11 ARM64 boots from an NTFS partition on the SD card (2026-10-28, author's console); USB, touch, Wi-Fi/BT, sound and GPU are not working in Windows yet. See `README.md` (Windows Boot Status) for the current table. / 作業中。SD上のNTFSパーティションからWindows 11 ARM64が起動します。WindowsでのUSB・タッチ・Wi-Fi/BT・音・GPUはまだ動きません。
+These notes describe the original Hekate and EDK II port on an Erista console. The author reported booting Windows 11 ARM64 from an NTFS partition on 2026-10-28. The hardware results below apply to that console and firmware revision.
+
+The patch set was based on NintendoSwitchPkg commit `09c3ade` and `edk2-stable202402`. [Original WinX project](https://github.com/steck0714/winx) · [Base firmware](https://github.com/imbushuo/NintendoSwitchPkg) · [Switch Lite hardware status](README.md#hardware-status)
 
 ## Status (reported from a real Erista console)
 | | |
