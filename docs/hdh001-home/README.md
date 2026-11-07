@@ -381,9 +381,12 @@ build -a AARCH64 -t GCC5 -b RELEASE -n 8 -p NintendoSwitchPkg/NintendoSwitch.dsc
 ```
 
 For the in-progress sleep/wake candidate, also pass `-D SWITCH_LITE_SLEEP=1`
-and stage the matching `tegra214pep` and `switchpwrbtn` packages. That option
-adds the PMIC wake interrupt and processor power backend; it does not establish
-SC7 deep-sleep support. Keep the card header identical to the selected hidden
+and stage the matching `switchpwrbtn` package. That option adds the PMIC wake
+interrupt, independently of the processor power backend. Do not install
+`tegra214pep` in the S4 kit: its boot-start configuration caused a cold-boot
+`0xc000000f` failure. The deferred C7/CC6 backend requires a separate explicit
+`SWITCH_LITE_PROCESSOR_IDLE=1` development build and is not boot-validated.
+Keep the card header identical to the selected hidden
 or FAT32-visible SD miniport. See [current work and acceptance](PORTING.md).
 
 For the S4 candidate, also pass `-D SWITCH_LITE_HIBERNATE=1` and build the SD

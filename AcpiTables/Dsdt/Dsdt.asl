@@ -54,10 +54,10 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name(_UID, 3)
         }
 
-#ifdef SWITCH_LITE_SLEEP
+#ifdef SWITCH_LITE_PROCESSOR_IDLE
         Device (PEP0)
         {
-            Name (_HID, "SWOA0C01")
+            Name (_HID, "SWOA0E01")
             Name (_UID, Zero)
             Name (_STA, 0x0F)
         }

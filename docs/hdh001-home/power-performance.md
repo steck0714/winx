@@ -36,11 +36,18 @@ and checks patch retention, reset acknowledgements and baud changes.
 package, the one-time `Tools/Enable-LiteS4.cmd` enables a full hiberfile and maps
 the power button to Hibernate after setup succeeds. It keeps Fast Startup off
 and records a fixed result under `HKLM\SOFTWARE\SwitchLite\Hibernate`.
-SC7 is outside this update.
+SC7 is outside this update. The first candidate failed on its initial cold
+boot with `0xc000000f`, before this script ran; no hibernation image existed.
+In a local read-only card replay with RAM-only writes, disabling only the
+boot-start `tegra214pep` service allowed kernel startup. The S4 repair removes
+that experimental package. This comparison isolates a loader blocker, not a
+completed S4 resume or a full boot of the Lite under emulation.
 
-`SWITCH_LITE_SLEEP=1` is an experimental firmware profile. It exposes GSI 118
-(PMU_EXT) as a wake interrupt, PMC interrupt inversion, and the T214 PoFx
-processor backend. The backend calls Windows `ProcessorHalt` for PSCI C7/CC6;
+`SWITCH_LITE_SLEEP=1` exposes GSI 118 (PMU_EXT) as a wake interrupt and PMC
+interrupt inversion. It no longer exposes the T214 PoFx processor backend.
+That deferred backend requires `SWITCH_LITE_PROCESSOR_IDLE=1` explicitly and
+must not be included in this S4 kit while its boot failure is unresolved.
+The backend calls Windows `ProcessorHalt` for PSCI C7/CC6;
 it does not invoke an unprepared, context-losing SMC. These changes compile
 and pass focused host tests. **SC7 deep sleep, complete display restoration,
 S4 hibernation and repeated physical wake are not yet accepted.** Progress

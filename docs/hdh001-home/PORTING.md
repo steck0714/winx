@@ -23,8 +23,16 @@ The current S4 candidate builds and passes polled identity/write-bound tests;
 saved-session restoration has not yet been tested on the Lite. On 2026-11-07,
 the signed 0.4.1.0 FAT32-visible package, matching S4 BL33, Bluetooth 1.0.0.17
 and the fan/input/wake updates were installed and read back from the card.
-The one-time full-hibernation setup is queued for the next administrator logon;
-physical S4 restoration, repeated wake and performance remain unverified.
+The first cold boot stopped at recovery `0xc000000f`, before logon or any
+hibernation attempt. A local card replay reproduced that error; changing only
+the experimental `tegra214pep` service from boot-start to disabled let the
+loader reach kernel startup. The repair removes that package and separates
+the PEP ACPI option from PMIC wake resources. S4 does not require the PEP.
+Its development hardware ID is also separated from the existing audio ID.
+The PEP removal and paired BL33 have been installed and read back; other
+driver binaries and service start modes, BCD and BL31 were preserved.
+The one-time full-hibernation setup remains queued. Repaired cold boot,
+physical S4 restoration, repeated wake and performance await Lite testing.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
@@ -36,7 +44,7 @@ These regressions remain open until the replacement is tested on the Lite.
 The candidate now includes runtime display-idle policies for SIO 0.2.4 and
 touch 1.0.1.1. They stop their polling through existing KMDF D0 callbacks and
 request asynchronous D0 on display-on. The PMIC button provides wake input.
-The initial firmware and eight driver packages build; native catalog/signature
+The firmware and remaining driver packages build; native catalog/signature
 checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
