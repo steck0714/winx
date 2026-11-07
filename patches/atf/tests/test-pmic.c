@@ -9,12 +9,15 @@ static uint32_t regs[64], pmic[256], pmc[0x930/4], pointer, reset_bits, clocks;
 static unsigned int power_requests, delay_ms, transfers, cleared_irqs;
 static bool nack_first, nack_final, mismatch, nack_latch, need_bus_recovery, clear_failed;
 static unsigned int recoveries;
+#include "pmic-gpio-wire.h"
 
 void udelay(unsigned int amount) { (void)amount; }
 void mdelay(unsigned int amount) { delay_ms += amount; }
 
 uint32_t mmio_read_32(uintptr_t address)
 {
+    if (address >= 0x6000d600U && address < 0x6000d700U)
+        return wire_reg_read((unsigned int)(address - 0x6000d600U));
     if (address == 0x60006008U) return reset_bits;
     if (address == 0x60006014U) return clocks;
     if (address >= 0x7000e400U && address < 0x7000ed30U)
@@ -25,6 +28,10 @@ uint32_t mmio_read_32(uintptr_t address)
 
 void mmio_write_32(uintptr_t address, uint32_t value)
 {
+    if (address >= 0x6000d600U && address < 0x6000d700U) {
+        wire_reg_write((unsigned int)(address - 0x6000d600U), value);
+        return;
+    }
     if (address == 0x60006308U) { reset_bits |= value; return; }
     if (address == 0x6000630cU) { reset_bits &= ~value; return; }
     if (address == 0x60006328U) { clocks |= value; return; }
@@ -87,6 +94,7 @@ static void reset_mock(uint32_t config)
     memset(regs, 0, sizeof(regs));
     memset(pmc, 0, sizeof(pmc));
     memset(pmic, 0, sizeof(pmic));
+    memset(&wire, 0, sizeof(wire));
     pmic[0x42] = config;
     pmic[0x41] = 0x4e; /* keep long-press and reserved configuration */
     pmic[0x05] = 0xa0; pmic[0x0b] = 0x03;
@@ -144,6 +152,22 @@ int main(void)
     assert(tegra_lite_pmic_off() == -5 && recoveries == 1 && power_requests == 1);
     reset_mock(0x9f); need_bus_recovery = clear_failed = true;
     assert(tegra_lite_pmic_off() == -6 && power_requests == 0);
-    puts("Switchroot B01 BootROM/PMC restart and PMIC shutdown policy passed (simulated)");
+    reset_mock(0x9f); wire.connected = true;
+    wire.config = 0x81; wire.oe = 0x54; wire.out = 0xbc;
+    gpio_power_off();
+    assert(wire.reads == 5 && wire.power_writes == 1 && transfers == 0);
+    assert(wire.starts == 12 && wire.stops == 7 && pmic[0x42] == 0x1f);
+    assert(pmic[0x05] == 0 && pmic[0x0b] == 0);
+    assert(wire.config == 0x81 && wire.oe == 0x54 && wire.out == 0xbc);
+    reset_mock(0x9f); wire.connected = true; wire.nack_address = true;
+    gpio_power_off();
+    assert(wire.reads == 0 && wire.power_writes == 0 && wire.stops == 3);
+    reset_mock(0x9f); wire.connected = true; mismatch = true;
+    gpio_power_off();
+    assert(wire.reads == 4 && wire.power_writes == 0 && pmic[0x42] == 0x9f);
+    reset_mock(0x9f); wire.connected = true; wire.force_scl_low = true;
+    gpio_power_off();
+    assert(!wire.oe && !wire.config && wire.power_writes == 0);
+    puts("Switchroot B01 BootROM, controller recovery and GPIO PMIC shutdown passed (simulated)");
     return 0;
 }

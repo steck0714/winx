@@ -1,0 +1,226 @@
+From: ruje0504-2
+Subject: [PATCH] t214: use the Lite GPIO power I2C bus at final shutdown
+
+Apply after 0002-t214-windows-shutdown.patch.
+
+--- a/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
++++ b/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
+@@ -9,10 +9,11 @@
+  * Copyright (c) 2018 naehrwert
+  * Copyright (c) 2018-2026 CTCaer
+  *
+- * The OS has quiesced its devices before SYSTEM_OFF/SYSTEM_RESET. Reinitialize
+- * I2C5 here because the Windows controller driver may have stopped its clock.
++ * The B01 NX PMIC device tree selects GPIO transfers after I2C shutdown.
++ * Both transports are used only at the final PSCI power-off boundary.
+  */
+ #include <stdbool.h>
++#include <stddef.h>
+ #include <stdint.h>
+ #include <drivers/delay_timer.h>
+ #include <lib/mmio.h>
+@@ -115,14 +116,171 @@
+ 	return transfer(true, 1U, value);
+ }
+ 
++static int controller_write(uint32_t reg, uint32_t value)
++{
++	uint32_t data = reg | (value << 8);
++	return transfer(false, 2U, &data);
++}
++
+ /* Switchroot's max77620_pm_power_off(): clear latched interrupts, clear
+  * SFT_RST_WK, then set SFT_RST without changing the other ONOFFCNFG1 bits.
+  * Success removes power. No regulator voltage is written by the running CPU. */
++static int request_power_off(int (*read_reg)(uint32_t, uint32_t *),
++			     int (*write_reg)(uint32_t, uint32_t))
++{
++	uint32_t value, expected;
++	int result;
++
++	(void)read_reg(0x0bU, &value);
++	(void)read_reg(0x05U, &value);
++	if (read_reg(ONOFFCNFG2, &value) != 0)
++		return -2;
++	expected = value & ~RESET_WAKE;
++	if (write_reg(ONOFFCNFG2, expected) != 0 ||
++	    read_reg(ONOFFCNFG2, &value) != 0 || value != expected ||
++	    read_reg(ONOFFCNFG1, &value) != 0)
++		return -3;
++	result = write_reg(ONOFFCNFG1, value | SOFT_RESET);
++	/* A successful command can cut power before its I2C acknowledgement. */
++	mdelay(500);
++	return result != 0 ? -4 : -5;
++}
++
++/* Switchroot L4T: PWR_I2C_SCL=PY3 (195), PWR_I2C_SDA=PY4 (196).
++ * Port Y is bank 6, port 0. Masked writes touch only these two pins.
++ * The board has external pull-ups. Latch zero and use output enable to
++ * drive low or release the line; never drive either line high. */
++#define GPIO_Y           0x6000D600U
++#define GPIO_CONFIG      0x00U
++#define GPIO_OE          0x10U
++#define GPIO_OUT         0x20U
++#define GPIO_INPUT       0x30U
++#define GPIO_MASKED      0x80U
++#define PWR_SCL          (1U << 3)
++#define PWR_SDA          (1U << 4)
++#define PWR_LINES        (PWR_SCL | PWR_SDA)
++
++static void gpio_masked(uint32_t reg, uint32_t mask, uint32_t bits)
++{
++	mmio_write_32(GPIO_Y + GPIO_MASKED + reg, (mask << 8) | (bits & mask));
++}
++
++static void gpio_line(uint32_t line, bool release)
++{
++	gpio_masked(GPIO_OE, line, release ? 0U : line);
++	udelay(5);
++}
++
++static bool gpio_clock_high(void)
++{
++	unsigned int us;
++	gpio_line(PWR_SCL, true);
++	for (us = 0; us < 10000U; ++us) {
++		if ((mmio_read_32(GPIO_Y + GPIO_INPUT) & PWR_SCL) != 0U) {
++			udelay(5);
++			return true;
++		}
++		udelay(1);
++	}
++	return false;
++}
++
++static bool gpio_start(void)
++{
++	gpio_line(PWR_SDA, true);
++	if (!gpio_clock_high() || !(mmio_read_32(GPIO_Y + GPIO_INPUT) & PWR_SDA))
++		return false;
++	gpio_line(PWR_SDA, false);
++	gpio_line(PWR_SCL, false);
++	return true;
++}
++
++static bool gpio_stop(void)
++{
++	bool high;
++	gpio_line(PWR_SDA, false);
++	high = gpio_clock_high();
++	gpio_line(PWR_SDA, true);
++	return high && (mmio_read_32(GPIO_Y + GPIO_INPUT) & PWR_SDA) != 0U;
++}
++
++/* Exchange one byte and the ninth ACK/NACK clock. The last read byte is
++ * NACKed. The returned data byte is committed only after the STOP. */
++static bool gpio_byte(uint32_t tx, uint32_t *rx)
++{
++	uint32_t data = 0U;
++	unsigned int bit;
++	bool ack;
++	for (bit = 0; bit < 8U; ++bit) {
++		gpio_line(PWR_SDA, rx != NULL || (tx & (0x80U >> bit)) != 0U);
++		if (!gpio_clock_high())
++			return false;
++		data = (data << 1) | ((mmio_read_32(GPIO_Y + GPIO_INPUT) & PWR_SDA) != 0U);
++		gpio_line(PWR_SCL, false);
++	}
++	gpio_line(PWR_SDA, true);
++	if (!gpio_clock_high())
++		return false;
++	ack = !(mmio_read_32(GPIO_Y + GPIO_INPUT) & PWR_SDA);
++	gpio_line(PWR_SCL, false);
++	if (rx != NULL)
++		*rx = data;
++	return rx != NULL || ack;
++}
++
++static int gpio_register(uint32_t reg, uint32_t *value, bool read)
++{
++	uint32_t data;
++	bool ok;
++	if (!gpio_start())
++		return -1;
++	ok = gpio_byte(PMIC_ADDRESS << 1, NULL) && gpio_byte(reg, NULL);
++	if (ok && read)
++		ok = gpio_start() && gpio_byte((PMIC_ADDRESS << 1) | 1U, NULL) &&
++		     gpio_byte(0U, &data);
++	else if (ok)
++		ok = gpio_byte(*value, NULL);
++	if (!gpio_stop() || !ok)
++		return -1;
++	if (read)
++		*value = data;
++	return 0;
++}
++
++static int gpio_read_reg(uint32_t reg, uint32_t *value)
++{
++	return gpio_register(reg, value, true);
++}
++
++static int gpio_write_reg(uint32_t reg, uint32_t value)
++{
++	return gpio_register(reg, &value, false);
++}
++
++static void gpio_power_off(void)
++{
++	uint32_t config = mmio_read_32(GPIO_Y + GPIO_CONFIG);
++	uint32_t oe = mmio_read_32(GPIO_Y + GPIO_OE);
++	uint32_t out = mmio_read_32(GPIO_Y + GPIO_OUT);
++
++	gpio_masked(GPIO_OE, PWR_LINES, 0U);
++	gpio_masked(GPIO_OUT, PWR_LINES, 0U);
++	gpio_masked(GPIO_CONFIG, PWR_LINES, PWR_LINES);
++	udelay(5);
++	if ((mmio_read_32(GPIO_Y + GPIO_INPUT) & PWR_LINES) == PWR_LINES)
++		(void)request_power_off(gpio_read_reg, gpio_write_reg);
++
++	/* Reaching this point means power is still present. Give the pins
++	 * back to the controller before trying the original hardware path. */
++	gpio_masked(GPIO_OE, PWR_LINES, 0U);
++	gpio_masked(GPIO_OUT, PWR_LINES, out);
++	gpio_masked(GPIO_CONFIG, PWR_LINES, config);
++	gpio_masked(GPIO_OE, PWR_LINES, oe);
++}
++
+ static int try_power_off(bool recover_bus)
+ {
+-	uint32_t value, expected, command;
+ 	unsigned int i;
+-	int result;
+ 
+ 	/* Reset only I2C5. CLK_M / 1 is 19.2 MHz, with 400 kHz I2C timing. */
+ 	mmio_write_32(CAR + 0x308U, I2C5_BIT);
+@@ -168,28 +326,14 @@
+ 	}
+ 	mmio_write_32(I2C5 + 0x68U, mmio_read_32(I2C5 + 0x68U));
+ 
+-	/* Switchroot treats these read-to-clear interrupts as best effort. */
+-	(void)read_register(0x0bU, &value);
+-	(void)read_register(0x05U, &value);
+-	if (read_register(ONOFFCNFG2, &value) != 0)
+-		return -2;
+-	expected = value & ~RESET_WAKE;
+-	command = ONOFFCNFG2 | (expected << 8);
+-	if (transfer(false, 2U, &command) != 0 ||
+-	    read_register(ONOFFCNFG2, &value) != 0 || value != expected ||
+-	    read_register(ONOFFCNFG1, &value) != 0)
+-		return -3;
+-	command = ONOFFCNFG1 | ((value | SOFT_RESET) << 8);
+-	result = transfer(false, 2U, &command);
+-	/* The PMIC may remove power before acknowledging the final I2C write. */
+-	mdelay(500);
+-	return result != 0 ? -4 : -5;
++	return request_power_off(read_register, controller_write);
+ }
+ 
+ int tegra_lite_pmic_off(void)
+ {
+ 	/* A successful command removes power. Returning here means the CPU
+ 	 * is still running, even when the final I2C write was acknowledged. */
++	gpio_power_off();
+ 	(void)try_power_off(false);
+ 	return try_power_off(true);
+ }

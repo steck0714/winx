@@ -27,7 +27,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
 | 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. | Run a Direct3D workload on a Tegra hardware adapter. |
-| Power lifecycle | Pre-Windows power-off passed on R4. On R5, Windows shutdown still leaves the fan running with the screen black until a long power-button press. Restart uses the same firmware path and awaits a separate R5 test. | Complete normal Windows shutdown with physical power removal. [R5 investigation](power-performance.md#windows-power-off-fallback-r5) |
+| Power lifecycle | Pre-Windows power-off passed on R4. On R5, Windows shutdown still leaves the fan running until a long power-button press. R6 implements the board's GPIO power-off path for shutdown and restart. It passed a simulated PMIC test and awaits hardware testing. | Confirm power removal after normal Windows shutdown and restart. [R5 results and R6 firmware](power-performance.md#gpio-power-off-path-r6) |
 
 ## USB-C host on HDH-001
 

@@ -1,6 +1,6 @@
 # T214 PSCI PMIC power patch
 
-The build tool applies `0001-t214-psci-pmic-power.patch` and `0002-t214-windows-shutdown.patch` to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
+The build tool applies patches 0001 through 0003 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
 
 ## Build
 
@@ -29,6 +29,8 @@ CRASH_REPORTING=1 ENABLE_ASSERTIONS=1 LOG_LEVEL=0 PLAT_LOG_LEVEL_ASSERT=0
 The unmodified reset-to-BL31 entrypoint obtains Hekate's parameters through the existing IRAM handoff. Do not use the default Tegra link address. The script checks the ELF entry against `0xFFF00000` before exporting the binary. For recent binutils, it disables the new RWX ELF-segment warning for this older linker script; runtime memory permissions still come from TF-A's page tables.
 
 ## Validation and deployment state
+
+R6 uses Switchroot's GPIO-based PMIC transfer path during final power-off. The host test simulates a MAX77620 on the PY3/PY4 lines, checks both register updates and verifies pin restoration on failure. R6 built for ARM64 and awaits hardware testing. R5 is still on the test card. [R6 findings and scope](../../docs/hdh001-home/power-performance.md#gpio-power-off-path-r6)
 
 The focused host test simulates PMC and I2C/PMIC registers. It decodes the BootROM blocks, checks their byte checksums and the RTC Hekate-menu request, verifies the active-high PMC requests and NX timers, and confirms that restart preparation performs no live I2C rail writes. Shutdown tests cover interrupt-latch reads, configuration preservation and I2C failures. These checks do not emulate physical power or establish that Windows reaches PSCI.
 

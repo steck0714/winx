@@ -51,6 +51,14 @@ The owner tested **Shut down** with the installed R5 firmware. The screen went b
 
 The Windows-specific R5 BL31 routes **Restart** to the same full power-off handler on B01. The ARM64 binary contains that branch and simulated I²C error recovery passed. Restart on the installed R5 build still awaits a separate hardware result.
 
+## GPIO power-off path (R6)
+
+Kernel-Power 109 on the returned card carries action 6 (`PowerActionShutdownOff`). At 00:37:40.196 UTC, the boot status file recorded a power transition with `SystemRunning` cleared. Its reference time has a valid CRC and follows the last Kernel-General event. The matching Windows kernel clears this bit in `PopSetCleanShutdownMarker`, before its final filesystem, device-power and HAL calls. This places the failure late in shutdown. It still leaves open whether Windows reached BL31. [Microsoft boot status data](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-blackboxbsd)
+
+The Switchroot B01 board enables `nvidia,bit-bang-after-shutdown` on the PMIC bus. When its I²C adapter is shutting down or restricted to atomic transfers, the Ubuntu driver uses GPIO. R5 retried the hardware controller on both attempts. R6 implements the board's GPIO route in the final B01 PSCI power-off handler, which also services restart in the Windows build. [B01 PMIC device tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-pmic.dtsi) · [Switchroot I²C transfer selection](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/i2c/busses/i2c-tegra.c#L1949-L1967)
+
+R6 uses open-drain PY3 (clock) and PY4 (data). It reads back the wake configuration before requesting power-off and restores pin ownership if execution continues. The existing controller recovery path then remains available. An independent I²C slave model decoded the transactions, repeated STARTs, ACKs and final NACKs and exercised a stuck clock, address NACK and failed configuration readback. The ARM64 firmware was built. The test Lite's card still has R5, and physical R6 shutdown and restart are pending.
+
 ## Build and evidence
 
 Use [the pinned source and build instructions](../../patches/atf/README.md). The Nintendo NX recipe requires `TZDRAM_BASE=0xFFF00000`, reset-to-BL31 startup and the IRAM handoff. R2 used incorrect defaults and failed before Windows; it was withdrawn. R3 corrected that boot regression. R4 retains the same entrypoint and flags.

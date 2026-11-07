@@ -9,8 +9,11 @@ import subprocess
 
 REVISION = "85081cab2050051ea6e93206ef0f80bc0676e613"
 REPO = Path(__file__).resolve().parents[1]
-PATCH = REPO / "patches/atf/0001-t214-psci-pmic-power.patch"
-SHUTDOWN_PATCH = REPO / "patches/atf/0002-t214-windows-shutdown.patch"
+POWER_PATCHES = [REPO / "patches/atf" / name for name in (
+    "0001-t214-psci-pmic-power.patch",
+    "0002-t214-windows-shutdown.patch",
+    "0003-t214-shutdown-gpio-i2c.patch",
+)]
 
 
 def main():
@@ -31,14 +34,15 @@ def main():
         return subprocess.run(["git", "apply", "--reverse", "--check", str(patch)],
                               cwd=source, capture_output=True).returncode == 0
 
-    if not applied(SHUTDOWN_PATCH):
-        if not applied(PATCH):
-            subprocess.run(["git", "apply", str(PATCH)], cwd=source, check=True)
-        subprocess.run(["git", "apply", str(SHUTDOWN_PATCH)], cwd=source, check=True)
+    # Newer patches edit earlier hunks. Check the newest applied patch first.
+    pending = next((i + 1 for i in reversed(range(len(POWER_PATCHES)))
+                    if applied(POWER_PATCHES[i])), 0)
+    for patch in POWER_PATCHES[pending:]:
+        subprocess.run(["git", "apply", str(patch)], cwd=source, check=True)
     make = shutil.which("gmake") or shutil.which("make")
     if not make:
         raise SystemExit("GNU make is required")
-    build_base = "build-lite-power-r5-native" if args.native_restart else "build-lite-power-r5-off"
+    build_base = "build-lite-power-r6-native" if args.native_restart else "build-lite-power-r6-off"
     # LineageOS android_device_nintendo_nx/vendor/nx-vendor.mk. Hekate loads
     # at 0xFFF00000 and supplies the reset-to-BL31 parameters through IRAM.
     flags = [make, f"-j{args.jobs}", "PLAT=tegra", "TARGET_SOC=t210",
@@ -49,7 +53,7 @@ def main():
              f"CROSS_COMPILE={args.cross_prefix}", "DEBUG=0", "LOG_LEVEL=0",
              "ENABLE_ASSERTIONS=1", "SWITCH_LITE_PMIC_RESET=1",
              f"SWITCH_LITE_RESTART_AS_OFF={int(not args.native_restart)}",
-             "BUILD_STRING=85081ca-lite-power-r5"]
+             "BUILD_STRING=85081ca-lite-power-r6"]
     help_text = subprocess.check_output([args.cross_prefix + "ld", "--help"], text=True)
     if "--no-warn-rwx-segments" in help_text:
         # TF-A 2.6's ELF layout predates this binutils diagnostic. Runtime MMU
