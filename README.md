@@ -10,12 +10,14 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | --- | --- |
 | Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. |
 | Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
+| Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
+| Desktop controls | The left stick moves the pointer, ZR maps to left click and ZL to right click. Capture toggles desktop controls in 0.2.1 (on the card). In 0.2.2, **+** opens the On-Screen Keyboard in desktop mode. The shortcut is packaged and awaits a hardware test. [Button mapping](WindowsDrivers/drivers/SwitchSensor/README.md) |
 | 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. |
 | Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth works on the trimmed Pro installation. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 
-On R5, shutting down Windows still leaves the screen black and the fan running until the owner holds the power button. Restart uses the same firmware handler and awaits a separate R5 test. Windows enumerated the built-in gamepad and mouse. USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
+On R5, shutting down Windows still leaves the screen black and the fan running until the owner holds the power button. Restart uses the same firmware handler and awaits a separate R5 test. USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
 
 ## Storage profiles
 
