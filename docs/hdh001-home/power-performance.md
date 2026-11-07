@@ -52,6 +52,15 @@ signed and its register-loss tests pass; physical restoration remains pending.
 Windows device constraints, display/clock restoration and complete SC7
 coordination are still required before enabling this path on the card.
 
+Power-button 1.0.0.3 now reports HID System Wake Up when the console display is
+off, retaining the configured power-button action while it is on. Its passive
+IRQ mode unmasks press only and emits a complete HID pulse; release cannot
+generate an immediate wake interrupt. IRQ diagnostics run in a deferred work
+item, outside the passive interrupt lock and D0 callbacks. ARM64 build,
+signing and callback tests pass. It is not installed, and this is not evidence
+that the reported repeated black-screen/lock-screen stall is resolved.
+[Windows HID usages](https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input) · [Wake interrupt lifecycle](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/using-an-interrupt-to-wake-a-device)
+
 ### Switchroot Ubuntu reference
 
 Use kernel commit `2d0059fd3167a8df756de2aa0489d4aa70a9fc15` and B01 board

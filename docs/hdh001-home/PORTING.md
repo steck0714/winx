@@ -74,6 +74,9 @@ GPIO 1.0.0.5 saves/restores controller state without registry I/O during power
 callbacks; its signed ARM64 package and repeated register-loss test pass.
 Neither is installed. Complete Windows coordination and display/clock restore
 before enabling whole-system sleep. [Sleep implementation](power-performance.md#current-sleepwake-work)
+The signed power-button 1.0.0.3 candidate adds display-aware HID wake reports,
+press-only PMIC interrupts and deferred IRQ diagnostics. Callback tests pass;
+it remains uninstalled and needs physical repeated-wake acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
