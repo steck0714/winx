@@ -11,6 +11,92 @@ static unsigned Feed(SIO_STREAM *stream, const uint8_t *bytes, unsigned size)
     return frames;
 }
 
+static void TestDesktopNavigation(void)
+{
+    SIO_POINTER_STATE state = {0};
+    SIO_PAD pad = {0};
+    SIO_MOTION motion;
+    SIO_KEYBOARD_REPORT keys;
+    uint8_t raw[12] = {0};
+    raw[7] = raw[10] = 8;
+    raw[8] = raw[11] = 0x80;
+    assert(SioInputReport(raw, sizeof(raw), &pad, &motion));
+    (void)SioPointerReport(&state, &pad, 8);
+
+    /* Right/up on the Lite's inverted right stick, with R3 and two arrows.
+     * The gamepad keeps its original axes, hat and thumb button. */
+    raw[4] = 1u << (10 - 8);
+    raw[5] = SioUp | SioRight;
+    raw[10] = 4; raw[11] = 0xc0; /* raw RX=1024, RY=3072 */
+    assert(SioInputReport(raw, sizeof(raw), &pad, &motion));
+    assert(pad.axis[2] == 32767 && pad.axis[3] == -32767 && pad.hat == 1);
+    assert(pad.buttons == SioPadRightStick);
+    int wheel = 0, pan = 0;
+    for (unsigned i = 0; i < 125; ++i) {
+        SIO_MOUSE_REPORT m = SioPointerReport(&state, &pad, 8);
+        assert(m.buttons == 4 && !m.dx && !m.dy);
+        wheel += m.wheel; pan += m.pan;
+    }
+    assert(wheel == 31 && pan == 31);
+    assert(SioNextKeyboardReport(&state, &keys) && !keys.modifiers &&
+           keys.keys[0] == 0x52 && keys.keys[1] == 0x4f && !keys.keys[2]);
+    /* A failed VHF submission is offered again until acknowledged. */
+    assert(SioNextKeyboardReport(&state, &keys) && keys.keys[0] == 0x52);
+    SioKeyboardReportAccepted(&state);
+    assert(!SioNextKeyboardReport(&state, &keys)); /* Windows handles typematic */
+
+    pad.axis[2] = -32767; pad.axis[3] = 32767;
+    SIO_MOUSE_REPORT m = SioPointerReport(&state, &pad, 32);
+    assert(m.pan == -1 && m.wheel == -1);
+    pad.axis[2] = 5000; pad.axis[3] = -4999;
+    m = SioPointerReport(&state, &pad, 32);
+    assert(!m.pan && !m.wheel && !state.scrollFraction[0] && !state.scrollFraction[1]);
+
+    pad.dpad = SioDown | SioLeft;
+    (void)SioPointerReport(&state, &pad, 8);
+    assert(SioNextKeyboardReport(&state, &keys) && keys.keys[0] == 0x51 && keys.keys[1] == 0x50);
+    SioKeyboardReportAccepted(&state);
+    pad.buttons |= SioPadPlus;
+    (void)SioPointerReport(&state, &pad, 8);
+    assert(SioNextKeyboardReport(&state, &keys) && !keys.modifiers && !keys.keys[0]);
+    SioKeyboardReportAccepted(&state);
+    assert(SioNextKeyboardReport(&state, &keys) && keys.modifiers == 9 && keys.keys[0] == 0x12 && !keys.keys[1]);
+    SioKeyboardReportAccepted(&state);
+    assert(SioNextKeyboardReport(&state, &keys) && !keys.modifiers && !keys.keys[0]);
+    SioKeyboardReportAccepted(&state);
+    assert(!SioNextKeyboardReport(&state, &keys));
+
+    pad.dpad = 0; pad.buttons = 0; (void)SioPointerReport(&state, &pad, 8);
+    pad.dpad = SioDown; pad.buttons = SioPadRightStick;
+    m = SioPointerReport(&state, &pad, 8);
+    assert(m.buttons == 4 && SioNextKeyboardReport(&state, &keys) && keys.keys[0] == 0x51);
+    SioKeyboardReportAccepted(&state);
+    pad.axis[2] = pad.axis[3] = 32767; pad.buttons |= SioPadCapture;
+    m = SioPointerReport(&state, &pad, 32);
+    assert(state.disabled && !m.buttons && !m.pan && !m.wheel);
+    assert(SioNextKeyboardReport(&state, &keys) && !keys.keys[0]);
+    SioKeyboardReportAccepted(&state);
+    pad.buttons = SioPadRightStick;
+    m = SioPointerReport(&state, &pad, 32);
+    assert(!m.buttons && !m.pan && !m.wheel && !SioNextKeyboardReport(&state, &keys));
+    pad.buttons |= SioPadCapture;
+    m = SioPointerReport(&state, &pad, 32);
+    assert(!state.disabled && !m.buttons && !m.pan && !m.wheel && !SioNextKeyboardReport(&state, &keys));
+    pad.dpad = SioDown | SioRight; /* only Right is a fresh press */
+    (void)SioPointerReport(&state, &pad, 8);
+    assert(SioNextKeyboardReport(&state, &keys) && keys.keys[0] == 0x4f && !keys.keys[1]);
+    SioKeyboardReportAccepted(&state);
+    SioPointerResync(&state);
+    assert(SioNextKeyboardReport(&state, &keys) && !keys.keys[0]);
+    SioKeyboardReportAccepted(&state);
+    m = SioPointerReport(&state, &pad, 32);
+    assert(!m.buttons && !m.wheel && !m.pan && !SioNextKeyboardReport(&state, &keys));
+
+    raw[5] = SioDown | SioUp | SioRight | SioLeft;
+    assert(SioInputReport(raw, sizeof(raw), &pad, &motion));
+    assert(pad.hat == SioNeutralHat && pad.dpad == 15);
+}
+
 int main(void)
 {
     static const uint8_t commands[][8] = {
@@ -134,6 +220,7 @@ int main(void)
     assert(pointer.osk == SioOskPress);
     SioPointerResync(&pointer); /* cancel a press not yet accepted */
     assert(pointer.osk == SioOskIdle);
-    puts("SIO framing, gamepad, motion, desktop mouse, Capture toggle and Plus keyboard shortcut passed.");
+    TestDesktopNavigation();
+    puts("SIO gamepad, motion, pointer, wheel, D-pad arrows, Capture and Plus shortcut passed.");
     return 0;
 }

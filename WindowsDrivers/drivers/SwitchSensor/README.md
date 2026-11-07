@@ -1,21 +1,23 @@
 # Switch Lite built-in controls
 
-`switchsio` 0.2.2.0 reads the built-in HDH-001 controls over UART-C. Windows VHF exposes a gamepad, a relative mouse and a keyboard collection. The keyboard sends the shortcut for the Windows On-Screen Keyboard.
+`switchsio` reads the built-in HDH-001 controls over UART-C. Windows VHF exposes a HID gamepad, mouse and keyboard. The controls below follow Switchroot L4T Ubuntu. [Ubuntu mapping](https://wiki.switchroot.org/wiki/linux/linux-features#joycon-mousekeyboard-mapping) · [Switchroot mapping notes](https://wiki.switchroot.org/wiki/linux/linux-changelog)
 
-Games with generic HID or DirectInput support can read the gamepad in either mode. XInput-only games require an Xbox-compatible input device. [Microsoft controller API comparison](https://learn.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput)
-
-| Lite input | Windows desktop action |
+| Desktop input | Windows action |
 | --- | --- |
-| Left stick | Move the pointer. Center the stick to stop. |
-| ZR | Hold or release the left mouse button, including dragging. |
-| ZL | Hold or release the right mouse button. |
-| + (Plus) | Open the Windows On-Screen Keyboard with Ctrl + Windows + O. In gamepad-only mode, games receive the usual Plus/Start button. |
-| Capture | Switch between desktop controls and gamepad-only mode. Capture is the square button below the left stick. |
+| Left stick | Move the pointer. |
+| Right stick | Scroll up/down or left/right. Small deflections scroll slowly, a full tilt scrolls faster and centering stops scrolling. Horizontal scrolling depends on the application. |
+| Press right stick (R3) | Hold or release the middle mouse button. |
+| Left D-pad | Send the four keyboard arrow keys. Hold to repeat at the Windows keyboard rate. Diagonals send both keys. |
+| ZR / ZL | Hold or release the left / right mouse button. |
+| + (Plus) | Open the Windows On-Screen Keyboard. |
+| Capture (square button) | Toggle desktop mappings and gamepad-only mode. |
 
-The mappings follow Switchroot **L4T Ubuntu**. Its Lite serial driver decodes ZR at raw button bit 7, ZL at bit 23 and the left stick as two packed 12-bit axes. Windows uses the same axis directions, a center dead zone and fractional motion for small deflections. Switching to gamepad-only mode releases any mouse drag. A trigger held when desktop control returns must be released before the next click. [Ubuntu desktop mapping](https://wiki.switchroot.org/wiki/linux/linux-features#joycon-mousekeyboard-mapping) · [Switchroot Lite SIO input](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/input/joystick/joycon-serdev.c#L1444-L1503)
+The gamepad reports both sticks, the D-pad hat and the buttons in either mode. In gamepad-only mode, games receive Plus as Start and R3 as the right thumb button. Games supporting generic HID or DirectInput can read these controls. XInput-only games require an Xbox-compatible input device. [Microsoft controller API comparison](https://learn.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput)
 
-Each new Plus press in desktop mode sends one shortcut tap. Holding Plus during reconnection or while switching modes requires a release and a fresh press. The selected mode persists across suspend and UART reconnection. A fresh driver starts in desktop mode. The trimmed Windows installation on the test Lite includes `osk.exe`. [Microsoft accessibility shortcuts](https://support.microsoft.com/en-us/accessibility/windows/windows-keyboard-shortcuts-for-accessibility)
+The right stick sends relative HID Wheel and AC Pan detents. Its dead zone is 5000 of 32767 per axis. Fractional detents accumulate while tilted and clear on centering or a direction change. Scroll speed follows the X.Org joystick driver's default relative-scroll curve, sampled in fixed point. [X.Org scroll calculation](https://gitlab.freedesktop.org/xorg/driver/xf86-input-joystick/-/blob/master/src/jstk_axis.c) · [Switchroot Lite stick orientation](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/input/joystick/joycon-serdev.c#L1444-L1503)
 
-Use the ARM64 `switchsio` package with the Lite firmware's `SWITCH_LITE_SIO=1` profile (`ACPI\SWOA0902`). Use `Install-LiteSystem.cmd online input` or `Install-LiteSystem.cmd offline W:\ input` for a controller-only update. For the combined USB-C and input kit, use `usb-input`. [Shared installer and signing](../TegraXusb/README.md#package-and-install)
+Capture releases held desktop keys and mouse buttons. Press them again after restoring desktop mode or reconnecting the controller. Each new Plus press sends one Ctrl + Windows + O tap. Held arrows are released before the shortcut so its modifiers cannot turn them into Windows desktop-switching commands. The mode survives suspend and UART reconnection. A fresh driver starts in desktop mode. [Windows accessibility shortcuts](https://support.microsoft.com/en-us/accessibility/windows/windows-keyboard-shortcuts-for-accessibility)
 
-On the Lite, Windows enumerated the gamepad and mouse and the 0.2.0.0 driver recorded incoming SIO input. The card has the signed 0.2.1.0 Capture update. The 0.2.2.0 Plus shortcut passed host report tests and the ARM64 package is signed. Opening the keyboard with the physical button is pending.
+Use the ARM64 package with the existing Lite SIO firmware (`SWITCH_LITE_SIO=1`, `ACPI\SWOA0902`). To update the controller alone, use `Install-LiteSystem.cmd online input` in an elevated command prompt or `Install-LiteSystem.cmd offline W:\ input` from Windows PE. [Shared installer and signing](../TegraXusb/README.md#package-and-install)
+
+Windows enumerated the gamepad and mouse and received SIO input on this Lite. Version 0.2.2.0 with the Plus shortcut was installed on the test card. The 0.2.3.0 wheel, middle button and D-pad keyboard mappings passed host report tests and were built for ARM64. Physical desktop navigation and in-game input await confirmation.

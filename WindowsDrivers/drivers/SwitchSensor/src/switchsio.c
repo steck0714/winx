@@ -24,13 +24,14 @@ static UCHAR InputDescriptor[] = {
     /* A separate mouse collection lets mouhid consume relative reports. */
     0x05,0x01, 0x09,0x02, 0xA1,0x01, 0x85,0x02, /* Mouse, report 2 */
     0x09,0x01, 0xA1,0x00,                        /* Pointer */
-    0x05,0x09, 0x19,0x01, 0x29,0x02, 0x15,0x00, 0x25,0x01,
-    0x75,0x01, 0x95,0x02, 0x81,0x02,             /* left and right buttons */
-    0x75,0x06, 0x95,0x01, 0x81,0x03,
-    0x05,0x01, 0x09,0x30, 0x09,0x31, 0x15,0x81, 0x25,0x7F,
-    0x75,0x08, 0x95,0x02, 0x81,0x06, 0xC0,0xC0,  /* signed relative X/Y */
+    0x05,0x09, 0x19,0x01, 0x29,0x03, 0x15,0x00, 0x25,0x01,
+    0x75,0x01, 0x95,0x03, 0x81,0x02,             /* left, right and middle buttons */
+    0x75,0x05, 0x95,0x01, 0x81,0x03,
+    0x05,0x01, 0x09,0x30, 0x09,0x31, 0x09,0x38, 0x15,0x81, 0x25,0x7F,
+    0x75,0x08, 0x95,0x03, 0x81,0x06,             /* signed relative X, Y and wheel */
+    0x05,0x0C, 0x0A,0x38,0x02, 0x95,0x01, 0x81,0x06, 0xC0,0xC0,  /* AC Pan */
 
-    /* Keyboard report 3 carries only the Windows On-Screen Keyboard shortcut. */
+    /* Keyboard report 3 carries the D-pad arrows and the OSK shortcut. */
     0x05,0x01, 0x09,0x06, 0xA1,0x01, 0x85,0x03,
     0x05,0x07, 0x19,0xE0, 0x29,0xE7, 0x15,0x00, 0x25,0x01,
     0x75,0x01, 0x95,0x08, 0x81,0x02,             /* modifier bitmap */
@@ -42,7 +43,7 @@ static UCHAR InputDescriptor[] = {
 typedef struct { UCHAR Id; USHORT Buttons; UCHAR Hat; SHORT Axis[4]; } PAD_REPORT;
 #pragma pack(pop)
 C_ASSERT(sizeof(PAD_REPORT) == 12);
-C_ASSERT(sizeof(SIO_MOUSE_REPORT) == 4);
+C_ASSERT(sizeof(SIO_MOUSE_REPORT) == 6);
 C_ASSERT(sizeof(SIO_KEYBOARD_REPORT) == 9);
 
 typedef struct {
@@ -189,7 +190,8 @@ static VOID SubmitPad(SIO_DEVICE *D, const SIO_PAD *Pad)
 static VOID SendMouseReport(SIO_DEVICE *D, SIO_MOUSE_REPORT *Report)
 {
     HID_XFER_PACKET xfer;
-    if (!D->Vhf || (!Report->dx && !Report->dy && Report->buttons == D->MouseButtons)) return;
+    if (!D->Vhf || (!Report->dx && !Report->dy && !Report->wheel && !Report->pan &&
+                    Report->buttons == D->MouseButtons)) return;
     xfer.reportId = Report->id;
     xfer.reportBuffer = (PUCHAR)Report;
     xfer.reportBufferLen = sizeof(*Report);
@@ -199,14 +201,14 @@ static VOID SendMouseReport(SIO_DEVICE *D, SIO_MOUSE_REPORT *Report)
 
 static VOID SubmitKeyboard(SIO_DEVICE *D)
 {
-    while (D->Vhf && D->Pointer.osk != SioOskIdle) {
-        SIO_KEYBOARD_REPORT report = SioOskReport(D->Pointer.osk);
+    SIO_KEYBOARD_REPORT report;
+    while (D->Vhf && SioNextKeyboardReport(&D->Pointer, &report)) {
         HID_XFER_PACKET xfer;
         xfer.reportId = report.id;
         xfer.reportBuffer = (PUCHAR)&report;
         xfer.reportBufferLen = sizeof(report);
         if (!NT_SUCCESS(VhfReadReportSubmit(D->Vhf, &xfer))) return;
-        D->Pointer.osk = D->Pointer.osk == SioOskPress ? SioOskRelease : SioOskIdle;
+        SioKeyboardReportAccepted(&D->Pointer);
     }
 }
 
@@ -216,15 +218,23 @@ static VOID SubmitDesktop(SIO_DEVICE *D, const SIO_PAD *Pad, ULONGLONG Now)
     unsigned ms = (unsigned)(min(delta, MS_TO_100NS(32)) / 10000);
     SIO_MOUSE_REPORT report = SioPointerReport(&D->Pointer, Pad, ms);
     D->LastMouseTime = Now;
+    /* MOUSE_INPUT_DATA has one ButtonData field for wheel deltas. Give a
+     * diagonal scroll a packet per axis and include pointer motion only once. */
+    if (report.wheel && report.pan) {
+        SIO_MOUSE_REPORT vertical = report;
+        vertical.pan = 0;
+        SendMouseReport(D, &vertical);
+        report.dx = report.dy = report.wheel = 0;
+    }
     SendMouseReport(D, &report);
     SubmitKeyboard(D);
 }
 
 static VOID Neutral(SIO_DEVICE *D)
 {
-    const SIO_PAD Pad = {0, SioNeutralHat, {0,0,0,0}};
+    const SIO_PAD Pad = {0, SioNeutralHat, 0, {0,0,0,0}};
     D->HomeDown = FALSE;
-    SIO_MOUSE_REPORT mouse = {2, 0, 0, 0};
+    SIO_MOUSE_REPORT mouse = {2, 0, 0, 0, 0, 0};
     D->LastMouseTime = 0;
     SioPointerResync(&D->Pointer);
     SendMouseReport(D, &mouse);
@@ -339,7 +349,8 @@ static VOID Poll(WDFTIMER Timer)
         D->NextSend = 0;
         D->Stream.used = 0;
         TraceState(D, SioInit);
-    } else if (D->Command != SioInput && D->Vhf && (D->MouseButtons || D->Pointer.osk == SioOskRelease)) {
+    } else if (D->Command != SioInput && D->Vhf &&
+               (D->MouseButtons || D->Pointer.sentArrows || D->Pointer.osk == SioOskRelease)) {
         Neutral(D); /* Retry a release that VHF could not accept before the link went down. */
     }
     if (Now >= D->NextSend && (ReadReg(D, Lsr) & 0x20)) {
