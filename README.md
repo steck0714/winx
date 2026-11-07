@@ -13,7 +13,7 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
 | Desktop controls | Left stick moves the pointer and ZR/ZL click. Capture toggles desktop mode and **+** opens the On-Screen Keyboard. Version 0.2.3 adds right-stick scrolling, R3 middle click and D-pad keyboard arrows. Hardware test pending. [Button mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | 3D graphics | Windows uses CPU software rendering. Native GM20B Vulkan acceleration is planned with Mesa NVK. [GPU driver status](docs/gpu-vulkan/STATUS.md) |
-| Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth works on the trimmed Pro installation. |
+| Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth discovery has worked, but initialization/search failures recurred; the latest driver fix is pending physical verification. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 | Shutdown and restart | The owner confirmed complete power-off from normal Windows shutdown and successful native restart. SwitchBattery 1.0.0.8 fixes battery request ownership; the current R6 firmware uses PMC reset and disables diagnostic fan pulses. [Power status](docs/hdh001-home/power-performance.md) |
@@ -24,9 +24,14 @@ Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/r
 
 ## Storage profiles
 
-**WINARM only** is the default. In a comparison on the same Lite and card, the owner reported a noticeably smoother desktop with FAT32 hidden. Hekate continues to use the physical FAT32 partition.
+Both **WINARM only** and **WINARM + FAT32** are supported build profiles.
+The current card exposes FAT32 using `--expose-fat32`. The latest owner
+comparison found no clear responsiveness difference between the two views;
+earlier reports of stalls do not establish a confirmed cause or a completed
+performance fix. Hekate uses the physical FAT32 partition in either profile.
 
-**WINARM + FAT32** is available as an experimental build with `--expose-fat32`. Windows can mount both volumes, but the interface lagged in this configuration. The cause is still open. Build the firmware and Windows SD driver from the same generated header whenever you switch profiles. [Storage build instructions](docs/hdh001-home/README.md#firmware-build)
+Build BL33 and the Windows SD driver from the same generated header whenever
+you change the view. [Storage build instructions](docs/hdh001-home/README.md#firmware-build)
 
 ## Building and installing
 

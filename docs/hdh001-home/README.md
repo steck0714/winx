@@ -56,7 +56,7 @@ cp NintendoSwitchPkg/docs/hdh001-home/generated/target/winarm-target.h \
 
 The output directory `generated/target` must not already exist. Build **both BL33 and nvtsdhc from this same header** using the [build reference](#firmware-and-driver-build-reference). BL33 includes it through `Include/LiteSdTarget.h`; a separate firmware copy is not needed. Keep the generated card identity private.
 
-By default, firmware and Windows present only WINARM as an active MBR partition. Hekate still uses the physical FAT32 partition. `--expose-fat32` retains the experimental two-volume option; it caused noticeable desktop lag on the test Lite. Keep the default WINARM-only profile unless investigating that option. Changing the presented view does not modify the physical partition table.
+By default, firmware and Windows present only WINARM as an active MBR partition. Hekate still uses the physical FAT32 partition. `--expose-fat32` selects the two-volume profile currently used by the owner. The latest comparison did not establish a clear responsiveness difference between the two views. Changing the presented view does not modify the physical partition table.
 
 ## 2. Assemble the complete driver kit
 
@@ -214,7 +214,7 @@ Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [port
 
 ## 6. Update an existing installation
 
-Back up the current boot files and Windows installation, then assemble the complete matching kit from step 2. Keep the same card-specific storage header and WINARM-only view. Driver updates do not require formatting, reapplying Windows or resetting OOBE.
+Back up the current boot files and Windows installation, then assemble the complete matching kit from step 2. Keep the same card-specific storage header and matching partition view in BL33 and the SD miniport. Driver updates do not require formatting, reapplying Windows or resetting OOBE.
 
 From an elevated Command Prompt **inside the installed Windows**, run:
 

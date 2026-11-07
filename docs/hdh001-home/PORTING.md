@@ -21,11 +21,11 @@ S4 hibernation has been cancelled and its implementation removed. Also fix
 Bluetooth initialization and resume recovery, repeated display-off/on stalls,
 and the performance regression when FAT32 is visible. Build, sign and install
 the coherent update on the existing card, including the FAT32-visible SDR104
-profile and its matching BL33. The owner reported no recurring stalls with
-hidden-FAT 0.4.2.0 and reproduced a roughly one-minute stall with visible 0.4.2.1.
-The latest request selects FAT32 visible again and restores Bluetooth to the
-previously accepted 1.0.0.15 package. Performance investigation is deferred on
-request; keep both source profiles and preserve all card data.
+profile and its matching BL33. The latest owner comparison found no clear
+responsiveness difference with FAT32 visible or hidden; keep FAT32 visible.
+Performance investigation is deferred, without claiming a proven cause or fix.
+The owner requests the **latest Bluetooth fix and DDR200 in one card update**;
+do not ship another standalone Bluetooth rollback. Preserve all card data.
 The long-term SD goal also includes **Windows DDR200**, porting Switchroot L4T
 Linux's automatic card detection, tuning checks and SDR104 fallback below.
 Code completion, build/signature checks and physical acceptance are separate.
@@ -37,10 +37,12 @@ and BL33 were installed and read back on 2026-11-07. Hibernation, its RunOnce
 setup and pending resume request were removed; the 3.7 GiB hiberfile was deleted.
 The power button now requests Sleep (action 1). This policy change is not SC7
 acceptance; the complete direct-wake path remains unfinished. The installed
-0.4.2.1 package and paired BL33 expose FAT32. Bluetooth 1.0.0.17 was removed
-from the card and the exact signed 1.0.0.15 baseline restored, with BootPending
-cleared. Other drivers, service start settings, BCD and BL31 were preserved
-and read back. The latest combined boot and Bluetooth discovery await a test.
+0.4.2.1 package and paired BL33 expose FAT32. The attempted Bluetooth 1.0.0.15
+rollback did not restore reliable discovery: the next record showed loaded
+version 16, BootPending=1 and SafeMode=1. Candidate 1.0.0.18 is based on the
+latest source, removes the persistent failed-boot hold and adds one bounded
+T214 hardware-reset recovery. Its ARM64 build and host fault tests pass;
+signing, combined DDR200 installation and physical verification remain ahead.
 The experimental processor PEP previously prevented cold boot with
 `0xc000000f`; disabling it allowed the owner to reach the desktop. Its loader
 failure must be resolved before using it for retained-memory sleep. The PMIC
@@ -63,14 +65,14 @@ checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | Hidden-FAT 0.4.2.0 avoided the reported stalls; visible 0.4.2.1 reproduced a roughly one-minute stall. FAT32 is visible again at the owner's request. | Cause unproven; performance investigation deferred. Both profiles retain the same SDR104/range-filtering/512 KiB transfer code. |
+| SD / boot | The latest owner comparison found similar responsiveness with FAT32 visible or hidden. The card currently uses visible 0.4.2.1 and paired BL33. | No proven performance difference, cause or fix. Further investigation deferred; both profiles remain available. |
 | SD DDR200 | Capability observation, eight-tap window selection and clock-divider policy compile and pass host tests. Vendor-mode switching, physical tuning and SDR104 recovery remain unfinished. Installed packages use SDR104. | Supported cards enter DDR200; unsupported cards or failed initialization/tuning recover to SDR104 automatically. Verify actual timing, integrity, fallback and sleep/wake. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
-| Bluetooth | 1.0.0.17 reported no HCI_Reset reply during the visible-FAT trial, with BootPending=0/SafeMode=0; it initialized on the next hidden trial. The card now has the owner-accepted 1.0.0.15 baseline. Its known partial-download recovery gap remains open. | Confirm restored discovery, then implement reliable repeated initialization/resume while preserving working shutdown. |
+| Bluetooth | Initialization/search failures recurred. Latest-source 1.0.0.18 removes the sticky BootPending gate and adds one T214 PH4 reset/full-probe retry. ARM64 build and host tests pass. | Install with DDR200, then verify discovery, repeated startup/resume and shutdown. |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
 | Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. Version 0.2.3 provides Capture, Plus, right-stick scrolling, middle click and D-pad keyboard arrows. Candidate 0.2.4 retains those mappings and adds display-driven runtime idle. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
@@ -103,8 +105,8 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Complete the requested FAT32-visible and Bluetooth baseline restoration;
-   retain SDR104 while DDR200 development continues.
+1. Complete the latest Bluetooth recovery fix and DDR200 together, keeping
+   FAT32 visible. Do not deploy another separate rollback package.
 2. Implement Windows DDR200 with the detection, tuning and fallback contract
    below, then build, sign, install and verify it on the Lite.
 3. Complete genuine retained-memory sleep: short power-button press sleeps;
