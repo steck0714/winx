@@ -6,21 +6,25 @@ Run Vulkan workloads on the Maxwell GM20B GPU in a Nintendo Switch Lite (HDH-001
 
 First prove GPU execution and readback, then off-screen Vulkan drawing, then stable window presentation. Evaluate Direct3D-to-Vulkan integration for desktop composition separately. Game compatibility is outside this project. Keep the bootable landscape desktop, stock GPU clocks, existing Windows installation and all SD partitions throughout bring-up.
 
+Continue implementation, compilation and necessary host checks autonomously until the next step requires a physical Lite test. A progress report, successful build or source push is not a stopping point. Publish GPU source only to `vulkan-test`; the default documentation links here and `sc7-test` stays unchanged.
+
 ## Current stage and evidence
 
-The first milestone is a GPU-written word read back by Windows. Board resources and the reusable command encoder have been identified.
+The first milestone is a GPU-written word read back by Windows. ACPI resources, WDDM resource ownership and GM20B entry encoders are implemented; GPU power-up and channel execution remain open. Nothing from this branch has been installed on the SD card.
 
 | Component | Code | Windows ARM64 build | On the Lite under Windows |
 | --- | --- | --- | --- |
-| GM20B command encoder | Reused the upstream report, fence and cache packet helpers unchanged | Compiled as a COFF object | GPU execution pending |
-| WDDM kernel backend, memory and synchronization | Design and resource mapping | Pending | Pending |
+| GPU ACPI resources | Opt-in `SWITCH_LITE_GPU` / `SWOA0F01`, separate from POST display | DSDT compiled; one existing GCRS warning | Pending |
+| GM20B command encoder | Upstream encoder unchanged; bounded Windows report wrapper | ARM64 COFF; host packet-boundary tests pass | GPU execution pending |
+| WDDM resources and page entries | Acquire/release helpers; 4 KiB PTE, small-page PDE and RAMIN PDB encoding | `TegraGpuCore.lib` built with WDK/SDK 26100.6584; host address-format tests pass | Pending; not an installable miniport |
+| GPU startup, VidMm integration and synchronization | Power, channel, residency and fence callbacks remain open | Pending | Pending |
 | NVK Vulkan ICD and off-screen rendering | Windows backend planned | Pending | Pending |
 | Win32 window presentation | Transport decision open | Pending | Pending |
 | DWM Direct3D-to-Vulkan integration | Separate feasibility study after presentation | Pending | Pending |
 
 - **Board evidence.** The card's Switchroot Ubuntu device-tree image contains a VALI rev 0 entry identifying Nintendo Switch Lite. Its enabled GM20B node lists 16 MiB apertures at `0x57000000` and `0x58000000`, 4 KiB at `0x538f0000`, stall/nonstall GIC SPIs 157/158, a GPU reset, host1x and an IOMMU reference. The Ubuntu boot log from this unit records `57000000.gpu` joining an IOMMU group and GM20B clock setup. The SHA-256 of the extracted VALI DTB is `36dd609e2bd112ffbd48c1d03b094516d4c47dca6827633db79c095ebd09913b`.
-- **Windows firmware.** The optional `WINX0001` display node exposes the POST framebuffer. A render adapter needs its own ACPI resources. Account for the Hekate security carveouts before assigning GPU memory. [Windows DSDT](../../AcpiTables/Dsdt/Dsdt.asl) · [Firmware memory map](../../Include/Device/MemoryMap.h)
-- **Build evidence.** At mesa-switch revision `0ff52079`, Clang with `--target=aarch64-w64-windows-gnu -std=c11 -O2 -ffreestanding -DNDEBUG` compiled `nouveau_horizon_gm20b.c`. `llvm-readobj` reported `IMAGE_FILE_MACHINE_ARM64` and the object exports `nouveau_horizon_gm20b_build_report`. This build covers the packet encoder only. [Exact source](https://github.com/danfromtico/mesa-switch/blob/0ff52079ca9e9e837ed27eb95a8d239f439a1864/src/nouveau/horizon/nouveau_horizon_gm20b.c)
+- **Windows firmware.** `WINX0001` remains the optional POST framebuffer device. The new opt-in `SWOA0F01` node exposes the three GPU apertures and GSIs 189/190; the Windows helper preserves translated interrupt vectors and unwinds partial mappings. It performs no GPU register access or power changes. Hekate security carveouts remain reserved. [Windows DSDT](../../AcpiTables/Dsdt/Dsdt.asl) · [Firmware memory map](../../Include/Device/MemoryMap.h)
+- **Build evidence.** LLVM 23 compiled all four backend objects as `COFF-ARM64` against official WDK/SDK 26100.6584 with a 22621 target and WDDM 2.0 interfaces. Host tests cover 64 MiB directory boundaries, addresses above 4 GiB, invalid-address rejection and report-buffer bounds. The external Mesa encoder remains at `0ff52079`. These checks establish formats and compilation, not hardware mappings, execution or rendering. [Backend and build command](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/vulkan-test/drivers/TegraGpu)
 
 ## Implementation decisions
 
@@ -41,8 +45,8 @@ The first milestone is a GPU-written word read back by Windows. Board resources 
 
 ## Blockers and next action
 
-The Windows render node, GM20B power/firmware handoff and first isolated GPU mapping are open. The present-allocation and fence contract with the display path is open separately.
+GM20B power/firmware handoff, the first isolated GPU mapping and executable WDDM callbacks remain open. The present-allocation and fence contract with the display path is open separately. Switchroot's B01 board uses MAX77812 M1 for GPU, M3 for DDR and M4 for CPU; its GPU startup must not be replaced with the Erista regulator sequence.
 
-Next, map the verified VALI resources into an opt-in ACPI render node and a minimal WDDM miniport. Confirm the GPU identity and translated resources under Windows before enabling a channel. Then allocate the first report buffer and run step 1.
+Next, implement T214 GPU power/clock/reset sequencing from nouveau and Switchroot, then connect the WDDM adapter to private page-table/report memory and channel setup. Confirm GPU identity and resource ownership on the Lite before enabling submissions. Then run acceptance step 1.
 
 Update this page in place as evidence changes. Keep detailed traces with the relevant test and use Git for historical states.

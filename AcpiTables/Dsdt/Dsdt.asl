@@ -19,6 +19,9 @@
 #ifdef SWITCH_WIFI_RUNTIME
 #include "../../WindowsDrivers/drivers/SwitchWifi/platform/tegra_resources.h"
 #endif
+#ifdef SWITCH_LITE_GPU
+#include "../../WindowsDrivers/drivers/TegraGpu/platform/t214_resources.h"
+#endif
 
 DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_OEM_REVISION) 
 {
@@ -475,6 +478,25 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                 Return (0x0F)
 #endif
             }
+        }
+#endif
+#ifdef SWITCH_LITE_GPU
+        // Separate render adapter; the POST display remains owned by its
+        // existing driver. Publishing resources does not power up the GPU.
+        Device (GPU0)
+        {
+            Name (_HID, T214_GPU_ACPI_ID)
+            Name (_UID, Zero)
+            Name (_CLS, Package () { 0x03, 0x02, Zero })
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, T214_GPU_REG_BASE, T214_GPU_REG_SIZE)
+                Memory32Fixed (ReadWrite, T214_GPU_BAR1_BASE, T214_GPU_BAR1_SIZE)
+                Memory32Fixed (ReadWrite, T214_GPU_AUX_BASE, T214_GPU_AUX_SIZE)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_STALL_GSI }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_NONSTALL_GSI }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
 #endif
 #ifdef SWITCH_LITE_DISPLAY
