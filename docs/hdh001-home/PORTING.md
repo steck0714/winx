@@ -12,12 +12,13 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 ## Current work and acceptance
 
-The immediate priority is the **INACCESSIBLE_BOOT_DEVICE** regression after
+The previous **INACCESSIBLE_BOOT_DEVICE** regression followed
 installing Bluetooth 1.0.0.18 with FAT32-visible DDR200 0.5.0.1. The owner
 confirmed the stop code in a photograph. Offline logs stop before the update;
 crash dumps/error logging were disabled, so the failing operation is not yet
-known. Investigate card-mode transition and recovery before claiming DDR200
-acceptance. Do not infer the cause from the stop code alone.
+known. The 0.5.0.3 update below restored desktop boot. Actual DDR200 activation
+and physical fallback still need runtime evidence; the stop code alone did
+not establish the failing operation.
 
 The new **SD 0.5.0.3 + Bluetooth 1.0.0.19** candidates are now installed.
 The SD change fixes a reproduced defect: private reset-all during DDR200
@@ -25,9 +26,10 @@ fallback cleared SDPORT's interrupt masks without restoring them. The focused
 regression failed before the fix and passed after it in both partition views.
 ARM64 builds, signatures and installed SYS/INF/CAT readbacks passed. Existing
 boot/firmware files, other drivers, service start settings and Bluetooth pairing
-state were retained. The card was safely ejected; physical boot, mode/fallback
-and discovery remain unverified. This is not yet proof of the blue screen's
-root cause or successful recovery on hardware.
+state were retained. The owner subsequently confirmed **desktop boot and working Bluetooth**.
+Actual DDR200 selection and fallback remain unverified until runtime parameters
+are read. The observed boot recovery does not prove which failed operation
+triggered the earlier blue screen.
 
 FAT32 remains visible. The latest comparison found no clear responsiveness
 difference between views; both profiles remain available and performance
@@ -50,14 +52,14 @@ Code completion, compilation/signing and hardware acceptance are separate.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | The previous 0.5.0.1 + Bluetooth 1.0.0.18 combination failed with INACCESSIBLE_BOOT_DEVICE. Signed visible 0.5.0.3 + Bluetooth 1.0.0.19 is now installed; BL33 and the partition layout were retained. | Restore desktop boot and identify the failing storage operation; no cause is proven yet. |
-| SD DDR200 | Signed visible 0.5.0.3 is installed and readback-verified. It retains automatic detection, eight-tap-minimum tuning, SDR104 fallback and corrected clock ordering; it restores the event masks lost during private fallback reset. | The previous combination failed to boot; the replacement awaits a physical boot test. Activation, read integrity and fallback remain unverified; sustained throughput is unmeasured. |
+| SD / boot | The previous 0.5.0.1 + Bluetooth 1.0.0.18 combination failed with INACCESSIBLE_BOOT_DEVICE. Signed visible 0.5.0.3 + Bluetooth 1.0.0.19 is now installed; BL33 and the partition layout were retained. | Desktop boot passed on 0.5.0.3. The exact earlier failing operation was not captured. |
+| SD DDR200 | Signed visible 0.5.0.3 is installed and readback-verified. It retains automatic detection, eight-tap-minimum tuning, SDR104 fallback and corrected clock ordering; it restores the event masks lost during private fallback reset. | Desktop boot passed on the replacement. Actual DDR200 activation and physical fallback remain unverified; sustained throughput is unmeasured. |
 | GPIO / I2C / touch | Shared controllers loaded and Lite touch clicks work. The default branch retains the pre-sleep GPIO/I2C/touch implementations; experimental context restoration is isolated on sc7-test. | Touch press/release and three-point check without stuck contacts. |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
-| Bluetooth | Installed 1.0.0.19 retains the bounded PH4 reset/full-probe retry and prepares UART-D before HCI access. Host tests, signatures and readback pass; physical discovery remains pending. | Verify discovery, repeated startup and shutdown on the replacement; complete sleep/resume acceptance separately. |
+| Bluetooth | Installed 1.0.0.19 retains the bounded PH4 reset/full-probe retry and prepares UART-D before HCI access. Host tests, signatures and readback pass; the owner confirmed Bluetooth working. | Bluetooth works in the observed boot; verify repeated startup and sleep/resume separately. |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
 | Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. Version 0.2.3 provides Capture, Plus, right-stick scrolling, middle click and D-pad keyboard arrows. The default branch retains 0.2.3; the display-driven 0.2.4 experiment is isolated on sc7-test. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
@@ -90,8 +92,8 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Diagnose the installed combination's boot-device failure without changing
-   physical partitions; preserve FAT32 visibility and the latest Bluetooth work.
+1. Desktop boot and Bluetooth now pass on SD 0.5.0.3 + Bluetooth 1.0.0.19.
+   Preserve that combination, FAT32 visibility and all physical partitions.
 2. Capture actual SD timing, tuning and recovery results before declaring
    DDR200 activation or SDR104 fallback accepted.
 3. SC7 work is paused on the paired `sc7-test` branches. Resume only when
@@ -117,7 +119,8 @@ Host fault tests cover both partition views, narrow windows, timeouts,
 corrupted readbacks and clock limits. ARM64 builds and signed package checks
 pass. The earlier 0.5.0.1 combination failed with INACCESSIBLE_BOOT_DEVICE;
 0.5.0.3 restores the event masks after private recovery. Its physical boot
-result is pending. Installation is not DDR200 or throughput acceptance.
+result passed with working Bluetooth. This is not proof of active DDR200
+or throughput acceptance.
 [Implementation and diagnostics](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-ddr200-candidate-0501)
 
 - Detect the SD specification revision and vendor command-system capability

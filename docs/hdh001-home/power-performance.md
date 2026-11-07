@@ -30,7 +30,8 @@ when the card keeps power. These ordinary device-recovery changes remain in
 the default branch and do not require the experimental PEP. Their builds,
 focused tests and package signatures passed. SD 0.5.0.3 additionally fixes
 event-mask loss during private SDR104 fallback; it and Bluetooth 1.0.0.19
-are now installed/readback-verified, with physical results pending.
+are installed/readback-verified. The owner confirmed desktop boot and
+working Bluetooth; actual DDR200 selection/fallback remain unverified.
 The earlier Bluetooth 1.0.0.18 + DDR200 0.5.0.1 combination failed with
 INACCESSIBLE_BOOT_DEVICE. The owner supplied the stop-code photograph; no
 current crash dump or driver diagnostics survived on the returned card.

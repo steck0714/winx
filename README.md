@@ -8,12 +8,12 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 
 | Feature | Result on the tested Lite |
 | --- | --- |
-| Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. [SDR104 / ADMA2](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-sdr104-candidate) 0.4.0.1 reports 199.68 MHz, 4-bit, 1.8 V, successful tuning and no ADMA errors in the captured run. Sustained throughput remains unmeasured. |
+| microSD / SDR104 / DDR200 | Driver **0.5.0.3** boots Windows from the 80 GiB `WINARM` volume with FAT32 visible; the owner confirmed desktop boot. DDR200 automatic detection, tuning and SDR104 recovery are implemented. Active DDR200 mode and throughput still need runtime confirmation. [Storage status](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-ddr200-candidate-0501) |
 | Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
 | Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
 | Desktop controls | Left stick moves the pointer and ZR/ZL click. Capture toggles desktop mode and **+** opens the On-Screen Keyboard. Version 0.2.3 adds right-stick scrolling, R3 middle click and D-pad keyboard arrows. Hardware test pending. [Button mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | 3D graphics | Windows uses CPU software rendering. Native GM20B Vulkan acceleration is planned with Mesa NVK. [GPU driver status](docs/gpu-vulkan/STATUS.md) |
-| Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth discovery has worked, but initialization/search failures recurred; latest-source 1.0.0.19 is installed and awaits discovery/lifecycle verification. |
+| Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. The owner confirmed Bluetooth working with 1.0.0.19 after the SD 0.5.0.3 update. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 | Shutdown and restart | The owner confirmed complete power-off from normal Windows shutdown and successful native restart. SwitchBattery 1.0.0.8 fixes battery request ownership; the current R6 firmware uses PMC reset and disables diagnostic fan pulses. [Power status](docs/hdh001-home/power-performance.md) |
@@ -23,8 +23,9 @@ USB-C peripherals and headphones await hardware testing. [Porting status](docs/h
 The signed **DDR200 0.5.0.3 candidate** is installed with Bluetooth 1.0.0.19.
 The previous 0.5.0.1 combination failed with **INACCESSIBLE_BOOT_DEVICE**.
 Version 0.5.0.3 fixes event-mask loss reproduced during SDR104 fallback;
-build, signing and installed readback checks pass. A successful physical boot,
-DDR200 activation/fallback and Bluetooth discovery are still unverified.
+build, signing and installed readback checks pass. The owner subsequently
+confirmed desktop boot and working Bluetooth. Actual DDR200 activation,
+physical fallback and throughput remain unverified.
 [DDR200 status](docs/hdh001-home/PORTING.md#windows-ddr200-goal)
 
 SC7 development is paused; the experimental sleep/wake source is preserved on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with a matching driver branch. The default branches exclude its platform and input-power experiments.
