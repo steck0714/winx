@@ -1,20 +1,15 @@
-# winx-display (draft, UNBUILT, UNTESTED)
+# WinX display-only sources
 
-Non-3D display step for Windows on the Switch: a WDDM **display-only** driver (KMDOD).
-Based on Microsoft's `video/KMDOD` sample (Windows-driver-samples, MIT) with these changes:
-- `bdd_dmm.cxx`: Rotate180 / Rotate270 allowed (sample had Identity + Rotate90 only). The blt code
-  (`bltfuncs.cxx`/`blthw.cxx`) already handles all four rotations.
-- `Sample/winxdisplay.inf`: extra hardware ID `ROOT\WINXDISP` (arm64/arm), names set to "winx".
-  Existing IDs stay: `PCI\CC_0300/0301`, `ACPI\CLS_0003&SUBCLS_0000/0001`.
+This is the existing WinX adaptation of Microsoft's KMDOD sample (MIT). It uses CPU framebuffer blits and exposes rotation, including 90/180/270 degrees. It does not implement GPU rendering acceleration. The original source layout and Microsoft license are retained.
 
-Why: the panel is 720x1280 portrait. In its loader mode (mode 1) winx hands Windows that native framebuffer,
-so the desktop lies on its side. Microsoft Basic Display already draws on that framebuffer (no driver needed
-for a plain picture); this driver adds a way to choose landscape (Settings > Display > orientation).
-No 3D / GPU acceleration, software blt only.
+## Build
 
-Build (on a Windows PC): VS 2022 + WDK, open `Sample/SampleDisplay.vcxproj` (sources already sit one level above `Sample/`, as in the
-original sample), platform ARM64, Release.
-Test-sign: `bcdedit /set testsigning on` on the target (or load unsigned in WinPE with `drvload` + testsigning in BCD).
-Install by hand: `pnputil /add-driver winxdisplay.inf /install`, then `devcon install winxdisplay.inf ROOT\WINXDISP`.
+`../build-arm64.sh` cross-builds the shared sources using ARM64 WDK headers, `displib.lib`, and the upstream native-driver linker settings. The optional `Sample/winxdisplay-lite.inf` profile matches ACPI WINX0001 and ROOT\WINXDISP. The sign-in helper source remains at `../landscape.c`; it is not installed by the current Lite Home package.
 
-Do this only after plain WinPE boot + BasicDisplay works (Saturday test). Nothing here touches the firmware (bl33).
+The ARM64 Windows VM started version 0.1.0.1, rotated 800x600 to 600x800 and restored it. This established VM integration only.
+
+## Lite integration withdrawn
+
+The physical Lite went black during display-device restart. The owner then chose to withdraw CPU-rendered rotation, and the proposed PE trial was cancelled. The active Home profile omits SWITCH_LITE_DISPLAY, removes this driver and the landscape autorun, and retains Microsoft Basic Display with the native framebuffer orientation. The upstream sources remain available for reference; the current installer does not enable them.
+
+The earlier notes required a working plain WinPE/BasicDisplay baseline before experimenting with the display driver. That baseline had worked on Lite, but the new driver itself did not receive physical-panel acceptance.

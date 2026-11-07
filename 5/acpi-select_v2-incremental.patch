@@ -1,0 +1,102 @@
+diff --git a/AcpiTables/Dsdt/Dsdt.asl b/AcpiTables/Dsdt/Dsdt.asl
+index 7308b7d..1e7bef0 100644
+--- a/AcpiTables/Dsdt/Dsdt.asl
++++ b/AcpiTables/Dsdt/Dsdt.asl
+@@ -246,20 +246,77 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
+                 USMD,   32
+             }
+ 
++            // USB_SUSP_CTRL (abs 0x400, op + 0x2D0). Bit 7 = USB_PHY_CLK_VALID. Linux keeps this register
++            // readable on its own while the AHB clock of the controller is gated (ci_hdrc_tegra.c).
++            OperationRegion (USPC, SystemMemory, 0x7D000400, 0x04)
++            Field (USPC, DWordAcc, NoLock, Preserve)
++            {
++                SCTL,   32
++            }
++
++#ifdef SWITCH_ACPI_EHCI_TXFILL
++            // TXFILLTUNING (abs 0x154, op + 0x24). Linux (ci_hdrc_tegra.c, CI_HDRC_CONTROLLER_RESET_EVENT)
++            // rewrites it after every controller reset with txfifothresh << 16 (16 for the Tegra30 class).
++            // The right value for Tegra210 is NOT confirmed, so this is opt-in (-D SWITCH_ACPI_EHCI_TXFILL=1).
++            OperationRegion (UTXF, SystemMemory, 0x7D000154, 0x04)
++            Field (UTXF, DWordAcc, NoLock, Preserve)
++            {
++                TXFT,   32
++            }
++#endif
++
++            // Windows USB _DSM (UUID ce2ee385-00e6-48cb-9f05-2edb927c4899, Arg1 = 0).
++            //   function 0: query. function 1: post-reset for dual-role controllers, called after every
++            //   controller reset (Microsoft: bringup/usb-device-specific-method---dsm-).
++            //   function 6: "register access type" (Windows 11 / Server 2022 and later): 1 = 32-bit only.
++            // ChipIdea clears USBMODE.CM on every HCRESET and the write only sticks once the PHY clock is
++            // valid again, so wait for it (bounded, 100 ms) and verify the mode afterwards (bounded).
+             Method (_DSM, 4, Serialized)
+             {
+                 If ((Arg0 == ToUUID ("ce2ee385-00e6-48cb-9f05-2edb927c4899")))
+                 {
+                     If ((Arg2 == Zero))
+                     {
+-                        Return (Buffer (One) { 0x03 })   // functions 0 and 1
++                        Return (Buffer (One) { 0x43 })   // functions 0, 1 and 6
+                     }
+ 
+                     If ((Arg2 == One))
+                     {
++                        Local0 = 1000
++                        While (Local0)
++                        {
++                            If ((SCTL & 0x80))
++                            {
++                                Break
++                            }
++
++                            Stall (100)
++                            Local0--
++                        }
++
+                         USMD = ((USMD & 0xFFFFFFFC) | 0x03)   // CM = host
++                        Local0 = 1000
++                        While (Local0)
++                        {
++                            If (((USMD & 0x03) == 0x03))
++                            {
++                                Break
++                            }
++
++                            Stall (100)
++                            Local0--
++                        }
++
++#ifdef SWITCH_ACPI_EHCI_TXFILL
++                        TXFT = 0x00100000                     // 16 << 16
++#endif
+                         Return (Zero)
+                     }
++
++                    If ((Arg2 == 6))
++                    {
++                        Return (One)                          // must use 32-bit register access
++                    }
+                 }
+ 
+                 Return (Buffer (One) { 0x00 })
+diff --git a/NintendoSwitch.dsc b/NintendoSwitch.dsc
+index a571a28..e1ff414 100644
+--- a/NintendoSwitch.dsc
++++ b/NintendoSwitch.dsc
+@@ -65,7 +65,13 @@
+ !else
+   DEFINE ACPI_ASL_EHCI           =
+ !endif
+-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI)
++!ifdef SWITCH_ACPI_EHCI_TXFILL
++  # Rewrite TXFILLTUNING (16 << 16) in the EHC0 post-reset _DSM, as Linux does for Tegra30-class EHCI. Value for T210 unconfirmed.
++  DEFINE ACPI_ASL_EHCI_TXFILL    = -DSWITCH_ACPI_EHCI_TXFILL
++!else
++  DEFINE ACPI_ASL_EHCI_TXFILL    =
++!endif
++  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+ 
+ ################################################################################
+ #

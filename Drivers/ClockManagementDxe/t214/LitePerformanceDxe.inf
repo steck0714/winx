@@ -1,0 +1,30 @@
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = LitePerformanceDxe
+  FILE_GUID = 28C2B7DD-128E-460E-B71A-52B42EBC9CA0
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT = LitePerformanceInitialize
+
+[Sources]
+  LitePerformanceDxe.c
+  EmcPolicy.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  IoLib
+  I2cLib
+
+[Protocols]
+  gPmicProtocolGuid
+
+[Depex]
+  gPmicProtocolGuid

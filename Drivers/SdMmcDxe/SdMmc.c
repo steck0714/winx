@@ -111,9 +111,11 @@ SdDiagOnReadyToBoot (
 )
 {
     SdLogControllerRegs ();
+#ifndef SWITCH_LITE_BOOT_SD
     if (gST->ConOut != NULL) {
         gST->ConOut->OutputString (gST->ConOut, mSdDiag);
     }
+#endif
     SdDiagPublish ();
     gBS->CloseEvent (Event);
 }
@@ -238,16 +240,15 @@ SdPowerOn (
     // Deep loopback for the CLK pad so reads work.
     MmioWrite32 (APB_MISC_SDMMC1_CLK_LPBK, 1);
 
-    // SDMMC1 pad pinmux (T210: CLK pulled down, others pulled up).
-    MmioWrite32 (PINMUX_SDMMC1_CLK,  PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_DOWN_V);
-    MmioWrite32 (PINMUX_SDMMC1_CMD,  PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
-    MmioWrite32 (PINMUX_SDMMC1_DAT3, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
-    MmioWrite32 (PINMUX_SDMMC1_DAT2, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
-    MmioWrite32 (PINMUX_SDMMC1_DAT1, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
-    MmioWrite32 (PINMUX_SDMMC1_DAT0, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
-    // Pads M0..M5 back to their special function (hekate leaves them as discharge GPIOs).
-    gpio_output_enable (GPIO_PORT_M, 0x3F, GPIO_OUTPUT_DISABLE);
+    // T210B01 uses Schmitt inputs on all six pins and no pull-down on CLK.
+    UINT32 SdInput = PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | (1U << 12);
+    MmioWrite32 (PINMUX_SDMMC1_CLK, SdInput);
+    for (UINTN Pin = PINMUX_SDMMC1_CMD; Pin <= PINMUX_SDMMC1_DAT0; Pin += 4) {
+        MmioWrite32 (Pin, SdInput | PINMUX_PULL_UP_V);
+    }
     gpio_config (GPIO_PORT_M, 0x3F, GPIO_MODE_SPIO);
+    gpio_write (GPIO_PORT_M, 0x3F, GPIO_LOW);
+    gpio_output_enable (GPIO_PORT_M, 0x3F, GPIO_OUTPUT_DISABLE);
 
     // Make sure the SDMMC1 IO power domain is powered.
     MmioOr32  (PMC_NO_IOPOWER, PMC_SDMMC1_BIT);
@@ -271,10 +272,7 @@ SdPowerOn (
     }
     udelay (1000);
 
-    // Pad slew codes for a clean clock.
-    MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, (MmioRead32 (APB_MISC_SDMMC1_PADCTRL) & 0x0FFFFFFF) | 0x50000000);
-    (VOID) MmioRead32 (APB_MISC_SDMMC1_PADCTRL);
-    udelay (1000);
+
 }
 
 // Vendor/pad setup that has to follow a controller "reset all" (hekate sdmmc_init()).
@@ -290,13 +288,12 @@ SdVendorInit (
 
     MmioOr32  (SD_BASE + SD_IOSPARE, (1U << 19));                      // 1 cycle delayed cmd_oen
     MmioAnd32 (SD_BASE + SD_VENIOTRIMCTL, ~(1U << 2));                  // band gap VREG supplies the DLL
+    MmioAnd32 (SD_BASE + 0x1C0, ~(1U << 17)); // Use the software-selected tap.
     V = MmioRead32 (SD_BASE + SD_VENCLKCTL);
-    MmioWrite32 (SD_BASE + SD_VENCLKCTL, (V & 0xE0FFFFFB) | (2U << 24)); // trim value (T210, SDMMC1)
-    V = MmioRead32 (SD_BASE + SD_SDMEMCMPPADCTL);
-    MmioWrite32 (SD_BASE + SD_SDMEMCMPPADCTL, (V & ~0xFU) | 7);          // vref_sel = 7
-    // Auto-cal offsets for 3.3 V on T210: pd = -3, pu = 0.
-    V = MmioRead32 (SD_BASE + SD_AUTOCALCFG);
-    MmioWrite32 (SD_BASE + SD_AUTOCALCFG, (V & 0xFFFF8080) | (0x7DU << 8));
+    // T210B01 SDMMC1 at 3.3 V (Hekate sdmmc_init / _sdmmc_config_tap_val).
+    MmioWrite32 (SD_BASE + SD_VENCLKCTL, (V & 0xE000FFFB) | (14U << 24) | (11U << 16));
+    MmioAnd32 (SD_BASE + SD_SDMEMCMPPADCTL, ~0xFU);  // VREF_SEL = 0
+    MmioAnd32 (SD_BASE + SD_AUTOCALCFG, 0xFFFF8080); // PU/PD offsets zero at 3.3 V
 
     // Pad auto calibration.
     ClkWasOn = (MmioRead16 (SD_BASE + 0x2C) & (1U << 2)) != 0;
@@ -315,7 +312,7 @@ SdVendorInit (
         // Calibration failed: load the suggested standard 3.3 V 50 ohm values.
         MmioAnd32 (SD_BASE + SD_AUTOCALCFG, ~(1U << 29));
         V = MmioRead32 (APB_MISC_SDMMC1_PADCTRL) & 0xF8080FFF;
-        MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, V | (0xC0CU << 12));
+        MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, V | (0x808U << 12));
         SdLog (L"[SDDIAG] autocal TIMEOUT (fallback pad cfg)\r\n");
     }
     SdLog (L"[SDDIAG] autocal sts=%08x cfg=%08x padctl=%08x\r\n",
@@ -976,12 +973,12 @@ SdControllerProbe
 	ZeroMem(&mConfig, sizeof(MMC_CONFIG));
 
     // Set configuration
-    mConfig.voltages = MMC_VDD_32_33 | MMC_VDD_33_34 | MMC_VDD_165_195;
+    mConfig.voltages = MMC_VDD_32_33 | MMC_VDD_33_34;
     mConfig.host_caps = 0;
 	
     // bus-width = <4>;
     mConfig.host_caps |= MMC_MODE_4BIT;
-    mConfig.host_caps |= MMC_MODE_HS_52MHz | MMC_MODE_HS;
+    // Use default-speed SD signalling for the first Lite mount.
 
     /*
 	 * min freq is for card identification, and is the highest
@@ -990,7 +987,7 @@ SdControllerProbe
 	 *  (actually 52MHz)
 	 */
 	mConfig.f_min = 375000;
-	mConfig.f_max = 48000000;
+	mConfig.f_max = 25000000;
 
 	mConfig.b_max = CONFIG_SYS_MMC_MAX_BLK_COUNT;
 
@@ -1043,6 +1040,11 @@ SdMmcDxeInitialize
     EFI_EVENT DiagEvent;
     UINTN Attempt;
     int ret;
+
+    // The Lite card calibration below is specific to Tegra210B01.
+    if ((MmioRead32 (SD_APB_MISC_BASE + 0x804) & 0xFFF0) != 0x2120) {
+        return EFI_UNSUPPORTED;
+    }
 
     // Print the collected [SDDIAG] lines just before the boot manager runs.
     gBS->CreateEventEx (
@@ -1164,6 +1166,14 @@ retry:
 		Instance->BlockMedia.BlockSize = mBlkDesc.blksz;
 		// mBlkDesc.lba is the block COUNT; Media->LastBlock is the index of the last block.
 		Instance->BlockMedia.LastBlock = mBlkDesc.lba - 1;
+#ifdef SWITCH_LITE_BOOT_SD
+        Status = LitePrepareWindowsDisk (Instance);
+        if (EFI_ERROR (Status)) {
+            SdLog (L"WINARM identity check: %r\r\n", Status);
+            FreePool (Instance);
+            goto exit;
+        }
+#endif
 		Status = gBS->InstallMultipleProtocolInterfaces(
 			&Instance->Handle,
 			&gEfiBlockIoProtocolGuid,    
@@ -1178,5 +1188,6 @@ retry:
 
 exit:
     SdLog (L"[SDDIAG] SdMmcDxe result: %r\r\n", Status);
+    SdDiagPublish ();
     return Status;
 }

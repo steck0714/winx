@@ -20,6 +20,9 @@
 #include "Include/SdMmc.h"
 #include "Include/HostOp.h"
 #include "Include/EfiProto.h"
+#ifdef SWITCH_LITE_BOOT_SD
+#include <LiteSdTarget.h>
+#endif
 
 STATIC BIO_INSTANCE mBioTemplate = {
     BIO_INSTANCE_SIGNATURE,
@@ -39,7 +42,11 @@ STATIC BIO_INSTANCE mBioTemplate = {
         TRUE,                                     // RemovableMedia
         TRUE,                                     // MediaPresent
         FALSE,                                    // LogicalPartition
+#ifdef SWITCH_LITE_BOOT_SD
+        TRUE,                                     // Lite boot media remains read-only in UEFI.
+#else
         FALSE,                                    // ReadOnly (writes gated to FAT partitions, see SdWriteAllowed)
+#endif
         FALSE,                                    // WriteCaching
         0,                                        // BlockSize
         4,                                        // IoAlign
@@ -169,6 +176,118 @@ fail:
     return 0;
 }
 
+#ifdef SWITCH_LITE_BOOT_SD
+// Publish the exact MBR returned by the matching Windows SD miniport. The
+// stored card layout is used only to validate the configured data volumes.
+EFI_STATUS
+LitePrepareWindowsDisk (BIO_INSTANCE *Instance)
+{
+    EFI_STATUS Status = EFI_COMPROMISED_DATA;
+    if (Instance->BlockMedia.BlockSize != 512 ||
+        Instance->BlockMedia.LastBlock != LITE_CARD_BYTES / 512 - 1)
+        return EFI_UNSUPPORTED;
+
+    UINT8 *Data = AllocatePages (1);
+    if (Data == NULL) return EFI_OUT_OF_RESOURCES;
+    // LBA 0, the GPT header and the entire 11-entry GPT array fit in one page.
+    if (!MmcReadInternal (Instance, 0, (UINT32 *)Data, 5 * 512)) {
+        Status = EFI_DEVICE_ERROR;
+        goto Exit;
+    }
+    UINT8 *Header = Data + 512;
+    UINT8 *Entries = Data + 1024;
+    if (!LiteSelectWindowsPartition (Data) || !LiteIsHeader (Header) ||
+        !LiteIsPartition (Entries + 1024)) goto Exit;
+    UINT32 HeaderBytes = LiteU32 (Header + 12);
+    UINT32 HeaderCrc = LiteU32 (Header + 16);
+    UINT32 ActualCrc;
+    if (HeaderBytes < 92 || HeaderBytes > 512) goto Exit;
+    ZeroMem (Header + 16, 4);
+    if (EFI_ERROR (gBS->CalculateCrc32 (Header, HeaderBytes, &ActualCrc)) || ActualCrc != HeaderCrc ||
+        EFI_ERROR (gBS->CalculateCrc32 (Entries, 11 * 128, &ActualCrc)) || ActualCrc != LiteU32 (Header + 88))
+        goto Exit;
+#ifdef FAT32_FIRST
+    // The projected FAT32 entry must also be a GPT Basic Data extent, like
+    // WINARM in slot 11. Its filesystem driver handles the FAT boot sector.
+    UINTN FatMatches = 0;
+    for (UINTN Index = 0; Index < 10; ++Index) {
+        CONST UINT8 *Entry = Entries + Index * 128;
+        if (CompareMem (Entry, Entries + 10 * 128, 16) == 0 &&
+            LiteU64 (Entry + 32) == FAT32_FIRST &&
+            LiteU64 (Entry + 40) == (UINT64)FAT32_FIRST + FAT32_COUNT - 1) ++FatMatches;
+    }
+    if (FatMatches != 1) goto Exit;
+#endif
+    CopyMem (Instance->WindowsMbr, Data, 512);
+    if (!MmcReadInternal (Instance, (UINT64)WINARM_FIRST * 512, (UINT32 *)Data, 512)) {
+        Status = EFI_DEVICE_ERROR;
+        goto Exit;
+    }
+    if (LiteIsBootSector (Data)) Status = EFI_SUCCESS;
+Exit:
+    FreePages (Data, 1);
+    return Status;
+}
+
+EFI_STATUS
+EFIAPI
+MMCHSReadBlocks (
+    IN EFI_BLOCK_IO_PROTOCOL *This,
+    IN UINT32 MediaId,
+    IN EFI_LBA Lba,
+    IN UINTN BufferSize,
+    OUT VOID *Buffer
+)
+{
+    BIO_INSTANCE *Instance = BIO_INSTANCE_FROM_BLOCKIO_THIS (This);
+    EFI_BLOCK_IO_MEDIA *Media = &Instance->BlockMedia;
+    if (MediaId != Media->MediaId) return EFI_MEDIA_CHANGED;
+    if (BufferSize % 512 != 0) return EFI_BAD_BUFFER_SIZE;
+    if (BufferSize == 0) return EFI_SUCCESS;
+    UINTN Blocks = BufferSize / 512;
+    if (Buffer == NULL || Lba > Media->LastBlock || Blocks - 1 > Media->LastBlock - Lba)
+        return EFI_INVALID_PARAMETER;
+
+    EFI_LBA End = Lba + Blocks;
+    STATIC CONST struct { EFI_LBA First; EFI_LBA End; } Volumes[] = {
+        { WINARM_FIRST, (EFI_LBA)WINARM_FIRST + WINARM_COUNT },
+#ifdef FAT32_FIRST
+        { FAT32_FIRST, (EFI_LBA)FAT32_FIRST + FAT32_COUNT },
+#endif
+    };
+    UINT8 *Out = Buffer;
+    if (Lba == 0) {
+        CopyMem (Out, Instance->WindowsMbr, 512);
+        ++Lba;
+        Out += 512;
+    }
+    while (Lba < End) {
+        EFI_LBA Next = End;
+        BOOLEAN Visible = FALSE;
+        for (UINTN Index = 0; Index < ARRAY_SIZE (Volumes); ++Index) {
+            if (Lba < Volumes[Index].First) {
+                Next = MIN (Next, Volumes[Index].First);
+            } else if (Lba < Volumes[Index].End) {
+                Next = MIN (Next, Volumes[Index].End);
+                Visible = TRUE;
+                break;
+            }
+        }
+        UINTN Count = (UINTN)(Next - Lba);
+        if (Visible) {
+            Count = MIN (Count, 2048U);
+            if (!MmcReadInternal (Instance, Lba * 512, (UINT32 *)Out, (UINT32)Count * 512))
+                return EFI_DEVICE_ERROR;
+        } else {
+            ZeroMem (Out, Count * 512);
+        }
+        Out += Count * 512;
+        Lba += Count;
+    }
+    return EFI_SUCCESS;
+}
+
+#else
 EFI_STATUS
 EFIAPI
 MMCHSReadBlocks(
@@ -188,32 +307,32 @@ MMCHSReadBlocks(
     Media     = &Instance->BlockMedia;
     BlockSize = Media->BlockSize;
 
-    if (MediaId != Media->MediaId) 
+    if (MediaId != Media->MediaId)
     {
         return EFI_MEDIA_CHANGED;
     }
 
-    if (Lba > Media->LastBlock) 
+    if (Lba > Media->LastBlock)
     {
         return EFI_INVALID_PARAMETER;
     }
 
-    if ((Lba + (BufferSize / BlockSize) - 1) > Media->LastBlock) 
+    if ((Lba + (BufferSize / BlockSize) - 1) > Media->LastBlock)
     {
         return EFI_INVALID_PARAMETER;
     }
 
-    if (BufferSize % BlockSize != 0) 
+    if (BufferSize % BlockSize != 0)
     {
         return EFI_BAD_BUFFER_SIZE;
     }
 
-    if (Buffer == NULL) 
+    if (Buffer == NULL)
     {
         return EFI_INVALID_PARAMETER;
     }
 
-    if (BufferSize == 0) 
+    if (BufferSize == 0)
     {
         return EFI_SUCCESS;
     }
@@ -225,6 +344,9 @@ MMCHSReadBlocks(
         return EFI_DEVICE_ERROR;
 }
 
+#endif
+
+#ifndef SWITCH_LITE_BOOT_SD
 //
 // ---- Write gate: allow writes only inside partitions whose first sector is a FAT boot sector ----
 //
@@ -362,6 +484,7 @@ SdWriteAllowed (
     return FALSE;
 }
 
+#endif
 EFI_STATUS
 EFIAPI
 MMCHSWriteBlocks(
@@ -372,6 +495,9 @@ MMCHSWriteBlocks(
     IN VOID                           *Buffer
 )
 {
+#ifdef SWITCH_LITE_BOOT_SD
+    return EFI_WRITE_PROTECTED;
+#else
     BIO_INSTANCE              *Instance;
     EFI_BLOCK_IO_MEDIA        *Media;
     UINTN                     BlockSize;
@@ -399,6 +525,7 @@ MMCHSWriteBlocks(
         return EFI_DEVICE_ERROR;
     }
     return EFI_SUCCESS;
+#endif
 }
 
 EFI_STATUS

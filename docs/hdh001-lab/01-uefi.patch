@@ -1,0 +1,802 @@
+diff --git a/Drivers/ClockManagementDxe/ClockManagementDxe.inf b/Drivers/ClockManagementDxe/ClockManagementDxe.inf
+index 1572d52..4335989 100644
+--- a/Drivers/ClockManagementDxe/ClockManagementDxe.inf
++++ b/Drivers/ClockManagementDxe/ClockManagementDxe.inf
+@@ -44,4 +44,4 @@
+   gTegraPinMuxProtocolGuid
+ 
+ [Depex]
+-  gTegraPinMuxProtocolGuid
++  TRUE
+diff --git a/Drivers/ClockManagementDxe/Tegra210/clock.c b/Drivers/ClockManagementDxe/Tegra210/clock.c
+index 5cd4e9a..ef87bff 100644
+--- a/Drivers/ClockManagementDxe/Tegra210/clock.c
++++ b/Drivers/ClockManagementDxe/Tegra210/clock.c
+@@ -1245,25 +1245,9 @@ int tegra_plle_enable(void)
+ 	return 0;
+ }
+ 
++// Hekate has configured the Lite display and SoC. This build needs only SD and its PMIC bus.
+ struct periph_clk_init periph_clk_init_table[] = {
+-	{ PERIPH_ID_SBC1, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SBC2, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SBC3, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SBC4, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SBC5, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SBC6, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_HOST1X, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_DISP1, CLOCK_ID_DISPLAY },
+-	{ PERIPH_ID_SDMMC1, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SDMMC2, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SDMMC3, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_SDMMC4, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_PWM, CLOCK_ID_SFROM32KHZ },
+-	{ PERIPH_ID_I2C1, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_I2C2, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_I2C3, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_I2C4, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_I2C5, CLOCK_ID_PERIPH },
+-	{ PERIPH_ID_I2C6, CLOCK_ID_PERIPH },
+-	{ -1, },
++    { PERIPH_ID_SDMMC1, CLOCK_ID_PERIPH },
++    { PERIPH_ID_I2C5, CLOCK_ID_PERIPH },
++    { -1, },
+ };
+diff --git a/Drivers/PmicDxe/Pmic.c b/Drivers/PmicDxe/Pmic.c
+index 60523bd..02dd9e2 100644
+--- a/Drivers/PmicDxe/Pmic.c
++++ b/Drivers/PmicDxe/Pmic.c
+@@ -92,7 +92,6 @@ PmicDxeInitialize
+ {
+     EFI_STATUS Status;
+     EFI_HANDLE ProtoHandle = NULL;
+-    UINT8 bVal;
+ 
+     Status = gBS->LocateProtocol(
+         &gTegra210ClockManagementProtocolGuid,
+@@ -101,33 +100,11 @@ PmicDxeInitialize
+     );
+     if (EFI_ERROR(Status)) goto exit;
+ 
+-    // Clock init
+-    Status = mClockProtocol->EnableI2c(I2C_1);
+-    if (EFI_ERROR(Status)) goto exit;
+-
++    // The Lite SD slot uses LDO2 over I2C5. SdPowerOn sequences the rail.
+     Status = mClockProtocol->EnableI2c(I2C_5);
+     if (EFI_ERROR(Status)) goto exit;
+-
+-    // I2C init
+-    i2c_init(I2C_1);
+     i2c_init(I2C_5);
+ 
+-	// Start up the SDMMC1 IO voltage regulator @ 3.3V
+-    max77620_send_byte(MAX77620_REG_LDO2_CFG, 0xF2);
+-
+-    // Disable LDO4 discharge
+-    bVal = max77620_recv_byte(MAX77620_REG_LDO4_CFG);
+-    bVal &= ~BIT(1);
+-    max77620_send_byte(MAX77620_REG_LDO4_CFG, bVal);
+-
+-    // Set MBLPD
+-    bVal = max77620_recv_byte(MAX77620_REG_CNFGGLBL1);
+-    bVal |= BIT(6);
+-    max77620_send_byte(MAX77620_REG_CNFGGLBL1, bVal);
+-
+-    // Start up the PCIe power
+-    max77620_send_byte(MAX77620_REG_LDO1_CFG, 0xCA);
+-
+     // Install protocol
+     Status = gBS->InstallMultipleProtocolInterfaces(
+         &ProtoHandle,
+diff --git a/Drivers/SdMmcDxe/EfiBlkDeviceOp.c b/Drivers/SdMmcDxe/EfiBlkDeviceOp.c
+index e1ae9c9..1be6630 100644
+--- a/Drivers/SdMmcDxe/EfiBlkDeviceOp.c
++++ b/Drivers/SdMmcDxe/EfiBlkDeviceOp.c
+@@ -39,7 +39,7 @@ STATIC BIO_INSTANCE mBioTemplate = {
+         TRUE,                                     // RemovableMedia
+         TRUE,                                     // MediaPresent
+         FALSE,                                    // LogicalPartition
+-        FALSE,                                    // ReadOnly (writes gated to FAT partitions, see SdWriteAllowed)
++        TRUE,                                     // Diagnostic volume is read-only
+         FALSE,                                    // WriteCaching
+         0,                                        // BlockSize
+         4,                                        // IoAlign
+@@ -226,142 +226,6 @@ MMCHSReadBlocks(
+ }
+ 
+ //
+-// ---- Write gate: allow writes only inside partitions whose first sector is a FAT boot sector ----
+-//
+-#define SD_MAX_ALLOWED  16
+-
+-typedef struct { UINT64 First; UINT64 Last; } SD_RANGE;
+-
+-STATIC SD_RANGE  mAllowed[SD_MAX_ALLOWED];
+-STATIC UINTN     mNAllowed;
+-STATIC BOOLEAN   mAllowedInit;
+-
+-STATIC
+-UINT32
+-Le32 (CONST UINT8 *P)
+-{
+-    return (UINT32) P[0] | ((UINT32) P[1] << 8) | ((UINT32) P[2] << 16) | ((UINT32) P[3] << 24);
+-}
+-
+-STATIC
+-UINT64
+-Le64 (CONST UINT8 *P)
+-{
+-    return (UINT64) Le32 (P) | ((UINT64) Le32 (P + 4) << 32);
+-}
+-
+-STATIC
+-BOOLEAN
+-SdReadSector (
+-    IN  BIO_INSTANCE *Instance,
+-    IN  UINT64       Lba,
+-    OUT UINT8        *Buf
+-)
+-{
+-    return MmcReadInternal (Instance, Lba * 512, (UINT32 *) Buf, 512) == 1;
+-}
+-
+-// FAT12/16: "FAT1x   " at 0x36, FAT32: "FAT32   " at 0x52, both with the 0x55AA signature.
+-// exFAT ("EXFAT   " at 3) and NTFS ("NTFS    " at 3) do not match.
+-STATIC
+-BOOLEAN
+-SdIsFatBootSector (
+-    IN CONST UINT8 *S
+-)
+-{
+-    if (S[510] != 0x55 || S[511] != 0xAA) return FALSE;
+-    return CompareMem (S + 0x52, "FAT32   ", 8) == 0 || CompareMem (S + 0x36, "FAT", 3) == 0;
+-}
+-
+-STATIC
+-VOID
+-SdAddIfFat (
+-    IN BIO_INSTANCE *Instance,
+-    IN UINT64       First,
+-    IN UINT64       Last,
+-    IN UINT8        *Buf
+-)
+-{
+-    if (mNAllowed >= SD_MAX_ALLOWED || Last < First || Last > Instance->BlockMedia.LastBlock) return;
+-    if (!SdReadSector (Instance, First, Buf) || !SdIsFatBootSector (Buf)) return;
+-    mAllowed[mNAllowed].First = First;
+-    mAllowed[mNAllowed].Last  = Last;
+-    mNAllowed++;
+-    DEBUG ((DEBUG_INFO, "SD: FAT range lba %lx-%lx writable\n", First, Last));
+-}
+-
+-STATIC
+-VOID
+-SdBuildAllowed (
+-    IN BIO_INSTANCE *Instance
+-)
+-{
+-    UINT8  *Buf;
+-    UINT8  *Hdr;
+-    UINT32 I;
+-    BOOLEAN Gpt = FALSE;
+-
+-    mAllowedInit = TRUE;
+-    mNAllowed = 0;
+-    if (Instance->BlockMedia.BlockSize != 512) return;
+-
+-    Buf = AllocateZeroPool (512);
+-    Hdr = AllocateZeroPool (512);
+-    if (Buf == NULL || Hdr == NULL) goto out;
+-
+-    if (!SdReadSector (Instance, 0, Buf) || Buf[510] != 0x55 || Buf[511] != 0xAA) goto out;
+-
+-    for (I = 0; I < 4; I++) {
+-        CONST UINT8 *E = Buf + 0x1BE + 16 * I;
+-        if (E[4] == 0xEE) { Gpt = TRUE; continue; }
+-        if (E[4] != 0 && Le32 (E + 12) != 0) {                     // extended partitions are not followed
+-            UINT64 First = Le32 (E + 8);
+-            SdAddIfFat (Instance, First, First + Le32 (E + 12) - 1, Hdr);
+-        }
+-    }
+-
+-    if (Gpt && SdReadSector (Instance, 1, Hdr) && CompareMem (Hdr, "EFI PART", 8) == 0) {
+-        UINT64 EntLba  = Le64 (Hdr + 72);
+-        UINT32 NumEnt  = Le32 (Hdr + 80);
+-        UINT32 EntSize = Le32 (Hdr + 84);
+-        UINT32 Per     = (EntSize >= 128 && EntSize <= 512) ? 512 / EntSize : 0;
+-
+-        if (Per != 0 && NumEnt <= 256) {
+-            UINT32 N;
+-            for (N = 0; N < NumEnt; N++) {
+-                UINT8 Z[16] = { 0 };
+-                if (N % Per == 0 && !SdReadSector (Instance, EntLba + N / Per, Buf)) break;
+-                {
+-                    CONST UINT8 *E = Buf + (N % Per) * EntSize;
+-                    if (CompareMem (E, Z, 16) == 0) continue;     // unused entry
+-                    SdAddIfFat (Instance, Le64 (E + 32), Le64 (E + 40), Hdr);
+-                }
+-            }
+-        }
+-    }
+-
+-out:
+-    if (Buf != NULL) FreePool (Buf);
+-    if (Hdr != NULL) FreePool (Hdr);
+-}
+-
+-STATIC
+-BOOLEAN
+-SdWriteAllowed (
+-    IN BIO_INSTANCE *Instance,
+-    IN UINT64       Lba,
+-    IN UINT64       Blocks
+-)
+-{
+-    UINTN I;
+-
+-    if (!mAllowedInit) SdBuildAllowed (Instance);
+-    for (I = 0; I < mNAllowed; I++) {
+-        if (Lba >= mAllowed[I].First && (Lba + Blocks - 1) <= mAllowed[I].Last) return TRUE;
+-    }
+-    return FALSE;
+-}
+-
+ EFI_STATUS
+ EFIAPI
+ MMCHSWriteBlocks(
+@@ -372,33 +236,7 @@ MMCHSWriteBlocks(
+     IN VOID                           *Buffer
+ )
+ {
+-    BIO_INSTANCE              *Instance;
+-    EFI_BLOCK_IO_MEDIA        *Media;
+-    UINTN                     BlockSize;
+-    UINT64                    Blocks;
+-
+-    Instance  = BIO_INSTANCE_FROM_BLOCKIO_THIS(This);
+-    Media     = &Instance->BlockMedia;
+-    BlockSize = Media->BlockSize;
+-
+-    if (MediaId != Media->MediaId) return EFI_MEDIA_CHANGED;
+-    if (Buffer == NULL) return EFI_INVALID_PARAMETER;
+-    if (BufferSize == 0) return EFI_SUCCESS;
+-    if (BufferSize % BlockSize != 0) return EFI_BAD_BUFFER_SIZE;
+-
+-    Blocks = BufferSize / BlockSize;
+-    if (Lba > Media->LastBlock || (Lba + Blocks - 1) > Media->LastBlock) return EFI_INVALID_PARAMETER;
+-
+-    // Safety gate: only FAT volumes are writable. The NTFS Windows partition and the partition
+-    // tables stay read-only, because this write path has not been verified on hardware yet.
+-    if (!SdWriteAllowed (Instance, Lba, Blocks)) {
+-        return EFI_WRITE_PROTECTED;
+-    }
+-
+-    if (mmc_bwrite (Lba, Blocks, Buffer) != Blocks) {
+-        return EFI_DEVICE_ERROR;
+-    }
+-    return EFI_SUCCESS;
++    return EFI_WRITE_PROTECTED;
+ }
+ 
+ EFI_STATUS
+diff --git a/Drivers/SdMmcDxe/SdMmc.c b/Drivers/SdMmcDxe/SdMmc.c
+index 4092d14..69bac35 100644
+--- a/Drivers/SdMmcDxe/SdMmc.c
++++ b/Drivers/SdMmcDxe/SdMmc.c
+@@ -238,16 +238,15 @@ SdPowerOn (
+     // Deep loopback for the CLK pad so reads work.
+     MmioWrite32 (APB_MISC_SDMMC1_CLK_LPBK, 1);
+ 
+-    // SDMMC1 pad pinmux (T210: CLK pulled down, others pulled up).
+-    MmioWrite32 (PINMUX_SDMMC1_CLK,  PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_DOWN_V);
+-    MmioWrite32 (PINMUX_SDMMC1_CMD,  PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
+-    MmioWrite32 (PINMUX_SDMMC1_DAT3, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
+-    MmioWrite32 (PINMUX_SDMMC1_DAT2, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
+-    MmioWrite32 (PINMUX_SDMMC1_DAT1, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
+-    MmioWrite32 (PINMUX_SDMMC1_DAT0, PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | PINMUX_PULL_UP_V);
+-    // Pads M0..M5 back to their special function (hekate leaves them as discharge GPIOs).
+-    gpio_output_enable (GPIO_PORT_M, 0x3F, GPIO_OUTPUT_DISABLE);
++    // T210B01 uses Schmitt inputs on all six pins and no pull-down on CLK.
++    UINT32 SdInput = PINMUX_DRIVE_2X_V | PINMUX_INPUT_ENABLE_V | (1U << 12);
++    MmioWrite32 (PINMUX_SDMMC1_CLK, SdInput);
++    for (UINTN Pin = PINMUX_SDMMC1_CMD; Pin <= PINMUX_SDMMC1_DAT0; Pin += 4) {
++        MmioWrite32 (Pin, SdInput | PINMUX_PULL_UP_V);
++    }
+     gpio_config (GPIO_PORT_M, 0x3F, GPIO_MODE_SPIO);
++    gpio_write (GPIO_PORT_M, 0x3F, GPIO_LOW);
++    gpio_output_enable (GPIO_PORT_M, 0x3F, GPIO_OUTPUT_DISABLE);
+ 
+     // Make sure the SDMMC1 IO power domain is powered.
+     MmioOr32  (PMC_NO_IOPOWER, PMC_SDMMC1_BIT);
+@@ -271,10 +270,7 @@ SdPowerOn (
+     }
+     udelay (1000);
+ 
+-    // Pad slew codes for a clean clock.
+-    MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, (MmioRead32 (APB_MISC_SDMMC1_PADCTRL) & 0x0FFFFFFF) | 0x50000000);
+-    (VOID) MmioRead32 (APB_MISC_SDMMC1_PADCTRL);
+-    udelay (1000);
++
+ }
+ 
+ // Vendor/pad setup that has to follow a controller "reset all" (hekate sdmmc_init()).
+@@ -290,13 +286,12 @@ SdVendorInit (
+ 
+     MmioOr32  (SD_BASE + SD_IOSPARE, (1U << 19));                      // 1 cycle delayed cmd_oen
+     MmioAnd32 (SD_BASE + SD_VENIOTRIMCTL, ~(1U << 2));                  // band gap VREG supplies the DLL
++    MmioAnd32 (SD_BASE + 0x1C0, ~(1U << 17)); // Use the software-selected tap.
+     V = MmioRead32 (SD_BASE + SD_VENCLKCTL);
+-    MmioWrite32 (SD_BASE + SD_VENCLKCTL, (V & 0xE0FFFFFB) | (2U << 24)); // trim value (T210, SDMMC1)
+-    V = MmioRead32 (SD_BASE + SD_SDMEMCMPPADCTL);
+-    MmioWrite32 (SD_BASE + SD_SDMEMCMPPADCTL, (V & ~0xFU) | 7);          // vref_sel = 7
+-    // Auto-cal offsets for 3.3 V on T210: pd = -3, pu = 0.
+-    V = MmioRead32 (SD_BASE + SD_AUTOCALCFG);
+-    MmioWrite32 (SD_BASE + SD_AUTOCALCFG, (V & 0xFFFF8080) | (0x7DU << 8));
++    // T210B01 SDMMC1 at 3.3 V (Hekate sdmmc_init / _sdmmc_config_tap_val).
++    MmioWrite32 (SD_BASE + SD_VENCLKCTL, (V & 0xE000FFFB) | (14U << 24) | (11U << 16));
++    MmioAnd32 (SD_BASE + SD_SDMEMCMPPADCTL, ~0xFU);  // VREF_SEL = 0
++    MmioAnd32 (SD_BASE + SD_AUTOCALCFG, 0xFFFF8080); // PU/PD offsets zero at 3.3 V
+ 
+     // Pad auto calibration.
+     ClkWasOn = (MmioRead16 (SD_BASE + 0x2C) & (1U << 2)) != 0;
+@@ -315,7 +310,7 @@ SdVendorInit (
+         // Calibration failed: load the suggested standard 3.3 V 50 ohm values.
+         MmioAnd32 (SD_BASE + SD_AUTOCALCFG, ~(1U << 29));
+         V = MmioRead32 (APB_MISC_SDMMC1_PADCTRL) & 0xF8080FFF;
+-        MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, V | (0xC0CU << 12));
++        MmioWrite32 (APB_MISC_SDMMC1_PADCTRL, V | (0x808U << 12));
+         SdLog (L"[SDDIAG] autocal TIMEOUT (fallback pad cfg)\r\n");
+     }
+     SdLog (L"[SDDIAG] autocal sts=%08x cfg=%08x padctl=%08x\r\n",
+@@ -976,12 +971,12 @@ SdControllerProbe
+ 	ZeroMem(&mConfig, sizeof(MMC_CONFIG));
+ 
+     // Set configuration
+-    mConfig.voltages = MMC_VDD_32_33 | MMC_VDD_33_34 | MMC_VDD_165_195;
++    mConfig.voltages = MMC_VDD_32_33 | MMC_VDD_33_34;
+     mConfig.host_caps = 0;
+ 	
+     // bus-width = <4>;
+     mConfig.host_caps |= MMC_MODE_4BIT;
+-    mConfig.host_caps |= MMC_MODE_HS_52MHz | MMC_MODE_HS;
++    // Use default-speed SD signalling for the first Lite mount.
+ 
+     /*
+ 	 * min freq is for card identification, and is the highest
+@@ -990,7 +985,7 @@ SdControllerProbe
+ 	 *  (actually 52MHz)
+ 	 */
+ 	mConfig.f_min = 375000;
+-	mConfig.f_max = 48000000;
++	mConfig.f_max = 25000000;
+ 
+ 	mConfig.b_max = CONFIG_SYS_MMC_MAX_BLK_COUNT;
+ 
+@@ -1044,6 +1039,11 @@ SdMmcDxeInitialize
+     UINTN Attempt;
+     int ret;
+ 
++    // The Lite card calibration below is specific to Tegra210B01.
++    if ((MmioRead32 (SD_APB_MISC_BASE + 0x804) & 0xFFF0) != 0x2120) {
++        return EFI_UNSUPPORTED;
++    }
++
+     // Print the collected [SDDIAG] lines just before the boot manager runs.
+     gBS->CreateEventEx (
+         EVT_NOTIFY_SIGNAL, TPL_CALLBACK, SdDiagOnReadyToBoot, NULL,
+@@ -1178,5 +1178,6 @@ retry:
+ 
+ exit:
+     SdLog (L"[SDDIAG] SdMmcDxe result: %r\r\n", Status);
++    SdDiagPublish ();
+     return Status;
+ }
+diff --git a/Drivers/SimpleFbDxe/SimpleFbDxe.c b/Drivers/SimpleFbDxe/SimpleFbDxe.c
+index e91f9b3..8923a18 100644
+--- a/Drivers/SimpleFbDxe/SimpleFbDxe.c
++++ b/Drivers/SimpleFbDxe/SimpleFbDxe.c
+@@ -530,6 +530,9 @@ ImageNeedsNativeFramebuffer
+             if (*P == L'\\' || *P == L'/') FileName = P + 1;
+         }
+ 
++        // The SD diagnostic displays text using the current landscape GOP mode.
++        if (NameEqualsNoCase(FileName, L"SDTEST.EFI")) return FALSE;
++
+         for (Index = 0; Index < ARRAY_SIZE(LoaderNames); Index++)
+         {
+             if (NameEqualsNoCase(FileName, LoaderNames[Index])) return TRUE;
+diff --git a/Library/NintendoSwitchPlatformLib/ArmPlatformHelper.S b/Library/NintendoSwitchPlatformLib/ArmPlatformHelper.S
+index a495abd..ef99e2a 100644
+--- a/Library/NintendoSwitchPlatformLib/ArmPlatformHelper.S
++++ b/Library/NintendoSwitchPlatformLib/ArmPlatformHelper.S
+@@ -19,6 +19,15 @@ ASM_FUNC(ArmPlatformPeiBootAction)
+   // To ensure EL0 stack can be utilized by 
+   // exception handler, set SPSel to 1
+   msr  SPSel, #1
++  mov   x9, #0xf5a00000
++  mov   w10, #0xb7bd
++  movk  w10, #0xff19, lsl #16
++  mov   x11, #(720 * 16)
++1:
++  str   w10, [x9], #4
++  subs  x11, x11, #1
++  b.ne  1b
++  dsb   sy
+   ret
+ 
+ //UINTN
+diff --git a/Library/PlatformBootManagerLib/LiteSdBoot.c b/Library/PlatformBootManagerLib/LiteSdBoot.c
+new file mode 100644
+index 0000000..174a413
+--- /dev/null
++++ b/Library/PlatformBootManagerLib/LiteSdBoot.c
+@@ -0,0 +1,60 @@
++// SPDX-License-Identifier: BSD-2-Clause-Patent
++#include "PlatformBm.h"
++#include <Library/UefiBootManagerLib.h>
++#include <Protocol/SimpleFileSystem.h>
++
++STATIC VOID
++ShowSdLog (VOID)
++{
++  EFI_GUID SdDriver = {0x5d69e400, 0xe850, 0x4a90, {0x8b,0x9b,0xe9,0x7a,0x8c,0x22,0x23,0x7d}};
++  CHAR16 *Log;
++  UINTN Size;
++
++  if (!EFI_ERROR (GetVariable2 (L"SdDiag", &SdDriver, (VOID **)&Log, &Size))) {
++    Print (L"%s", Log);
++    FreePool (Log);
++  }
++}
++
++// This diagnostic firmware boots only the application beside its BL33 on the SD card.
++VOID EFIAPI
++PlatformBootManagerAfterConsole (VOID)
++{
++  EFI_STATUS Status;
++  EFI_HANDLE *Volumes = NULL;
++  EFI_HANDLE Child;
++  EFI_DEVICE_PATH_PROTOCOL *Path;
++  UINTN Index, Count = 0;
++  BOOLEAN Started = FALSE;
++
++  gBS->SetWatchdogTimer (0, 0, 0, NULL);
++  gST->ConOut->ClearScreen (gST->ConOut);
++  Print (L"LITE UEFI / SD TEST 2\r\nConnecting SD volumes...\r\n");
++  EfiBootManagerConnectAll ();
++  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
++  Print (L"File systems: %u (%r)\r\n", (UINT32)Count, Status);
++  if (!EFI_ERROR (Status)) {
++    for (Index = 0; Index < Count; ++Index) {
++      Path = FileDevicePath (Volumes[Index], L"\\switchroot\\woa-lite-uefi\\SDTEST.EFI");
++      if (Path == NULL) {
++        Status = EFI_OUT_OF_RESOURCES;
++        break;
++      }
++      Status = gBS->LoadImage (FALSE, gImageHandle, Path, NULL, 0, &Child);
++      FreePool (Path);
++      Print (L"FS %u / SDTEST.EFI: %r\r\n", (UINT32)Index, Status);
++      if (!EFI_ERROR (Status)) {
++        Started = TRUE;
++        Status = gBS->StartImage (Child, NULL, NULL);
++        Print (L"App returned: %r\r\n", Status);
++        break;
++      }
++    }
++    FreePool (Volumes);
++  }
++  if (!Started || EFI_ERROR (Status)) ShowSdLog ();
++  Print (L"Hold POWER 12s to turn off.\r\n");
++  for (;;) {
++    __asm__ volatile ("wfi");
++  }
++}
+diff --git a/Library/PlatformBootManagerLib/PlatformBm.c b/Library/PlatformBootManagerLib/PlatformBm.c
+index 30ca1d9..e10bc7a 100644
+--- a/Library/PlatformBootManagerLib/PlatformBm.c
++++ b/Library/PlatformBootManagerLib/PlatformBm.c
+@@ -330,69 +330,6 @@ AddOutput (
+     ReportText));
+ }
+ 
+-STATIC
+-VOID
+-PlatformRegisterFvBootOption (
+-  CONST EFI_GUID                   *FileGuid,
+-  CHAR16                           *Description,
+-  UINT32                           Attributes
+-  )
+-{
+-  EFI_STATUS                        Status;
+-  INTN                              OptionIndex;
+-  EFI_BOOT_MANAGER_LOAD_OPTION      NewOption;
+-  EFI_BOOT_MANAGER_LOAD_OPTION      *BootOptions;
+-  UINTN                             BootOptionCount;
+-  MEDIA_FW_VOL_FILEPATH_DEVICE_PATH FileNode;
+-  EFI_LOADED_IMAGE_PROTOCOL         *LoadedImage;
+-  EFI_DEVICE_PATH_PROTOCOL          *DevicePath;
+-
+-  Status = gBS->HandleProtocol (
+-                  gImageHandle,
+-                  &gEfiLoadedImageProtocolGuid,
+-                  (VOID **) &LoadedImage
+-                  );
+-  ASSERT_EFI_ERROR (Status);
+-
+-  EfiInitializeFwVolDevicepathNode (&FileNode, FileGuid);
+-  DevicePath = DevicePathFromHandle (LoadedImage->DeviceHandle);
+-  ASSERT (DevicePath != NULL);
+-  DevicePath = AppendDevicePathNode (
+-                 DevicePath,
+-                 (EFI_DEVICE_PATH_PROTOCOL *) &FileNode
+-                 );
+-  ASSERT (DevicePath != NULL);
+-
+-  Status = EfiBootManagerInitializeLoadOption (
+-             &NewOption,
+-             LoadOptionNumberUnassigned,
+-             LoadOptionTypeBoot,
+-             Attributes,
+-             Description,
+-             DevicePath,
+-             NULL,
+-             0
+-             );
+-  ASSERT_EFI_ERROR (Status);
+-  FreePool (DevicePath);
+-
+-  BootOptions = EfiBootManagerGetLoadOptions (
+-                  &BootOptionCount, LoadOptionTypeBoot
+-                  );
+-
+-  OptionIndex = EfiBootManagerFindLoadOption (
+-                  &NewOption, BootOptions, BootOptionCount
+-                  );
+-
+-  if (OptionIndex == -1) {
+-    Status = EfiBootManagerAddLoadOptionVariable (&NewOption, MAX_UINTN);
+-    ASSERT_EFI_ERROR (Status);
+-  }
+-  EfiBootManagerFreeLoadOption (&NewOption);
+-  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+-}
+-
+-
+ STATIC
+ VOID
+ PlatformRegisterOptionsAndKeys (
+@@ -524,88 +461,6 @@ PlatformBootManagerBeforeConsole (
+   PlatformRegisterOptionsAndKeys ();
+ }
+ 
+-#define VERSION_STRING_PREFIX    L"Tianocore/EDK2 firmware version "
+-
+-/**
+-  Do the platform specific action after the console is ready
+-  Possible things that can be done in PlatformBootManagerAfterConsole:
+-  > Console post action:
+-    > Dynamically switch output mode from 100x31 to 80x25 for certain senarino
+-    > Signal console ready platform customized event
+-  > Run diagnostics like memory testing
+-  > Connect certain devices
+-  > Dispatch aditional option roms
+-  > Special boot: e.g.: USB boot, enter UI
+-**/
+-VOID
+-EFIAPI
+-PlatformBootManagerAfterConsole (
+-  VOID
+-  )
+-{
+-  ESRT_MANAGEMENT_PROTOCOL      *EsrtManagement;
+-  EFI_STATUS                    Status;
+-  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
+-  UINTN                         FirmwareVerLength;
+-  UINTN                         PosX;
+-  UINTN                         PosY;
+-
+-  FirmwareVerLength = StrLen (PcdGetPtr (PcdFirmwareVersionString));
+-
+-  //
+-  // Show the splash screen.
+-  //
+-  Status = BootLogoEnableLogo ();
+-  if (EFI_ERROR (Status)) {
+-    if (FirmwareVerLength > 0) {
+-      Print (VERSION_STRING_PREFIX L"%s\n",
+-        PcdGetPtr (PcdFirmwareVersionString));
+-    }
+-    Print (L"Press ESCAPE for boot options ");
+-  } else if (FirmwareVerLength > 0) {
+-    Status = gBS->HandleProtocol (gST->ConsoleOutHandle,
+-                    &gEfiGraphicsOutputProtocolGuid, (VOID **)&GraphicsOutput);
+-    if (!EFI_ERROR (Status)) {
+-      PosX = (GraphicsOutput->Mode->Info->HorizontalResolution -
+-              (StrLen (VERSION_STRING_PREFIX) + FirmwareVerLength) *
+-              EFI_GLYPH_WIDTH) / 2;
+-      PosY = 0;
+-
+-      PrintXY (PosX, PosY, NULL, NULL, VERSION_STRING_PREFIX L"%s",
+-        PcdGetPtr (PcdFirmwareVersionString));
+-    }
+-  }
+-
+-  //
+-  // Connect the rest of the devices.
+-  //
+-  EfiBootManagerConnectAll ();
+-
+-  Status = gBS->LocateProtocol (&gEsrtManagementProtocolGuid, NULL,
+-                  (VOID **)&EsrtManagement);
+-  if (!EFI_ERROR (Status)) {
+-    EsrtManagement->SyncEsrtFmp ();
+-  }
+-
+-  if (GetBootModeHob() == BOOT_ON_FLASH_UPDATE) {
+-    DEBUG((DEBUG_INFO, "ProcessCapsules After EndOfDxe ......\n"));
+-    Status = ProcessCapsules ();
+-    DEBUG((DEBUG_INFO, "ProcessCapsules returned %r\n", Status));
+-  }
+-
+-  //
+-  // Enumerate all possible boot options.
+-  //
+-  EfiBootManagerRefreshAllBootOption ();
+-
+-  //
+-  // Register UEFI Shell
+-  //
+-  PlatformRegisterFvBootOption (
+-    &gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE
+-    );
+-}
+-
+ /**
+   This function is called each second during the boot manager waits the
+   timeout.
+diff --git a/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf b/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+index bf3fb69..5a990da 100644
+--- a/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
++++ b/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+@@ -33,6 +33,7 @@
+ 
+ [Sources]
+   PlatformBm.c
++  LiteSdBoot.c
+ 
+ [Packages]
+   MdeModulePkg/MdeModulePkg.dec
+diff --git a/LiteSdTest/LiteSdTest.c b/LiteSdTest/LiteSdTest.c
+new file mode 100644
+index 0000000..4b1443f
+--- /dev/null
++++ b/LiteSdTest/LiteSdTest.c
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: BSD-2-Clause-Patent
++#include <Uefi.h>
++#include <Library/BaseMemoryLib.h>
++#include <Library/UefiBootServicesTableLib.h>
++#include <Library/UefiLib.h>
++#include <Protocol/GraphicsOutput.h>
++#include <Protocol/LoadedImage.h>
++#include <Protocol/SimpleFileSystem.h>
++
++EFI_STATUS EFIAPI
++UefiMain (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
++{
++  CONST CHAR8 Expected[] = "SWITCH-LITE-SD2\n";
++  CHAR8 Data[sizeof (Expected)];
++  UINTN Size = sizeof (Data);  // Read one extra byte to detect the wrong file.
++  EFI_LOADED_IMAGE_PROTOCOL *Image;
++  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
++  EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop;
++  EFI_FILE_PROTOCOL *Root, *File;
++  EFI_STATUS Status;
++
++  Print (L"EFI APP START\r\n");
++  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Image);
++  if (EFI_ERROR (Status)) return Status;
++  Status = gBS->HandleProtocol (Image->DeviceHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
++  if (EFI_ERROR (Status)) return Status;
++  Status = Fs->OpenVolume (Fs, &Root);
++  if (EFI_ERROR (Status)) return Status;
++  Status = Root->Open (Root, &File, L"\\switchroot\\woa-lite-uefi\\SDCHECK.TXT", EFI_FILE_MODE_READ, 0);
++  if (!EFI_ERROR (Status)) {
++    Status = File->Read (File, &Size, Data);
++    File->Close (File);
++    if (!EFI_ERROR (Status) &&
++        ((Size != sizeof (Expected) - 1) || CompareMem (Data, Expected, Size) != 0)) {
++      Status = EFI_COMPROMISED_DATA;
++    }
++  }
++  Root->Close (Root);
++  Print (L"SDCHECK.TXT: %r\r\n", Status);
++  if (EFI_ERROR (Status)) return Status;
++
++  Status = gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
++  if (EFI_ERROR (Status)) return Status;
++  Print (L"GOP  %u x %u\r\n", Gop->Mode->Info->HorizontalResolution, Gop->Mode->Info->VerticalResolution);
++  Print (L"UEFI SD OK\r\n");
++  return EFI_SUCCESS;
++}
+diff --git a/LiteSdTest/LiteSdTest.inf b/LiteSdTest/LiteSdTest.inf
+new file mode 100644
+index 0000000..bc19468
+--- /dev/null
++++ b/LiteSdTest/LiteSdTest.inf
+@@ -0,0 +1,23 @@
++[Defines]
++  INF_VERSION    = 0x00010005
++  BASE_NAME      = LiteSdTest
++  FILE_GUID      = BFA116D4-60C6-4831-A838-76F343932904
++  MODULE_TYPE    = UEFI_APPLICATION
++  ENTRY_POINT    = UefiMain
++
++[Sources]
++  LiteSdTest.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++
++[LibraryClasses]
++  UefiApplicationEntryPoint
++  BaseMemoryLib
++  UefiBootServicesTableLib
++  UefiLib
++
++[Protocols]
++  gEfiGraphicsOutputProtocolGuid
++  gEfiLoadedImageProtocolGuid
++  gEfiSimpleFileSystemProtocolGuid
+diff --git a/NintendoSwitch.dsc b/NintendoSwitch.dsc
+index 40cf45b..ecf5ca2 100644
+--- a/NintendoSwitch.dsc
++++ b/NintendoSwitch.dsc
+@@ -44,7 +44,7 @@
+ [BuildOptions.common]
+ !ifdef SWITCH_HEKATE
+   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
+-  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
++  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
+ !else
+   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
+ !endif
+@@ -427,6 +427,7 @@
+   # gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterAccessWidth|8
+ 
+ [Components.common]
++  NintendoSwitchPkg/LiteSdTest/LiteSdTest.inf
+   # PEI/SEC
+   ArmPlatformPkg/PrePi/PeiUniCore.inf
+ 
+diff --git a/NintendoSwitch.fdf b/NintendoSwitch.fdf
+index 6763702..0126b48 100644
+--- a/NintendoSwitch.fdf
++++ b/NintendoSwitch.fdf
+@@ -95,6 +95,11 @@ READ_LOCK_STATUS   = TRUE
+   INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
+ 
++  # Read-only exFAT filesystem driver from the upstream EfiFs v1.12 release.
++  FILE DRIVER = 33CB60C4-18E1-416C-9568-26F3585F34D0 {
++    SECTION PE32 = NintendoSwitchPkg/LiteSdTest/exfat_aa64.efi
++  }
++
+   # Display
+   INF NintendoSwitchPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+ 
+@@ -126,13 +131,10 @@ READ_LOCK_STATUS   = TRUE
+   INF RuleOverride = ACPITABLE NintendoSwitchPkg/AcpiTables/AcpiTables.inf
+ 
+   # Drivers
+-  INF NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
+   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
+   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
+-  INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
+ !ifndef SWITCH_WOA
+-  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+ !ifdef SWITCH_FAN_DUTY
+   INF NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
+ !endif

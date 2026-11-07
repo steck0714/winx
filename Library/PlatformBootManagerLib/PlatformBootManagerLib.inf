@@ -33,6 +33,7 @@
 
 [Sources]
   PlatformBm.c
+  LiteHomeBoot.c
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec
@@ -43,6 +44,7 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  CacheMaintenanceLib
   BootLogoLib
   CapsuleLib
   DebugLib
@@ -54,6 +56,10 @@
   PrintLib
   UefiBootManagerLib
   UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  IoLib
+  I2cLib
+  TimerLib
   UefiLib
 
 [FeaturePcd]
@@ -71,14 +77,18 @@
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
 
 [Guids]
+  gEfiAcpi20TableGuid
   gEfiFileInfoGuid
   gEfiFileSystemInfoGuid
   gEfiFileSystemVolumeLabelInfoIdGuid
   gEfiEndOfDxeEventGroupGuid
+  gEfiEventExitBootServicesGuid
   gEfiTtyTermGuid
   gUefiShellFileGuid
 
 [Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiPartitionInfoProtocolGuid
   gEfiDevicePathProtocolGuid
   gEfiGraphicsOutputProtocolGuid
   gEfiLoadedImageProtocolGuid

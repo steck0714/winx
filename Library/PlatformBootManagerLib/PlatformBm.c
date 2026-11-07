@@ -330,6 +330,7 @@ AddOutput (
     ReportText));
 }
 
+#ifndef SWITCH_LITE_BOOT_SD
 STATIC
 VOID
 PlatformRegisterFvBootOption (
@@ -392,6 +393,8 @@ PlatformRegisterFvBootOption (
   EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
 }
 
+
+#endif
 
 STATIC
 VOID
@@ -524,6 +527,7 @@ PlatformBootManagerBeforeConsole (
   PlatformRegisterOptionsAndKeys ();
 }
 
+#ifndef SWITCH_LITE_BOOT_SD
 #define VERSION_STRING_PREFIX    L"Tianocore/EDK2 firmware version "
 
 /**
@@ -605,6 +609,8 @@ PlatformBootManagerAfterConsole (
     &gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE
     );
 }
+
+#endif
 
 /**
   This function is called each second during the boot manager waits the
