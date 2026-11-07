@@ -31,8 +31,9 @@ the PEP ACPI option from PMIC wake resources. S4 does not require the PEP.
 Its development hardware ID is also separated from the existing audio ID.
 The PEP removal and paired BL33 have been installed and read back; other
 driver binaries and service start modes, BCD and BL31 were preserved.
-The one-time full-hibernation setup remains queued. Repaired cold boot,
-physical S4 restoration, repeated wake and performance await Lite testing.
+The owner confirmed a normal desktop boot with that repair on 2026-11-07.
+The full-hibernation setup result has not yet been read back; physical S4
+restoration, repeated wake, Bluetooth recovery and performance remain unverified.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded

@@ -42,6 +42,14 @@ In a local read-only card replay with RAM-only writes, disabling only the
 boot-start `tegra214pep` service allowed kernel startup. The S4 repair removes
 that experimental package. This comparison isolates a loader blocker, not a
 completed S4 resume or a full boot of the Lite under emulation.
+After that package was removed and the paired BL33 installed, the owner
+confirmed a normal desktop boot on the Lite. S4 itself remains untested.
+
+For the S4 acceptance check, use a process-local marker in Command Prompt:
+run `set S4TEST=123`, request hibernation, then cold-start Windows through
+Hekate after complete power removal. In the original command window,
+`echo %S4TEST%` must still print `123`. An application reopening its saved
+tabs does not establish that the previous memory image was restored.
 
 `SWITCH_LITE_SLEEP=1` exposes GSI 118 (PMU_EXT) as a wake interrupt and PMC
 interrupt inversion. It no longer exposes the T214 PoFx processor backend.
