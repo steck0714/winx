@@ -23,9 +23,9 @@ cursor. Windows recorded Modern Standby transitions with zero DRIPS residency.
 Fan 1.0.0.7 removes registry I/O from the display-notification lock. The current
 power-button and RTC candidates drain polling/work before I2C powers down;
 SIO 0.2.4 and touch 1.0.1.1 use asynchronous display-driven runtime idle.
-The replacement Bluetooth 1.0.0.17 rejects partial patch downloads and checks
-reset acknowledgements, baud changes and patch retention. These changes need
-physical repeated-wake and discovery results.
+Bluetooth 1.0.0.18 retains strict patch/baud validation, removes the persistent
+failed-boot hold and permits one T214 hardware-reset retry. It is installed
+with DDR200 0.5.0.1; physical discovery and lifecycle results remain pending.
 
 `SWITCH_LITE_SLEEP=1` exposes PMU_EXT GSI 118 as a wake interrupt and configures
 PMC interrupt inversion. `SWITCH_LITE_PROCESSOR_IDLE=1` separately exposes the
@@ -40,6 +40,18 @@ until device start and drains display callbacks/work on removal. ARM64 and
 focused callback tests pass; the old loader failure has not been retested on
 hardware and the candidate is not installed.
 
+BL31 development patch 0005 now prepares BPMP and PMC wake event 51 for the
+Windows `CPU_SUSPEND` SC7 path. It rejects missing acknowledgement or failed
+wake-mask setup before committing to powerdown. Its default is disabled;
+`--sc7` builds the candidate separately. ARM64 builds and actual-function
+fault tests pass, but it is not installed. GPIO 1.0.0.5 now saves/restores
+controller, debounce and interrupt state through GpioClx, with output latches
+restored before output enable and interrupts last. It preserves pending wake
+events and performs no registry I/O in power callbacks. The ARM64 package is
+signed and its register-loss tests pass; physical restoration remains pending.
+Windows device constraints, display/clock restoration and complete SC7
+coordination are still required before enabling this path on the card.
+
 ### Switchroot Ubuntu reference
 
 Use kernel commit `2d0059fd3167a8df756de2aa0489d4aa70a9fc15` and B01 board
@@ -50,7 +62,9 @@ The companion NVIDIA kernel tree for this release is tag `linux-5.1.0`, commit
 | Path | Switchroot behavior | Windows port implication |
 |---|---|---|
 | [B01 boot preparation](https://github.com/CTCaer/hekate/blob/v6.5.3/bootloader/l4t/l4t.c#L978) | Hekate loads BPMP/MTC from `bootloader/sys/l4t` and configures B01 warmboot | Reuse this boot preparation; B01 does not use the original T210's separate `sc7entry.bin`. |
-| [SC7 permission](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/578d533b99cd5d5c3e57760431d2f621307265cf/drivers/soc/tegra/pm-tegra210.c#L68) | Send BPMP `MRQ_ENABLE_SUSPEND` with `TEGRA_PM_SC7` before system suspend | Integrate the BPMP acknowledgement with the coordinated Windows/firmware entry path. CPU/cluster idle alone omits this step. |
+| [SC7 permission](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/578d533b99cd5d5c3e57760431d2f621307265cf/drivers/soc/tegra/pm-tegra210.c#L68) | Send BPMP `MRQ_ENABLE_SUSPEND` with `TEGRA_PM_SC7` before system suspend | Implemented in opt-in BL31 patch 0005; caller/device coordination and physical acceptance remain pending. |
+| [PMIC wake routing](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/cf785c4c176499b301170d79fe57b77f365b73cd/kernel-dts/nx-platforms/tegra210b01-nx-pmic.dtsi#L110) | MAX77620 uses active-low PMC wake event 51, separately from GIC PMU_EXT | Patch 0005 arms and checks this source after BPMP acknowledgement. GIC configuration alone is insufficient for SC7. |
+| [GPIO restore](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/gpio/gpio-tegra.c#L490) | Save CNF, output/direction, debounce and interrupt state | GPIO 1.0.0.5 implements GpioClx save/restore with wake-status preservation; signed, not installed. |
 | [B01 SDMMC1](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/cf785c4c176499b301170d79fe57b77f365b73cd/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi#L280) | `power-off-rail`, tap 11, trim 14, SDR104 limit 200 MHz, dynamic host clock gating disabled | Preserve voltage/pad rules and coordinate the real card power state. |
 | [Host suspend/resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-pltfm.c#L237) | Quiesce host/IRQs before platform clocks; restore platform first | Do not replay live command/DMA state or enable IRQs before initialization. |
 | [Tegra resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-tegra.c) | Mark pad calibration required and start at 400 kHz | A saved SDR104 register image is insufficient after full card power loss. |
@@ -64,7 +78,7 @@ The previous battery driver called `BatteryClassIoctl` on the underlying IRP of 
 
 SwitchBattery 1.0.0.8 calls the battery class driver from a WDM preprocess callback, before KMDF creates a request. Only unhandled IRPs are forwarded into KMDF. A separate lock protects class initialization, dispatch and unload without holding the I2C callback lock. This follows [Microsoft's battery sample](https://github.com/microsoft/Windows-driver-samples/blob/main/simbatt/func/wdf.c).
 
-Earlier one-boot isolation of seven optional drivers allowed shutdown; restoring them brought the failure back. After the battery change, normal shutdown passed with that group enabled. Bluetooth 1.0.0.15's HCI write cancellation and frame-lifetime fix remains installed; it had not resolved the full failure on its own.
+Earlier one-boot isolation of seven optional drivers allowed shutdown; restoring them brought the failure back. After the battery change, normal shutdown passed with that group enabled. Bluetooth 1.0.0.15's HCI write cancellation and frame-lifetime fix was present in that test; it had not resolved the full failure on its own. The current 1.0.0.18 package retains that fix.
 
 ## Firmware behavior
 
