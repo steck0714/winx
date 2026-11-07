@@ -319,7 +319,7 @@ git -C atf checkout 85081cab2050051ea6e93206ef0f80bc0676e613
   atf out/firmware --cross-prefix "$GCC5_AARCH64_PREFIX"
 ```
 
-The builder applies patches `0001` through `0007` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. Patches `0005`–`0007` only change behavior with the separate development option `--sc7`; omit that option for the normal build while complete Windows/device context restoration remains unfinished. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check.
+The builder applies patches `0001` through `0004` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check. Experimental sleep patches are maintained only on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test).
 
 For later rebuilds, reuse the patched `atf` checkout and rerun the Python command. The builder recognizes its already-applied patches. The [ATF reference](../../patches/atf/README.md) explains the NX build parameters and optional diagnostic flags.
 
@@ -380,17 +380,12 @@ build -a AARCH64 -t GCC5 -b RELEASE -n 8 -p NintendoSwitchPkg/NintendoSwitch.dsc
   -D SWITCH_LITE_XUSB=1 -D SWITCH_LITE_SIO=1
 ```
 
-For the in-progress sleep/wake candidate, also pass `-D SWITCH_LITE_SLEEP=1`
-and stage the matching `switchpwrbtn` package. That option adds the PMIC wake
-interrupt, independently of the processor power backend. Do not install
-`tegra214pep` in a normal deployment: its boot-start configuration caused a cold-boot
-`0xc000000f` failure. The experimental C7/CC6 backend requires a separate explicit
-`SWITCH_LITE_PROCESSOR_IDLE=1` development build and is not boot-validated.
-Keep the card header identical to the selected hidden
-or FAT32-visible SD miniport. See [current work and acceptance](PORTING.md).
-
-S4 hibernation is not supported; the experimental implementation has been
-removed. Direct retained-memory sleep and wake remain under development.
+Keep the card header identical to the selected hidden or FAT32-visible SD
+miniport. The default branch does not include experimental processor power,
+PMIC wake-interrupt or SC7 context code. Sleep/wake development lives only on
+[`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with its matching
+driver branch. S4 hibernation is unsupported and its implementation remains
+removed. See [current work and acceptance](PORTING.md).
 
 This selects the Lite boot/storage, touch, power, audio, Bluetooth, Wi-Fi preparation, SIO and B01 USB profile. It uses Microsoft Basic Display in Windows; the flags do not enable GPU acceleration. The generic `Tools/build.sh` / `build-woa.sh` defaults select a different profile, so use the explicit command above for this guide.
 

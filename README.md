@@ -22,8 +22,11 @@ USB-C peripherals and headphones await hardware testing. [Porting status](docs/h
 
 The signed **DDR200 0.5.0.1 candidate** is installed with Bluetooth 1.0.0.18.
 It adds automatic detection, manual tuning and bounded SDR104 recovery.
-Build and host tests pass; physical DDR200 activation, fallback and speed are
-not yet verified. [DDR200 status](docs/hdh001-home/PORTING.md#windows-ddr200-goal)
+Build and host tests passed, but the installed combination then failed with
+**INACCESSIBLE_BOOT_DEVICE** before reaching the desktop. Its cause, physical
+DDR200 activation and fallback remain unverified. [DDR200 status](docs/hdh001-home/PORTING.md#windows-ddr200-goal)
+
+Experimental sleep/wake work is isolated on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with a matching driver branch. The default branches exclude its platform and input-power experiments.
 
 Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). The `WindowsDrivers` submodule pins the matching revision.
 
