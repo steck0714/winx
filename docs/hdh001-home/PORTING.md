@@ -83,11 +83,14 @@ of the SD/PMIC gate. Six-route context-loss/failure tests pass; not installed.
 Bluetooth 1.0.0.19 is the latest signed candidate. It restores UART-D's own
 clock/reset before a resumed HCI probe, preserving the 1.0.0.18 recovery path.
 Repeated context-loss and failure tests pass; 1.0.0.18 is still installed.
+SD 0.5.0.2 restores the saved SDR104/DDR200 source before the first card clock
+pulse, and restores SDMMC1's CAR enable/reset before accessing a lost host.
+Both profile builds and context-loss/failure tests pass; 0.5.0.1 stays installed.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
 | SD / boot | The latest owner comparison found similar responsiveness with FAT32 visible or hidden. The card now has the visible 0.5.0.1 candidate and the same paired BL33. | No proven performance difference, cause or fix. Further investigation deferred; both profiles remain available. |
-| SD DDR200 | Detection, vendor-mode switching, 128-tap tuning with an eight-tap minimum and bounded SDR104 reinitialization are implemented. Both profile builds and fault tests pass. Signed visible 0.5.0.1 is installed and readback-verified. | Physical activation, read integrity and fallback remain pending; sustained throughput is unmeasured. Sleep/wake acceptance depends on later SC7 work. |
+| SD DDR200 | Signed visible 0.5.0.1 is installed and readback-verified: automatic detection, eight-tap-minimum tuning and SDR104 fallback. Candidate 0.5.0.2 corrects retained-power resume clock ordering; both profile builds and fault tests pass, not installed. | Physical activation, read integrity and fallback remain pending; sustained throughput is unmeasured. Sleep/wake acceptance depends on later SC7 work. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work. GPIO 1.0.0.5 and I2C 1.0.0.6 add power-transition context restoration; built, signed and host-tested, not installed. | Touch press/release and three-point check, without stuck contacts; controller restoration needs physical acceptance. |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
