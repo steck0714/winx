@@ -1,6 +1,6 @@
 # HDH-001 driver porting goal
 
-The goal is a usable Windows 11 ARM64 Home system on Switch Lite HDH-001:
+The goal is a usable Windows 11 ARM64 system on Switch Lite HDH-001:
 adapt the applicable upstream drivers and add Wi-Fi using Switchroot's Linux
 implementation and board descriptions as hardware references. A successful
 build or package installation is not hardware acceptance.
@@ -12,28 +12,33 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 ## Current work and acceptance
 
-The owner has now prioritized **retained-memory sleep and direct power-button
-wake, without returning through Hekate**. Implement Tegra SC7 through the
+The owner now prioritizes **Windows DDR200 with automatic detection and SDR104
+fallback**, after the requested hidden/visible-FAT responsiveness comparison.
+Retained-memory sleep and direct power-button wake without Hekate remain in
+the long-term goal. Implement Tegra SC7 through the
 appropriate Windows power-management path; SC7 is not an ACPI "S7" state.
 S4 hibernation has been cancelled and its implementation removed. Also fix
 Bluetooth initialization and resume recovery, repeated display-off/on stalls,
 and the performance regression when FAT32 is visible. Build, sign and install
 the coherent update on the existing card, including the FAT32-visible SDR104
-profile and its matching BL33. The owner has now requested the matched hidden
-profile for comparison after recurring roughly one-minute stalls. Keep both
+profile and its matching BL33. The owner reported no recurring stalls in the
+0.4.2.0 hidden-profile trial and requested a matched FAT32-visible comparison.
+This observation does not yet establish the cause of the visible-FAT issue. Keep both
 source profiles and investigate visible-FAT performance; preserve all card data.
 The long-term SD goal also includes **Windows DDR200**, porting Switchroot L4T
 Linux's automatic card detection, tuning checks and SDR104 fallback below.
 Code completion, build/signature checks and physical acceptance are separate.
-The installed 0.4.2.0 package is the hidden-FAT SDR104 comparison. It removes
-the retired T214 dump/hibernate path while retaining the
+The 0.4.2 series removes the retired T214 dump/hibernate path while retaining the
 512 KiB runtime DMA limit and both partition views. The matching BL33 removes
 the S4 ACPI object and temporary hiber-header screen. ARM64 builds, signed
 catalog membership and both partition-profile host checks pass. The package
 and BL33 were installed and read back on 2026-11-07. Hibernation, its RunOnce
 setup and pending resume request were removed; the 3.7 GiB hiberfile was deleted.
 The power button now requests Sleep (action 1). This policy change is not SC7
-acceptance; the complete direct-wake path remains unfinished.
+acceptance; the complete direct-wake path remains unfinished. The installed
+0.4.2.1 package and paired BL33 now expose FAT32 for the requested comparison;
+the SDR104 transfer algorithm, other driver binaries, service start settings,
+BCD and BL31 were preserved and read back. Its responsiveness result is pending.
 The experimental processor PEP previously prevented cold boot with
 `0xc000000f`; disabling it allowed the owner to reach the desktop. Its loader
 failure must be resolved before using it for retained-memory sleep. The PMIC
@@ -56,7 +61,7 @@ checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. The installed 0.4.2.0 comparison hides FAT32, removes S4 support and retains SDR104, range filtering and the 512 KiB runtime DMA limit; the visible profile remains available in source. | Diagnose the recurring roughly one-minute stalls. Keep BL33 and the miniport on the same layout. |
+| SD / boot | Owner reported no recurring stalls with hidden-FAT 0.4.2.0. Installed 0.4.2.1 exposes FAT32 with the same SDR104/range-filtering/512 KiB runtime transfer code and paired BL33. | Compare the two views and diagnose the visible-FAT stalls; do not treat visibility alone as a proven root cause. |
 | SD DDR200 | Planned; current Windows packages use SDR104. Use Switchroot L4T Linux's card capability detection and Tegra manual-tuning policy. | Supported cards enter DDR200; unsupported cards or failed initialization/tuning recover to SDR104 automatically. Verify actual timing, read/write integrity, fallback and sleep/wake without changing partition data. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
@@ -96,16 +101,18 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Prioritize genuine retained-memory sleep: short power-button press sleeps;
+1. Complete the requested matched FAT32-visible comparison, retaining SDR104
+   and the other driver versions; collect the responsiveness result.
+2. Implement Windows DDR200 with the detection, tuning and fallback contract
+   below, then build, sign, install and verify it on the Lite.
+3. Complete genuine retained-memory sleep: short power-button press sleeps;
    the next press restores the same session directly, without Hekate. Complete
    the Windows power integration, SC7 firmware/context preservation and PMC
    wake routing. Do not treat screen-off, CPU idle or power-off as SC7 acceptance.
-2. Complete peripheral quiescence and display/storage/Bluetooth restoration,
+4. Complete peripheral quiescence and display/storage/Bluetooth restoration,
    preserving working shutdown/restart; verify repeated sleep and direct wake.
-3. Measure the recurring SD stalls and optional FAT32-visible behavior. Keep
+5. Diagnose recurring SD stalls and optional FAT32-visible behavior. Keep
    the requested hidden-FAT comparison and both source profiles available.
-4. Implement Windows DDR200 with the detection, tuning and fallback contract
-   below, then build, sign, install and verify it on the Lite.
 
 ## Windows DDR200 goal
 
