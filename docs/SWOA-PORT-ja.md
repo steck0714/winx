@@ -12,7 +12,6 @@
 | `NintendoSwitch.dsc` / `.fdf` | 新スイッチ `SWITCH_WOA`。EHCI 系・TouchPanelDxe・FanDxe を外し、UsbPowerAudit + XhciDxe + XUSB ファームウェアを入れる |
 | `patches/edk2/0001-*.patch` | XhciDxe の DMA バッファを write-combined に(edk2-stable202402 用に作り直し) |
 | `WindowsDrivers/` | Windows 側ドライバ(KMDF、8種+診断)、SwitchCenter、署名・リリース用スクリプト |
-| `WindowsSetup/` | ログイン修正、ドライバ一覧スクリプト |
 | `Firmware/README.md` | XUSB ファームウェアの入手方法(バイナリは同梱しません) |
 | `docs/hayato41200/` | 先駆者の README と R361〜R378 の検証メモ |
 | `Tools/build-woa.sh` | ビルドスクリプト |
