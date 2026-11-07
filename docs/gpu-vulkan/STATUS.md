@@ -10,21 +10,22 @@ Continue implementation, compilation and necessary host checks autonomously unti
 
 ## Current stage and evidence
 
-The first milestone is a GPU-written word read back by Windows. ACPI resources, WDDM resource ownership and GM20B entry encoders are implemented; GPU power-up and channel execution remain open. Nothing from this branch has been installed on the SD card.
+The first milestone is a GPU-written word read back by Windows. ACPI resources, WDDM resource ownership, GM20B entry encoders and T214 idle-GPU power sequencing are implemented. The immediate hardware prerequisite is a firmware power/identity check; Windows GPU execution remains open.
 
 | Component | Code | Windows ARM64 build | On the Lite under Windows |
 | --- | --- | --- | --- |
 | GPU ACPI resources | Opt-in `SWITCH_LITE_GPU` / `SWOA0F01`, separate from POST display | DSDT compiled; one existing GCRS warning | Pending |
+| T214 GPU power | Switchroot rail/clock/reset/MC sequence; shared driver source used by firmware | ARM64 library and complete BL33 build pass; ordering/unwind model tests pass | Power and identity check pending |
 | GM20B command encoder | Upstream encoder unchanged; bounded Windows report wrapper | ARM64 COFF; host packet-boundary tests pass | GPU execution pending |
 | WDDM resources and page entries | Acquire/release helpers; 4 KiB PTE, small-page PDE and RAMIN PDB encoding | `TegraGpuCore.lib` built with WDK/SDK 26100.6584; host address-format tests pass | Pending; not an installable miniport |
-| GPU startup, VidMm integration and synchronization | Power, channel, residency and fence callbacks remain open | Pending | Pending |
+| GPU execution, VidMm integration and synchronization | Firmware loading, channels, residency and fence callbacks remain open | Pending | Pending |
 | NVK Vulkan ICD and off-screen rendering | Windows backend planned | Pending | Pending |
 | Win32 window presentation | Transport decision open | Pending | Pending |
 | DWM Direct3D-to-Vulkan integration | Separate feasibility study after presentation | Pending | Pending |
 
 - **Board evidence.** The card's Switchroot Ubuntu device-tree image contains a VALI rev 0 entry identifying Nintendo Switch Lite. Its enabled GM20B node lists 16 MiB apertures at `0x57000000` and `0x58000000`, 4 KiB at `0x538f0000`, stall/nonstall GIC SPIs 157/158, a GPU reset, host1x and an IOMMU reference. The Ubuntu boot log from this unit records `57000000.gpu` joining an IOMMU group and GM20B clock setup. The SHA-256 of the extracted VALI DTB is `36dd609e2bd112ffbd48c1d03b094516d4c47dca6827633db79c095ebd09913b`.
 - **Windows firmware.** `WINX0001` remains the optional POST framebuffer device. The new opt-in `SWOA0F01` node exposes the three GPU apertures and GSIs 189/190; the Windows helper preserves translated interrupt vectors and unwinds partial mappings. It performs no GPU register access or power changes. Hekate security carveouts remain reserved. [Windows DSDT](../../AcpiTables/Dsdt/Dsdt.asl) · [Firmware memory map](../../Include/Device/MemoryMap.h)
-- **Build evidence.** LLVM 23 compiled all four backend objects as `COFF-ARM64` against official WDK/SDK 26100.6584 with a 22621 target and WDDM 2.0 interfaces. Host tests cover 64 MiB directory boundaries, addresses above 4 GiB, invalid-address rejection and report-buffer bounds. The external Mesa encoder remains at `0ff52079`. These checks establish formats and compilation, not hardware mappings, execution or rendering. [Backend and build command](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/vulkan-test/drivers/TegraGpu)
+- **Build evidence.** LLVM 23 compiled the backend as `COFF-ARM64` against official WDK/SDK 26100.6584 with a 22621 target and WDDM 2.0 interfaces. Host tests cover address/packet boundaries, power ordering, PMIC/reset failures and MC-drain timeout ownership. The external Mesa encoder remains at `0ff52079`. The EDK2 build and BL33 entry/map checks pass (`bl33.bin` SHA-256 `09b81561886e7f5405f0b000b5e1428d983d0922c511182a6824b85ad56562c9`). These checks do not establish hardware execution or rendering. [Backend and build command](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/vulkan-test/drivers/TegraGpu)
 
 ## Implementation decisions
 
@@ -45,8 +46,10 @@ The first milestone is a GPU-written word read back by Windows. ACPI resources, 
 
 ## Blockers and next action
 
-GM20B power/firmware handoff, the first isolated GPU mapping and executable WDDM callbacks remain open. The present-allocation and fence contract with the display path is open separately. Switchroot's B01 board uses MAX77812 M1 for GPU, M3 for DDR and M4 for CPU; its GPU startup must not be replaced with the Erista regulator sequence.
+GM20B power/identity still needs hardware confirmation; firmware loading, the first isolated GPU mapping and executable WDDM callbacks remain open. Presentation allocation/fence interoperability is a separate open problem. The B01 sequence uses MAX77812 M1, preserving M3/M4 and shared clock bits. It requires an initially reset/clamped GPU and retains ownership on a failed MC drain. [Switchroot sequence](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/os/linux/platform_gk20a_tegra.c)
 
-Next, implement T214 GPU power/clock/reset sequencing from nouveau and Switchroot, then connect the WDDM adapter to private page-table/report memory and channel setup. Confirm GPU identity and resource ownership on the Lite before enabling submissions. Then run acceptance step 1.
+Next physical check: build the existing Lite profile with `-D SWITCH_LITE_GPU=1` and add `gpu_check=1` to its existing Hekate entry. Before Windows, the probe powers the idle GPU, reads BOOT0 twice, restores owned resources and requests power-off after 30 seconds. It performs no DMA and writes no files. Record power result, stage, both BOOT0 values and restore result. Remove `gpu_check` to resume ordinary boot. This prerequisite does not satisfy Windows execution acceptance step 1.
+
+After identity/power confirmation, connect private page-table/report memory and channel setup to the WDDM adapter, then run acceptance step 1. No GPU driver or ICD is installed by the firmware probe.
 
 Update this page in place as evidence changes. Keep detailed traces with the relevant test and use Git for historical states.

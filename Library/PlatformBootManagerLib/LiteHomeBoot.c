@@ -15,6 +15,9 @@
 
 #define WINDOWS_LOADER L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
 STATIC BOOLEAN IsWindowsPartition (EFI_HANDLE Handle);
+#ifdef SWITCH_LITE_GPU
+VOID LiteGpuPowerCheck (VOID);
+#endif
 
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
 #include "../../Drivers/WifiBtApp/t214/power.h"
@@ -316,6 +319,9 @@ PlatformBootManagerAfterConsole (VOID)
   EfiBootManagerConnectAll ();
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
   CheckPowerBeforeWindows ();
+#ifdef SWITCH_LITE_GPU
+  if (BootCheckMode ("gpu_check=") == 1) LiteGpuPowerCheck ();
+#endif
   CheckWifiBeforeWindows ();
 #endif
   Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);

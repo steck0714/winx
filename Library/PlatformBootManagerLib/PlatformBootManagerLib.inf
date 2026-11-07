@@ -34,6 +34,7 @@
 [Sources]
   PlatformBm.c
   LiteHomeBoot.c
+  LiteGpuPowerCheck.c
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec

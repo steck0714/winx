@@ -43,6 +43,12 @@
   !ifndef SWITCH_LITE_TOUCH
     !error "SWITCH_LITE_GPU requires the HDH-001 board profile"
   !endif
+  !ifndef SWITCH_LITE_PERFORMANCE
+    !error "SWITCH_LITE_GPU requires the reserved BL33 environment"
+  !endif
+  !ifndef SWITCH_LITE_BOOT_SD
+    !error "SWITCH_LITE_GPU requires the bounded Windows boot profile"
+  !endif
   DEFINE LITE_GPU_FLAGS = -DSWITCH_LITE_GPU=1
 !endif
 !ifdef SWITCH_LITE_XUSB
@@ -181,7 +187,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_GPU_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
