@@ -383,20 +383,14 @@ build -a AARCH64 -t GCC5 -b RELEASE -n 8 -p NintendoSwitchPkg/NintendoSwitch.dsc
 For the in-progress sleep/wake candidate, also pass `-D SWITCH_LITE_SLEEP=1`
 and stage the matching `switchpwrbtn` package. That option adds the PMIC wake
 interrupt, independently of the processor power backend. Do not install
-`tegra214pep` in the S4 kit: its boot-start configuration caused a cold-boot
-`0xc000000f` failure. The deferred C7/CC6 backend requires a separate explicit
+`tegra214pep` in a normal deployment: its boot-start configuration caused a cold-boot
+`0xc000000f` failure. The experimental C7/CC6 backend requires a separate explicit
 `SWITCH_LITE_PROCESSOR_IDLE=1` development build and is not boot-validated.
 Keep the card header identical to the selected hidden
 or FAT32-visible SD miniport. See [current work and acceptance](PORTING.md).
 
-For the S4 candidate, also pass `-D SWITCH_LITE_HIBERNATE=1` and build the SD
-miniport with `NV_T214_HIBERNATE=1` in addition to its bounded SDR104 defines.
-After installing both, run an on-device copy of `Tools/Enable-LiteS4.cmd` as
-administrator. It enables a full hiberfile and maps the power button to
-Hibernate, while keeping Fast Startup disabled. A successful setup is not a
-successful resume test: confirm power removal and restoration of the same
-application session. While Windows is hibernated, resume it before mounting
-or modifying either Windows-visible volume from another OS.
+S4 hibernation is not supported; the experimental implementation has been
+removed. Direct retained-memory sleep and wake remain under development.
 
 This selects the Lite boot/storage, touch, power, audio, Bluetooth, Wi-Fi preparation, SIO and B01 USB profile. It uses Microsoft Basic Display in Windows; the flags do not enable GPU acceleration. The generic `Tools/build.sh` / `build-woa.sh` defaults select a different profile, so use the explicit command above for this guide.
 

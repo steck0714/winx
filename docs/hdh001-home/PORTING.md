@@ -12,43 +12,34 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 ## Current work and acceptance
 
-The owner has prioritized **S4 hibernation to SD and restoration of the saved
-session**. SC7 whole-SoC retained-memory sleep is deferred to the plan. Also fix
+The owner has now prioritized **retained-memory sleep and direct power-button
+wake, without returning through Hekate**. Implement Tegra SC7 through the
+appropriate Windows power-management path; SC7 is not an ACPI "S7" state.
+S4 hibernation has been cancelled and its implementation removed. Also fix
 Bluetooth initialization and resume recovery, repeated display-off/on stalls,
 and the performance regression when FAT32 is visible. Build, sign and install
 the coherent update on the existing card, including the FAT32-visible SDR104
 profile and its matching BL33. The owner has now requested the matched hidden
 profile for comparison after recurring roughly one-minute stalls. Keep both
 source profiles and investigate visible-FAT performance; preserve all card data.
+The long-term SD goal also includes **Windows DDR200**, porting Switchroot L4T
+Linux's automatic card detection, tuning checks and SDR104 fallback below.
 Code completion, build/signature checks and physical acceptance are separate.
-The current S4 candidate builds and passes polled identity/write-bound tests;
-saved-session restoration has not passed on the Lite. On 2026-11-07,
-the signed 0.4.1.0 FAT32-visible package, matching S4 BL33, Bluetooth 1.0.0.17
-and the fan/input/wake updates were installed and read back from the card.
-The first cold boot stopped at recovery `0xc000000f`, before logon or any
-hibernation attempt. A local card replay reproduced that error; changing only
-the experimental `tegra214pep` service from boot-start to disabled let the
-loader reach kernel startup. The repair removes that package and separates
-the PEP ACPI option from PMIC wake resources. S4 does not require the PEP.
-Its development hardware ID is also separated from the existing audio ID.
-The PEP removal and paired BL33 have been installed and read back; other
-driver binaries and service start modes, BCD and BL31 were preserved.
-The owner confirmed a normal desktop boot with that repair on 2026-11-07.
-Returned-card readback confirms S4 setup completed, AC/DC button action 2 and
-a 3.7 GiB full hiberfile. The battery-only attempt powered off; the first next
-boot hung black with its fan running, and the second reached the desktop.
-Kernel-Boot event 16 reports `0xc000007b`; operational event 158 identifies
-hiber-header validation (`0x40600017`). This is a failed attempt, not S4
-acceptance. The owner confirmed no charger was connected, but no evidence
-establishes battery capacity or supply interruption as the cause. Battery-only
-S4 must work; external power is a diagnostic comparison, not a prerequisite.
-The signed hidden-FAT comparison package is 0.4.1.1, with the same SD transfer
-algorithm as 0.4.1.0. The paired firmware includes an opt-in read-only hiber
-header display. Both were installed and read back on 2026-11-07. Cleanup
-removed the invalidated 3.7 GiB hiberfile and its pending BCD resume request;
-the next logon recreates the same single file. Other driver binaries, their
-service settings and BL31 were preserved. Repeated wake, Bluetooth recovery,
-S4 restoration and visible-FAT performance remain unverified.
+The installed 0.4.2.0 package is the hidden-FAT SDR104 comparison. It removes
+the retired T214 dump/hibernate path while retaining the
+512 KiB runtime DMA limit and both partition views. The matching BL33 removes
+the S4 ACPI object and temporary hiber-header screen. ARM64 builds, signed
+catalog membership and both partition-profile host checks pass. The package
+and BL33 were installed and read back on 2026-11-07. Hibernation, its RunOnce
+setup and pending resume request were removed; the 3.7 GiB hiberfile was deleted.
+The power button now requests Sleep (action 1). This policy change is not SC7
+acceptance; the complete direct-wake path remains unfinished.
+The experimental processor PEP previously prevented cold boot with
+`0xc000000f`; disabling it allowed the owner to reach the desktop. Its loader
+failure must be resolved before using it for retained-memory sleep. The PMIC
+wake resources remain independent of that backend. SC7 direct sleep/wake,
+repeated display restoration and Bluetooth recovery are not implemented and
+accepted as a complete system yet.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
@@ -65,7 +56,8 @@ checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. The 0.4.1 series adds a 512 KiB runtime DMA limit and an opt-in S4 dump path. The installed 0.4.1.1 comparison hides FAT32 while preserving SDR104 and range filtering; the visible profile remains available in source. | Diagnose the recurring roughly one-minute stalls. Keep BL33 and the miniport on the same layout. |
+| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. The installed 0.4.2.0 comparison hides FAT32, removes S4 support and retains SDR104, range filtering and the 512 KiB runtime DMA limit; the visible profile remains available in source. | Diagnose the recurring roughly one-minute stalls. Keep BL33 and the miniport on the same layout. |
+| SD DDR200 | Planned; current Windows packages use SDR104. Use Switchroot L4T Linux's card capability detection and Tegra manual-tuning policy. | Supported cards enter DDR200; unsupported cards or failed initialization/tuning recover to SDR104 automatically. Verify actual timing, read/write integrity, fallback and sleep/wake without changing partition data. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
@@ -104,19 +96,38 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Finish the FAT32-visible SDR104/ADMA2 and Bluetooth/display-wake update,
-   preserving normal shutdown/restart and all partitions.
-2. Implement the SDPORT dump/hibernate path: bounded WINARM writes, polling
-   without interrupts, and no pageable allocation, registry I/O or dependency
-   on a stopped I2C driver during the final hibernation write.
-3. Enable full S4 only after that path builds and passes the relevant checks.
-   Verify that Windows writes the hibernation image, powers off, and restores
-   the same desktop/application session through `winresume.efi`.
-4. Measure FAT32-visible desktop and I/O behavior. Preserve the hidden profile;
-   code/build checks do not establish a measured performance improvement.
-5. Deferred: complete SC7 peripheral quiescence, PMC wake routing and
-   display/storage restoration. The C7/CC6 and PMIC wake work is foundational,
-   not proof of whole-SoC sleep. Keep evidence in the existing power notes.
+1. Prioritize genuine retained-memory sleep: short power-button press sleeps;
+   the next press restores the same session directly, without Hekate. Complete
+   the Windows power integration, SC7 firmware/context preservation and PMC
+   wake routing. Do not treat screen-off, CPU idle or power-off as SC7 acceptance.
+2. Complete peripheral quiescence and display/storage/Bluetooth restoration,
+   preserving working shutdown/restart; verify repeated sleep and direct wake.
+3. Measure the recurring SD stalls and optional FAT32-visible behavior. Keep
+   the requested hidden-FAT comparison and both source profiles available.
+4. Implement Windows DDR200 with the detection, tuning and fallback contract
+   below, then build, sign, install and verify it on the Lite.
+
+## Windows DDR200 goal
+
+Reference Switchroot L4T Linux kernel commit
+`2d0059fd3167a8df756de2aa0489d4aa70a9fc15`, especially
+[SD mode selection and fallback](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/core/sd.c#L519)
+and [Tegra DDR200 manual tuning](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-tegra.c#L1693).
+
+- Detect the SD specification revision and vendor command-system capability
+  from SCR/CMD6 responses; do not assume support from branding or capacity.
+- Port the CMD6 group-2 selection, T214 clock/pad setup and manual sampling
+  window selection. Match the upstream rejection of windows below eight taps,
+  including cards whose required DLL synchronization the host cannot provide.
+- Unsupported cards stay on SDR104. A failed DDR200 transition or tuning must
+  leave the card and host in a consistent, usable SDR104 mode through bounded
+  recovery/reinitialization; changing a reported mode field is not fallback.
+- Cover card reset, Windows boot and retained-memory resume. Record the actual
+  selected mode and fallback reason in bounded existing diagnostics. Preserve
+  partition filtering and all data; never use arbitrary sectors for write tests.
+- Acceptance requires physical mode/readback evidence, data-integrity checks,
+  automatic fallback and repeated sleep/wake. Documentation, code completion
+  and successful builds do not establish DDR200 support or a throughput gain.
 
 Detailed Wi-Fi dependencies are tracked in [WIFI.md](WIFI.md).
 

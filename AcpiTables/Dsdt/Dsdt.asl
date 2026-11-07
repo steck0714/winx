@@ -22,11 +22,6 @@
 
 DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_OEM_REVISION) 
 {
-#ifdef SWITCH_LITE_HIBERNATE
-    // Arm BBR: S4 is an OS-managed saved image followed by PSCI SYSTEM_OFF.
-    // Resume enters the normal firmware boot path and Windows winresume.efi.
-    Name (_S4, Package (4) { Zero, Zero, Zero, Zero })
-#endif
     Scope(_SB) 
     {
 
