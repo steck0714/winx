@@ -34,13 +34,23 @@ owner reached the desktop after it was removed. Resolve that loader failure
 before deployment. Calling `ProcessorHalt` for C7/CC6 alone does not provide
 SC7 firmware context, peripheral sequencing or a valid wake path.
 
+The 0.1.0.2 PEP candidate now uses a native WDM entry/PnP lifecycle, following
+Microsoft's i.MX PEP, and imports no KMDF loader. It defers registry diagnostics
+until device start and drains display callbacks/work on removal. ARM64 and
+focused callback tests pass; the old loader failure has not been retested on
+hardware and the candidate is not installed.
+
 ### Switchroot Ubuntu reference
 
 Use kernel commit `2d0059fd3167a8df756de2aa0489d4aa70a9fc15` and B01 board
 commit `cf785c4c176499b301170d79fe57b77f365b73cd` as pinned references.
+The companion NVIDIA kernel tree for this release is tag `linux-5.1.0`, commit
+`578d533b99cd5d5c3e57760431d2f621307265cf` (not a `linux-5.1.2` branch).
 
 | Path | Switchroot behavior | Windows port implication |
 |---|---|---|
+| [B01 boot preparation](https://github.com/CTCaer/hekate/blob/v6.5.3/bootloader/l4t/l4t.c#L978) | Hekate loads BPMP/MTC from `bootloader/sys/l4t` and configures B01 warmboot | Reuse this boot preparation; B01 does not use the original T210's separate `sc7entry.bin`. |
+| [SC7 permission](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/578d533b99cd5d5c3e57760431d2f621307265cf/drivers/soc/tegra/pm-tegra210.c#L68) | Send BPMP `MRQ_ENABLE_SUSPEND` with `TEGRA_PM_SC7` before system suspend | Integrate the BPMP acknowledgement with the coordinated Windows/firmware entry path. CPU/cluster idle alone omits this step. |
 | [B01 SDMMC1](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/cf785c4c176499b301170d79fe57b77f365b73cd/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi#L280) | `power-off-rail`, tap 11, trim 14, SDR104 limit 200 MHz, dynamic host clock gating disabled | Preserve voltage/pad rules and coordinate the real card power state. |
 | [Host suspend/resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-pltfm.c#L237) | Quiesce host/IRQs before platform clocks; restore platform first | Do not replay live command/DMA state or enable IRQs before initialization. |
 | [Tegra resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-tegra.c) | Mark pad calibration required and start at 400 kHz | A saved SDR104 register image is insufficient after full card power loss. |
