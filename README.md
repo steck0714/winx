@@ -20,16 +20,6 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 
 USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
 
-The signed **DDR200 0.5.0.3 candidate** is installed with Bluetooth 1.0.0.19.
-The previous 0.5.0.1 combination failed with **INACCESSIBLE_BOOT_DEVICE**.
-Version 0.5.0.3 fixes event-mask loss reproduced during SDR104 fallback;
-build, signing and installed readback checks pass. The owner subsequently
-confirmed desktop boot and working Bluetooth. Actual DDR200 activation,
-physical fallback and throughput remain unverified.
-[DDR200 status](docs/hdh001-home/PORTING.md#windows-ddr200-goal)
-
-SC7 development is paused; the experimental sleep/wake source is preserved on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with a matching driver branch. The default branches exclude its platform and input-power experiments.
-
 Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). The `WindowsDrivers` submodule pins the matching revision.
 
 ## Storage profiles
