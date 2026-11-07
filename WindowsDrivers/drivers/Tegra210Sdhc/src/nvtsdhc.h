@@ -1,3 +1,6 @@
+#ifndef NV_T214_SDR104
+#define NV_T214_SDR104 0
+#endif
 /*++
 
 Copyright (c) 2014 Microsoft Corporation
@@ -1382,6 +1385,17 @@ typedef struct _SDHC_EXTENSION {
     //
 
     BOOLEAN CrashdumpMode;
+#if NV_T214_SDR104
+    PUCHAR T214Car, T214Misc, T214Pmc, T214I2c, T214Gpio;
+    PKEVENT T214Gate;
+    HANDLE T214GateHandle;
+    PUCHAR T214Bounce, T214DmaBuffer;
+    PHYSICAL_ADDRESS T214BouncePa;
+    ULONG T214DmaLength, T214DmaBlocks, T214DmaErrors, T214Smmu;
+    ULONG T214VoltageStatus, T214VoltageFailures, T214TuneStatus;
+    ULONG T214TuningRuns, T214TuningIterations, T214Tap, T214CalFallbacks;
+    BOOLEAN T214CardOn, T214Voltage18, T214Tuned, T214DmaActive, T214DmaComplete, T214DmaFault;
+#endif
 #if NV_T210_LITE_WINARM_WRITE
     volatile LONG TargetFacts;
     ULONG NextReadLba;
@@ -1823,10 +1837,10 @@ SdhcGetHwUhsMode(
         return SDHC_HC2_SDR50;
 
     case SdBusSpeedDDR50:
-        return SDHC_HC2_SDR50;
+        return SDHC_HC2_DDR50;
 
     case SdBusSpeedSDR104:
-        return SDHC_HC2_SDR50;
+        return SDHC_HC2_SDR104;
 
     //
     // PCI controllers don't support the higher speed eMMC modes.

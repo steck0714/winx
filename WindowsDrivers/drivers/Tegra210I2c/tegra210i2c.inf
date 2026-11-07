@@ -8,7 +8,7 @@ Class       = System
 ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider    = %Mfg%
 CatalogFile = tegra210i2c.cat
-DriverVer   = 10/29/2026,1.0.0.4
+DriverVer   = 11/06/2026,1.0.0.5
 PnpLockdown = 1
 
 [DestinationDirs]

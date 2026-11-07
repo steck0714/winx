@@ -52,3 +52,27 @@ Copy-Item "$sd/winarm/generated/winarm-target.h" "$sd/src/"
 ```
 
 For WinPE deployment, use the matching R3 BL33, generated startnet.cmd and the signed test package. Verify the final SYS and INF against their catalog using a test certificate valid at the firmware's cold-start clock. The hardware build and test steps are in the [R3 source tree](https://github.com/ruje0504-2/winx/tree/b44da7475fb281d6e4390d976f8f8e0098154d87/docs/hdh001-winarm-r3). One HDH-001 verified the 4 KiB receipt file after shutdown and a second boot. [Hardware report](https://github.com/steck0714/winx/issues/5)
+
+### T214 SDR104 candidate
+
+The `NV_T214_SDR104=1` bounded WINARM profile adds B01 SDMMC1 signaling
+voltage switching, pad calibration, hardware CMD19 tuning and a 199.68 MHz
+PLLC4 OUT2 clock. SDR50, DDR50 and proprietary DDR200 are not advertised.
+It requires the accompanying `tegra210i2c` 1.0.0.5 package: both drivers
+serialize I2C5 access while the boot miniport adjusts the SD LDO2 rail.
+
+Large requests can use a private noncached, below-4-GiB ADMA2 buffer. The
+existing MBR presentation and per-card write bounds are applied before
+completion; the default WINARM-only view is unchanged. Allocation or mapping
+constraints keep PIO available. Controller errors are returned to SDPORT
+and a failed DMA operation requires a completed DAT reset before reuse.
+
+Status: ARM64 build and host DMA/filter/bounds tests pass; physical SDR104
+negotiation, card I/O and throughput remain unverified. Read `Signaling18V`,
+`Tuned`, `TuningTap`, `ClockKhzActual`, `AdmaBlocks` and `AdmaErrors` under
+`Services\nvtsdhc\Parameters\Diag`. These counters do not replace a
+file-integrity check or a measured throughput result.
+
+Hardware references: [Hekate SDMMC](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/storage/sdmmc_driver.c),
+[Hekate clock setup](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/soc/clock.c),
+and [Switchroot Linux](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-dev/drivers/mmc/host/sdhci-tegra.c).

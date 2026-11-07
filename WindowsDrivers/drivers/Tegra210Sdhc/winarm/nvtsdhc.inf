@@ -3,7 +3,7 @@ Signature="$Windows NT$"
 Class=SDHost
 ClassGuid={a0a588a4-c46f-4b37-b7ea-c82fe89870c6}
 Provider=%ProviderName%
-DriverVer=11/06/2026,0.3.2.7
+DriverVer=11/06/2026,0.4.0.0
 CatalogFile=nvtsdhc.cat
 PnpLockdown=1
 
@@ -57,7 +57,7 @@ HKR,Parameters,SdAppCmdFlags,1,06,01,0D,01,16,01,17,01,33,01,12,01,19,01,1A,01,2
 
 [Strings]
 ProviderName="Switch Lite WOA Test"
-DeviceName="Switch Lite SDMMC1 (PIO, bounded Windows storage)"
+DeviceName="Switch Lite SDMMC1 (bounded Windows storage)"
 ServiceName="Nintendo Switch Tegra210 SD Host Miniport"
 SlotName="Nintendo Switch microSD slot %1!u!"
 DiskName="Tegra210 SD Host Driver Disk"

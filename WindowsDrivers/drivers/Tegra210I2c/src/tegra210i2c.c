@@ -17,6 +17,8 @@
 #include <wdf.h>
 #include <spbcx.h>
 
+#include "../../common/tegra_i2c5_gate.h"
+
 #define I2C_CNFG            0x000
 #define I2C_STATUS          0x01C
 #define I2C_TX_FIFO         0x050
@@ -76,6 +78,8 @@ typedef struct _RH_QUERY_CONNECTION_PROPERTIES_OUTPUT_BUFFER {
 typedef struct _TEGRA_I2C_DEVICE {
     volatile UCHAR *Base;
     ULONG Length;
+    PKEVENT SdGate;
+    HANDLE SdGateHandle;
     ULONG PhysLow;              /* low 32 bits of the MMIO base, for logging */
     volatile LONG Errors, Nacks, Timeouts, LastError, LastAddress;
 } TEGRA_I2C_DEVICE, *PTEGRA_I2C_DEVICE;
@@ -297,7 +301,11 @@ static VOID TegraI2cRunRequest(WDFDEVICE Controller, SPBTARGET Target, SPBREQUES
     NTSTATUS Status = STATUS_SUCCESS;
     SIZE_T Total = 0;
     ULONG Index;
-
+    Status = TegraI2c5Acquire(Dev->SdGate);
+    if (!NT_SUCCESS(Status)) {
+        SpbRequestComplete(Request, Status);
+        return;
+    }
     for (Index = 0; Index < Count && NT_SUCCESS(Status); ++Index) {
         SPB_TRANSFER_DESCRIPTOR Desc;
         PMDL Mdl = NULL;
@@ -333,6 +341,7 @@ static VOID TegraI2cRunRequest(WDFDEVICE Controller, SPBTARGET Target, SPBREQUES
         }
         ExFreePoolWithTag(Bounce, 'c2iT');
     }
+    TegraI2c5Release(Dev->SdGate);
     WdfRequestSetInformation((WDFREQUEST)Request, Total);
     SpbRequestComplete(Request, Status);
 }
@@ -427,6 +436,12 @@ NTSTATUS TegraI2cEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRES
     if (Dev->Base == NULL) {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
+    if (Dev->PhysLow == 0x7000d000 && Dev->SdGate == NULL) {
+        Dev->SdGate = TegraI2c5OpenGate(&Dev->SdGateHandle);
+        if (Dev->SdGate == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    NTSTATUS GateStatus = TegraI2c5Acquire(Dev->SdGate);
+    if (!NT_SUCCESS(GateStatus)) return GateStatus;
     TegraI2cTrace(Dev, L"ResourceCount", Count);
     TegraI2cTrace(Dev, L"CnfgBefore", RdReg(Dev, I2C_CNFG));
     TegraI2cTrace(Dev, L"ClkDivisor", RdReg(Dev, I2C_CLK_DIVISOR));
@@ -437,6 +452,7 @@ NTSTATUS TegraI2cEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRES
     TegraI2cLoadConfig(Dev);
     TegraI2cResetFifos(Dev);
     TegraI2cTrace(Dev, L"CnfgAfter", RdReg(Dev, I2C_CNFG));
+    TegraI2c5Release(Dev->SdGate);
 
     return STATUS_SUCCESS;
 }
@@ -445,6 +461,9 @@ NTSTATUS TegraI2cEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
 {
     PTEGRA_I2C_DEVICE Dev = TegraI2cGetDevice(Device);
     UNREFERENCED_PARAMETER(Translated);
+    if (Dev->SdGateHandle != NULL) {
+        ZwClose(Dev->SdGateHandle); Dev->SdGateHandle = NULL; Dev->SdGate = NULL;
+    }
     if (Dev->Base != NULL) {
         MmUnmapIoSpace((PVOID)Dev->Base, Dev->Length);
         Dev->Base = NULL;
@@ -467,6 +486,8 @@ NTSTATUS TegraI2cEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousSta
 {
     PTEGRA_I2C_DEVICE Dev = TegraI2cGetDevice(Device);
     UNREFERENCED_PARAMETER(PreviousState);
+    NTSTATUS GateStatus = TegraI2c5Acquire(Dev->SdGate);
+    if (!NT_SUCCESS(GateStatus)) return GateStatus;
     /* Value 0x1XX = success with register value XX, otherwise the NTSTATUS. */
     if (Dev->PhysLow == 0x7000C000) {
         TegraI2cSelfTest(Dev, 0x4C, 0x00, L"SelfTest_TMP451_Local");    /* board temperature, C */
@@ -476,6 +497,7 @@ NTSTATUS TegraI2cEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousSta
         TegraI2cSelfTest(Dev, 0x3C, 0x15, L"SelfTest_MAX77620_OnOffStat");
         TegraI2cSelfTest(Dev, 0x1B, 0x00, L"SelfTest_MAX77621_Vout");   /* CPU rail, expect 0xC3 after R365 */
     }
+    TegraI2c5Release(Dev->SdGate);
     TegraI2cTrace(Dev, L"D0EntryDone", 1);
     return STATUS_SUCCESS;
 }
@@ -530,7 +552,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         RtlCopyMemory(&TegraI2cParamsPath[RegistryPath->Length / sizeof(WCHAR)], L"\\Parameters", sizeof(L"\\Parameters"));
         (VOID)RtlCreateRegistryKey(RTL_REGISTRY_ABSOLUTE, TegraI2cParamsPath);
     }
-    TegraI2cTrace(NULL, L"DriverVersion", 4);
+    TegraI2cTrace(NULL, L"DriverVersion", 5);
 
     WDF_DRIVER_CONFIG_INIT(&Config, TegraI2cEvtDeviceAdd);
     return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES, &Config, WDF_NO_HANDLE);

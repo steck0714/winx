@@ -33,10 +33,12 @@ Revision History:
 #pragma clang diagnostic ignored "-Wunused-but-set-variable"
 
 // Nintendo Switch (Tegra210) bring-up policy.
-// Keep the first hardware test at 3.3 V and legacy/high-speed timing.  Tegra210
-// needs SoC-specific pad voltage switching and tuning which is deliberately not
-// enabled until basic card enumeration and block I/O have been proven.
-#define NV_T210_SAFE_BRINGUP 1
+// The default profile retains 3.3 V timing. The bounded T214 SDR104 profile
+// supplies the board-specific voltage, tuning and DMA implementation below.
+#define NV_T210_SAFE_BRINGUP (!NV_T214_SDR104)
+#if NV_T214_SDR104 && !NV_T210_LITE_WINARM_WRITE
+#error "SDR104 requires the bounded per-card Lite profile."
+#endif
 
 // Opt-in build for reading deployment media on the Hekate-booted HDH-001.
 #ifndef NV_T210_LITE_READ_ONLY
@@ -300,6 +302,9 @@ typedef struct _NV_DIAG {
 #endif
 
 static NV_DIAG NvDiag = { .LastErrorCommand = 0xFF };
+#if NV_T214_SDR104
+#include "t214_sdmmc.h"
+#endif
 
 static UCHAR
 NvDiagErrorKind(
@@ -446,6 +451,22 @@ NvDiagSaveClock(
 
     Saves += 1;
     NvDiagSetValue(Key, L"Saves", Saves);
+#if NV_T214_SDR104
+    NvDiagSetValue(Key, L"Sdr104Build", 1);
+    NvDiagSetValue(Key, L"AdmaAvailable", SdhcExtension->T214Bounce != NULL);
+    NvDiagSetValue(Key, L"Signaling18V", SdhcExtension->T214Voltage18);
+    NvDiagSetValue(Key, L"VoltageStatus", SdhcExtension->T214VoltageStatus);
+    NvDiagSetValue(Key, L"VoltageFailures", SdhcExtension->T214VoltageFailures);
+    NvDiagSetValue(Key, L"Tuned", SdhcExtension->T214Tuned);
+    NvDiagSetValue(Key, L"TuneStatus", SdhcExtension->T214TuneStatus);
+    NvDiagSetValue(Key, L"TuningRuns", SdhcExtension->T214TuningRuns);
+    NvDiagSetValue(Key, L"TuningIterations", SdhcExtension->T214TuningIterations);
+    NvDiagSetValue(Key, L"TuningTap", SdhcExtension->T214Tap);
+    NvDiagSetValue(Key, L"PadCalFallbacks", SdhcExtension->T214CalFallbacks);
+    NvDiagSetValue(Key, L"AdmaBlocks", SdhcExtension->T214DmaBlocks);
+    NvDiagSetValue(Key, L"AdmaErrors", SdhcExtension->T214DmaErrors);
+    NvDiagSetValue(Key, L"SmmuSdmmc1", SdhcExtension->T214Smmu);
+#endif
 #if NV_T210_LITE_WINARM_WRITE
     NvDiagSetValue(Key, L"App42Done", NvDiag.App42Done);
     NvDiagSetValue(Key, L"DeniedCount", NvDiag.DeniedCount);
@@ -865,11 +886,11 @@ Return value:
         }
         Source = READ_REGISTER_ULONG(&CarBase[NV_T210_CLK_SOURCE_SDMMC1 / sizeof(ULONG)]);
         MmUnmapIoSpace(CarBase, PAGE_SIZE);
-        if ((Source >> 29) != 0) {
+        if ((Source >> 29) != 0 && !(NV_T214_SDR104 && (Source >> 29) == 3)) {
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
         // Hekate/UEFI left SDMMC1 on PLLP_OUT0 (408 MHz), with a 7.1 divider.
-        Capabilities->BaseClockFrequencyKhz = (2u * 408000u) / ((Source & 0xffu) + 2u);
+        Capabilities->BaseClockFrequencyKhz = (2u * ((Source >> 29) == 3 ? 199680u : 408000u)) / ((Source & 0xffu) + 2u);
         NvDiag.CarSdmmc1Before = Source;
         NvDiag.CarSdmmc1After = Source;
     }
@@ -916,6 +937,11 @@ Return value:
     }
 #endif
 
+#if NV_T214_SDR104
+    if (CrashdumpMode || Length < 0x200) return STATUS_NOT_SUPPORTED;
+    NTSTATUS t214Status = T214Initialize(SdhcExtension);
+    if (!NT_SUCCESS(t214Status)) return t214Status;
+#endif
 #if NV_T210_ADMA32
     CapabilitiesReg.SystemBus64Support = 0;
 #endif
@@ -957,7 +983,7 @@ Return value:
         Capabilities->Supported.BusWidth8Bit = 1;
     }
 
-    if (!NV_T210_LITE_SLOT && CapabilitiesReg.HighSpeedSupport) {
+    if ((!NV_T210_LITE_SLOT || NV_T214_SDR104) && CapabilitiesReg.HighSpeedSupport) {
         Capabilities->Supported.HighSpeed = 1;
     }
 
@@ -983,6 +1009,12 @@ Return value:
     Capabilities->Supported.SignalingVoltage18V = 0;
 #endif
 
+#if NV_T214_SDR104
+    Capabilities->Supported.SDR50 = 0;
+    Capabilities->Supported.DDR50 = 0;
+    Capabilities->Supported.SDR104 = 1;
+    Capabilities->Supported.SignalingVoltage18V = 1;
+#endif
     Capabilities->Supported.HS200 = 0;
     Capabilities->Supported.HS400 = 0;
 
@@ -998,6 +1030,11 @@ Return value:
         Capabilities->Supported.DriverTypeD = 1;
     }
 
+#if NV_T214_SDR104
+    Capabilities->Supported.DriverTypeA = 0;
+    Capabilities->Supported.DriverTypeC = 0;
+    Capabilities->Supported.DriverTypeD = 0;
+#endif
     Capabilities->Supported.DriverTypeB = 1;
 
     if (Capabilities2Reg.UseTuningForSDR50) {
@@ -1018,8 +1055,17 @@ Return value:
     Capabilities->Supported.SoftwareTuning = 0;
 #endif
 
+#if NV_T214_SDR104
+    Capabilities->Supported.SoftwareTuning = 1;
+    Capabilities->Supported.TuningForSDR50 = 0;
+    Capabilities->TuningTimerCountInSeconds = 4;
+    Capabilities->Supported.Limit800mA = 1;
+    Capabilities->Supported.Limit600mA = 1;
+    Capabilities->Supported.Limit400mA = 1;
+    Capabilities->Supported.Limit200mA = 1;
+#endif
     Capabilities->Supported.AutoCmd12 = 1;
-    if (SpecVersion >= SDHC_SPEC_VERSION_3) {
+    if (!NV_T214_SDR104 && SpecVersion >= SDHC_SPEC_VERSION_3) {
         Capabilities->Supported.AutoCmd23 = 1;
     }
 
@@ -1192,11 +1238,25 @@ Return value:
         break;
 
     case SdSetDriveStrength:
+#if NV_T214_SDR104
+        // Fixed board supply supports up to 800mA (Switchroot B01 DT).
+        Status = (BusOperation->Parameters.DriveStrength >= SdDriveStrength200mA &&
+                  BusOperation->Parameters.DriveStrength <= SdDriveStrength800mA) ?
+                  STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+#endif
         //Status = SdhcSetDriveStrength(SdhcExtension,
         //                            BusOperation->Parameters.DriveStrength);
         break;
 
     case SdSetDriverType:
+#if NV_T214_SDR104
+        Status = STATUS_NOT_SUPPORTED;
+        if (BusOperation->Parameters.DriverType == SdDriverTypeB) {
+            USHORT control = SdhcReadRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2);
+            SdhcWriteRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2, control & ~0x30u);
+            Status = STATUS_SUCCESS;
+        }
+#endif
         //Status = SdhcSetDriverType(SdhcExtension,
         //                         BusOperation->Parameters.DriverType);
 
@@ -1508,6 +1568,8 @@ Return value:
     if (!NT_SUCCESS(Status)) {
         NvDiag.LastErrorCommand = Request->Command.Index;
         NvDiag.LastErrorKind = 8;
+        if (Index < SDHC_MAX_OUTSTANDING_REQUESTS) SdhcExtension->OutstandingRequests[Index] = NULL;
+        if (NvDiag.DataRequest == Request) NvDiag.DataRequest = NULL;
     }
 
     return Status;
@@ -1606,6 +1668,17 @@ Return value:
         return;
     }
     Request->RequiredEvents &= ~Events;
+#if NV_T214_SDR104
+    if (Errors && SdhcExtension->T214DmaActive) {
+        SdhcExtension->T214DmaErrors++;
+        SdhcExtension->T214DmaFault = TRUE;
+        SdhcExtension->T214DmaActive = FALSE;
+        SdhcExtension->T214DmaComplete = FALSE;
+        SdhcWriteRegisterUchar(SdhcExtension, SDHC_RESET, SDHC_RESET_DAT);
+    } else if (SdhcExtension->T214DmaActive && Request->RequiredEvents == 0) {
+        T214DmaDone(SdhcExtension, Request);
+    }
+#endif
 #if NV_T210_LITE_WINARM_WRITE
     if (Errors) {
         SdhcExtension->AppPrefixAccepted = FALSE;
@@ -1864,6 +1937,12 @@ Return value:
 {
 
     UNREFERENCED_PARAMETER(Miniport);
+#if NV_T214_SDR104
+    if (NvDiag.Extension != NULL) {
+        T214Release((PSDHC_EXTENSION)NvDiag.Extension);
+        NvDiag.Extension = NULL;
+    }
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1931,6 +2010,9 @@ Return value:
     // Reset the host controller.
     //
 
+#if NV_T214_SDR104
+    if (SdhcExtension->T214DmaFault) Mask |= SDHC_RESET_DAT;
+#endif
     Retries = 100;
     SdhcWriteRegisterUchar(SdhcExtension, SDHC_RESET, Mask);
     do {
@@ -1979,6 +2061,12 @@ Return value:
         }
     }
 
+#if NV_T214_SDR104
+    SdhcExtension->T214DmaActive = FALSE;
+    SdhcExtension->T214DmaComplete = FALSE;
+    SdhcExtension->T214DmaFault = FALSE;
+    if (ResetType == SdResetTypeAll) T214VendorReset(SdhcExtension);
+#endif
     SdhcWriteRegisterUchar(SdhcExtension, SDHC_HOST_CONTROL, HostControl);
     return STATUS_SUCCESS;
 }
@@ -2018,13 +2106,21 @@ Return value:
     USHORT Mask;
     UCHAR Retries;
     
-    if (NV_T210_LITE_SLOT && Frequency > 25000) {
-        Frequency = 25000;
-    }
+#if NV_T214_SDR104
+    ULONG limit = (SdhcExtension->T214Voltage18 && SdhcExtension->SpeedMode == SdhcSpeedModeSDR104) ? 200000 : 50000;
+    if (Frequency > limit) Frequency = limit;
+#else
+    if (NV_T210_LITE_SLOT && Frequency > 25000) Frequency = 25000;
+#endif
 
     ClockControl = SdhcReadRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL);
     ClockControl &= ~(SDHC_CC_CLOCK_ENABLE | SDHC_CC_INTERNAL_CLOCK_ENABLE);
     SdhcWriteRegisterUshort(SdhcExtension, SDHC_CLOCK_CONTROL, ClockControl);
+    if (Frequency == 0) {
+        NvDiag.ClockKhzRequested = NvDiag.ClockKhzActual = 0;
+        NvDiag.RegClockControl = ClockControl;
+        return STATUS_SUCCESS;
+    }
     ClockControl = SdhcCalcClockFrequency(SdhcExtension,
                                           Frequency,
                                           &ActualFrequency);
@@ -2116,6 +2212,12 @@ Return value:
     UCHAR PowerControlCheck;
     UCHAR Retries;
 
+#if NV_T214_SDR104
+    if (Voltage != SdBusVoltage33 && Voltage != SdBusVoltageOff) return STATUS_NOT_SUPPORTED;
+    if (Voltage == SdBusVoltage33 && SdhcExtension->T214CardOn) return STATUS_SUCCESS;
+    LiteForgetCard(SdhcExtension);
+    return T214Power(SdhcExtension, Voltage == SdBusVoltage33);
+#endif
     //
     // Wait 10ms if the slot is removable; otherwise, only wait 50us.
     //
@@ -2294,10 +2396,16 @@ Return value:
     NTSTATUS Status;
     USHORT UhsMode;
 
-    if (NV_T210_LITE_SLOT && Speed != SdBusSpeedNormal) {
+    if (NV_T210_LITE_SLOT && !NV_T214_SDR104 && Speed != SdBusSpeedNormal) {
         return STATUS_NOT_SUPPORTED;
     }
 
+#if NV_T214_SDR104
+    if (Speed == SdBusSpeedSDR50 || Speed == SdBusSpeedDDR50 || Speed == SdBusSpeedHS200 || Speed == SdBusSpeedHS400)
+        return STATUS_NOT_SUPPORTED;
+    SdhcExtension->SpeedMode = Speed == SdBusSpeedSDR104 ? SdhcSpeedModeSDR104 :
+                              Speed == SdBusSpeedHigh ? SdhcSpeedModeHigh : SdhcSpeedModeNormal;
+#endif
     switch (Speed) {
     case SdBusSpeedNormal:
         Status = SdhcSetHighSpeed(SdhcExtension, FALSE);
@@ -2360,7 +2468,7 @@ Return value:
 
     HostControl = SdhcReadRegisterUchar(SdhcExtension, SDHC_HOST_CONTROL);
     HostControl &= ~SDHC_HC_ENABLE_HIGH_SPEED;
-    if (Enable) {
+    if (Enable && !NV_T214_SDR104) {
         HostControl |= SDHC_HC_ENABLE_HIGH_SPEED;
     }
 
@@ -2465,6 +2573,13 @@ Return value:
     USHORT HostControl2;
     USHORT Mask;
 
+#if NV_T214_SDR104
+    NTSTATUS t214Status = T214Signaling(SdhcExtension, Enable);
+#if NV_DIAG_CLOCK
+    NvDiagSaveClock(SdhcExtension);
+#endif
+    return t214Status;
+#endif
     if (NV_T210_LITE_SLOT && Enable) {
         return STATUS_NOT_SUPPORTED;
     }
@@ -2591,6 +2706,13 @@ Return value:
     //UCHAR Retries;
     SDPORT_REQUEST TuningRequest;
 
+#if NV_T214_SDR104
+    NTSTATUS t214Status = T214Tune(SdhcExtension);
+#if NV_DIAG_CLOCK
+    NvDiagSaveClock(SdhcExtension);
+#endif
+    return t214Status;
+#endif
     HostControl2 = SdhcReadRegisterUshort(SdhcExtension, SDHC_HOST_CONTROL2);
 
     NT_ASSERT((HostControl2 & SDHC_HC2_EXECUTE_TUNING) == 0);
@@ -2711,7 +2833,7 @@ Return value:
     NT_ASSERT((HostControl2 & SDHC_HC2_ENABLE_PRESET_VALUE) != 0);
 
     HostControl2 &= ~SDHC_HC2_ENABLE_PRESET_VALUE;
-    if (Enable) {
+    if (Enable && !NV_T214_SDR104) {
         HostControl2 |= SDHC_HC2_ENABLE_PRESET_VALUE;
     }
 
@@ -3312,7 +3434,11 @@ Return value:
         Request->RequiredEvents |= SDHC_IS_TRANSFER_COMPLETE;
     }
 
-    if (Request->Command.TransferMethod == SdTransferMethodSgDma) {
+    if (Request->Command.TransferMethod == SdTransferMethodSgDma
+#if NV_T214_SDR104
+        || SdhcExtension->T214DmaActive
+#endif
+       ) {
         Request->RequiredEvents |= SDHC_IS_TRANSFER_COMPLETE;
 
     } else if (Request->Command.TransferMethod == SdTransferMethodPio) {
@@ -3740,6 +3866,16 @@ Return value:
     NTSTATUS Status;
 
     NT_ASSERT(Request->Command.TransferType != SdTransferTypeNone);
+#if NV_T214_SDR104
+    if (SdhcExtension->T214DmaComplete) {
+        SdhcExtension->T214DmaComplete = FALSE;
+        Request->Command.BlockCount = 0;
+        Request->Status = STATUS_SUCCESS;
+        SdhcExtension->OutstandingRequests[0] = NULL;
+        SdPortCompleteRequest(Request, STATUS_SUCCESS);
+        return STATUS_SUCCESS;
+    }
+#endif
 
     switch (Request->Command.TransferMethod) {
     case SdTransferMethodPio:
@@ -3784,7 +3920,12 @@ Return value:
 
 {
 
-    return SdhcSetTransferMode(SdhcExtension, Request);
+    NTSTATUS status = SdhcSetTransferMode(SdhcExtension, Request);
+#if NV_T214_SDR104
+    if (SdhcExtension->T214DmaFault) return STATUS_IO_DEVICE_ERROR;
+    if (NT_SUCCESS(status)) (VOID)T214BuildDma(SdhcExtension, Request);
+#endif
+    return status;
 }
 
 
@@ -4078,7 +4219,7 @@ Return value:
     NT_ASSERT(Divisor > 0);
 
     SpecVersion = SdhcReadRegisterUshort(SdhcExtension, SDHC_VERSION) & 0xFF;
-    if (SpecVersion > SDHC_SPEC_VERSION_3) {
+    if (SpecVersion < SDHC_SPEC_VERSION_3) {
 
         //
         // Calculate the fastest available clock frequency which is <= 
