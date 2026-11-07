@@ -8,7 +8,7 @@ Class       = Battery
 ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
 Provider    = %Mfg%
 CatalogFile = switchbattery.cat
-DriverVer   = 10/31/2026,1.0.0.6
+DriverVer   = 11/06/2026,1.0.0.7
 PnpLockdown = 1
 
 [DestinationDirs]
@@ -25,11 +25,31 @@ switchbattery.sys = 1
 
 [Std.NTarm64]
 %DeviceDesc% = SwBat_Inst, ACPI\SWOA0301
+%LiteDesc% = LiteBat_Inst, ACPI\SWOA0314
 
 [SwBat_Inst.NT]
+AddReg    = Erista_Policy
 CopyFiles = SwBat_Copy
 Include   = battery.inf
 Needs     = Battery_Inst
+
+[LiteBat_Inst.NT]
+CopyFiles = SwBat_Copy
+Include   = battery.inf
+Needs     = Battery_Inst
+AddReg    = Lite_Policy
+
+[Erista_Policy]
+HKR,,PdBoard,0x00010001,0
+
+[Lite_Policy]
+HKR,,PdBoard,0x00010001,1
+
+[LiteBat_Inst.NT.Services]
+AddService = switchbattery, 0x00000002, SwBat_Service
+
+[LiteBat_Inst.NT.Wdf]
+KmdfService = switchbattery, SwBat_WdfSection
 
 [SwBat_Copy]
 switchbattery.sys
@@ -51,6 +71,7 @@ KmdfService = switchbattery, SwBat_WdfSection
 KmdfLibraryVersion = 1.15
 
 [Strings]
+LiteDesc    = "Nintendo Switch Lite Battery and USB-C Power"
 Mfg         = "SwitchWOA"
 DiskName    = "SwitchWOA Battery"
 DeviceDesc  = "Nintendo Switch Battery"

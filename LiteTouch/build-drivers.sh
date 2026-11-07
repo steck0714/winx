@@ -9,7 +9,7 @@ out=${2:?output directory}
 : "${WDF_LIB:?WDK Lib/wdf/kmdf/ARM64/1.15}"
 extra=${WDK_EXTRA_LIB:-$WDK_LIB}
 cc=${CLANG_CL:-clang-cl}; ld=${LLD_LINK:-lld-link}
-for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch SwitchPowerButton:switchpwrbtn SwitchFan:switchfan SwitchBattery:switchbattery SwitchRtc:switchrtc SwitchBluetooth:switchbt SwitchSensor:switchsio; do
+for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch SwitchPowerButton:switchpwrbtn SwitchFan:switchfan SwitchBattery:switchbattery SwitchRtc:switchrtc SwitchBluetooth:switchbt SwitchSensor:switchsio TegraXusb:tegraxusb; do
     dir=${pair%:*}; name=${pair#*:}; dest="$out/$name"
     driver_dir="$src/drivers/$dir"
     mkdir -p "$dest"
@@ -27,7 +27,7 @@ for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switch
     case "$dir" in
         Tegra210Gpio) set -- "$extra/msgpioclxstub.lib" ;;
         Tegra210I2c)  set -- "$extra/spb/1.0/spbcxstubs.lib" ;;
-        SwitchFan|SwitchRtc|SwitchBluetooth) set -- ;;
+        SwitchFan|SwitchRtc|SwitchBluetooth|TegraXusb) set -- ;;
         SwitchBattery) set -- "$extra/battc.lib" ;;
         SwitchTouch|SwitchPowerButton|SwitchSensor)  set -- "$extra/vhfkm.lib" "$extra/libcntpr.lib" ;;
     esac

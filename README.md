@@ -15,7 +15,7 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 
-Windows shutdown and restart can leave the display black with the fan still running. Windows USB-C host support is under development. Headphone output still needs testing. [Porting status](docs/hdh001-home/PORTING.md)
+Windows shutdown and restart left the display black with the fan running on R4. The R5 firmware routes both actions to full power-off. Hardware confirmation is pending. USB-C host and built-in controller/mouse packages are on the Windows card and await hardware testing. Headphone output still needs testing. [Porting status](docs/hdh001-home/PORTING.md)
 
 ## Storage profiles
 

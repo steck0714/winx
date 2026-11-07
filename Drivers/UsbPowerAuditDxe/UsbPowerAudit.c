@@ -1,4 +1,5 @@
 #include <Uefi.h>
+#include <PiDxe.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include <Library/IoLib.h>
@@ -6072,3 +6073,7 @@ EFI_STATUS EFIAPI UsbPowerAuditEntryPoint (
   if (EFI_ERROR (E)) gBS->CloseEvent (mStartEvent);
   return E;
 }
+
+#ifdef T214_USB_PREPARE
+#include "t214/usb-host.h"
+#endif

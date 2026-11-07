@@ -208,20 +208,21 @@ CheckBootFile (EFI_FILE_PROTOCOL *Root, CHAR16 *Name, CONST CHAR8 *Magic, UINTN 
   return Status;
 }
 
-STATIC EFI_STATUS
-PrepareWindowsWifi (EFI_HANDLE Volume)
-{
 #ifdef SWITCH_WIFI_RUNTIME
+STATIC EFI_STATUS
+PrepareWindowsDevice (EFI_HANDLE Volume, CHAR16 *FileName, CONST CHAR8 Name[4])
+{
   EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER *Rsdp;
   EFI_ACPI_DESCRIPTION_HEADER *Xsdt, *Table, *Dsdt = NULL;
   EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE *Fadt;
-  STATIC CONST UINT8 Pattern[] = {0x08, 'W', 'S', 'T', 'A', 0x0A, 0x10};
+  UINT8 Pattern[] = {0x08, 0, 0, 0, 0, 0x0A, 0x10};
   UINT8 *Ready = NULL, *Aml, Sum = 0;
   UINTN Entries, I, Matches = 0;
   EFI_DEVICE_PATH_PROTOCOL *Path;
   EFI_HANDLE Image;
   EFI_STATUS Status;
 
+  CopyMem (Pattern + 1, Name, 4);
   Status = EfiGetSystemConfigurationTable (&gEfiAcpi20TableGuid, (VOID **)&Rsdp);
   if (EFI_ERROR (Status) || Rsdp == NULL || Rsdp->XsdtAddress == 0) return EFI_NOT_FOUND;
   Xsdt = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)Rsdp->XsdtAddress;
@@ -244,25 +245,22 @@ PrepareWindowsWifi (EFI_HANDLE Volume)
     }
   }
   if (Matches != 1) return EFI_NOT_FOUND;
-  Path = FileDevicePath (Volume, L"\\SwitchWOA\\Wifi\\WifiPrepare.efi");
+  Path = FileDevicePath (Volume, FileName);
   if (Path == NULL) return EFI_OUT_OF_RESOURCES;
   Status = gBS->LoadImage (FALSE, gImageHandle, Path, NULL, 0, &Image);
   FreePool (Path);
   if (EFI_ERROR (Status)) return Status;
   Status = gBS->StartImage (Image, NULL, NULL);
   gBS->UnloadImage (Image);
-  if (EFI_ERROR (Status)) return Status; // WFI0 remains hidden on failure.
+  if (EFI_ERROR (Status)) return Status;
   *Ready = 0x0F;
   Dsdt->Checksum = 0;
   for (I = 0; I < Dsdt->Length; ++I) Sum = (UINT8)(Sum + Aml[I]);
   Dsdt->Checksum = (UINT8)(0 - Sum);
   MemoryFence ();
   return EFI_SUCCESS;
-#else
-  (VOID)Volume;
-  return EFI_SUCCESS;
-#endif
 }
+#endif
 
 STATIC EFI_STATUS
 BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
@@ -278,10 +276,18 @@ BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
   Root->Close (Root);
   if (EFI_ERROR (Status)) return Status;
 
-  Status = PrepareWindowsWifi (Volume);
+#ifdef SWITCH_WIFI_RUNTIME
+  Status = PrepareWindowsDevice (Volume, L"\\SwitchWOA\\Wifi\\WifiPrepare.efi", "WSTA");
   if (EFI_ERROR (Status))
     Print (L"Wi-Fi preparation: %r; device hidden, continuing Windows boot.\r\n", Status);
 
+#ifdef SWITCH_LITE_XUSB
+  if (!EFI_ERROR (Status)) {
+    Status = PrepareWindowsDevice (Volume, L"\\SwitchWOA\\Usb\\UsbPrepare.efi", "XSTA");
+    if (EFI_ERROR (Status)) Print (L"USB host preparation returned %r.\r\n", Status);
+  }
+#endif
+#endif
   Path = FileDevicePath (Volume, WINDOWS_LOADER);
   if (Path == NULL) return EFI_OUT_OF_RESOURCES;
   Status = EfiBootManagerInitializeLoadOption (&Option, LoadOptionNumberUnassigned,

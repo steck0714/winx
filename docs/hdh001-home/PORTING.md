@@ -21,13 +21,13 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Shared packages integrated; full function not confirmed | Battery/charging telemetry, retained RTC offset, power and volume inputs |
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed on Home. The owner confirmed working Bluetooth on trimmed Pro with 1.0.0.13. | Discovery, pairing, data exchange and usable range |
-| USB | Switchroot on this Lite started XUSB 51.06 and registered both USB root hubs. The Windows image has USBXHCI, UCX and USBHUB3, but the current Lite firmware exposes neither host controller to Windows. | Device enumeration and keyboard/storage operation through the supported host path |
-| Built-in controls / motion | Opt-in UART-C ACPI profile and ARM64 SIO driver built; protocol fixtures pass | Verify buttons, both sticks and accelerometer on the Lite |
+| USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
+| Built-in controls / motion | The staged SIO 0.2 driver implements gamepad input, motion data and an Ubuntu-style desktop pointer. Left stick moves, ZR left-clicks and ZL right-clicks. Hardware test pending. | Confirm physical stick movement, held and released buttons, and accelerometer data. |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
 | 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. | Run a Direct3D workload on a Tegra hardware adapter. |
-| Power lifecycle | R4 Windows shutdown/restart black-screen with the fan running; pre-Windows shutdown with the same BL31 passed. Pre-Windows restart is untested | Trace Windows late shutdown and establish repeatable power-off/restart |
+| Power lifecycle | R4 powered off before Windows. Windows shutdown and restart can leave the fan running after the display goes black. R5 routes both requests to full power-off and adds I²C5 recovery. | Confirm power removal after normal Windows shutdown. [R5 investigation](power-performance.md#windows-power-off-fallback-r5) |
 
 ## USB-C host on HDH-001
 
@@ -47,12 +47,9 @@ bytes, and its internal version and timestamp match the Linux boot log.
 tail -c +65 "$initramfs" | gzip -dc | bsdtar -xOf - lib/firmware/tegra210b01_xusb_firmware > tegra210b01_xusb_firmware
 ```
 
-The installed Windows image has the USBXHCI, UCX01000 and USBHUB3 services
-and binaries. Its enumerated ACPI tree has a battery device and no host
-controller. The Lite firmware needs to prepare the B01 Falcon and PHY,
-hand the running controller to the inbox xHCI driver, and coordinate VBUS
-with the BM92T/BQ24193. A USB peripheral on Windows remains unverified.
-[Switchroot B01 host driver](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/usb/host/xhci-tegra.c)
+The Windows image contains the inbox USBXHCI, UCX and USBHUB3 components. The optional `SWITCH_LITE_XUSB=1` build loads `UsbPrepare.efi` from WINARM after Wi-Fi prepares the shared B01 PHY. It loads the private Falcon image into reserved memory, brings up USB2 port 0 and USB3 lane 5, and exposes `PNP0D10` and the Falcon mailbox only after the controller is ready. The battery driver gains the BM92T connection on this profile. Keep the same WINARM-only card header when building BL33.
+
+The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C controller. Offline DISM staged SwitchBattery 1.0.0.7, TegraXusb 0.1.0.0 and SwitchSio 0.2.0.0 on Windows 22631.2861. Both firmware binaries, signed packages and the two USB preparation files matched on readback. Windows hardware testing is pending for input and USB-C. [USB-C kit and install](../../WindowsDrivers/drivers/TegraXusb/README.md) · [Controller mapping for Switchroot Ubuntu](../../WindowsDrivers/drivers/SwitchSensor/README.md)
 
 ## Execution order
 

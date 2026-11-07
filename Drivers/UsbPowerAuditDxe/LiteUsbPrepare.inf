@@ -1,0 +1,53 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = UsbPrepare
+  FILE_GUID                      = aa370852-5fa3-4f83-9ba6-33e2baa9bd27
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = LiteUsbPrepareMain
+
+[Sources.common]
+  UsbPowerAudit.c
+  t214/usb-host.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  DxeServicesTableLib
+  DxeServicesLib
+  UefiLib
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  PrintLib
+  CacheMaintenanceLib
+  ArmLib
+  I2cLib
+  ClockLib
+  NonDiscoverableDeviceRegistrationLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gPmicProtocolGuid
+  gEfiSimpleTextOutProtocolGuid
+  gEdkiiNonDiscoverableDeviceProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiPciIoProtocolGuid
+  gEfiDriverBindingProtocolGuid
+  gEfiComponentName2ProtocolGuid
+  gEfiUsb2HcProtocolGuid
+  gEfiUsbIoProtocolGuid
+  gEfiBlockIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiAcpi20TableGuid
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -DT214_USB_PREPARE=1

@@ -58,6 +58,30 @@ int main(void)
     assert(SioInputReport(data,sizeof(data),&pad,&motion) && !motion.count);
     memset(data,0,sizeof(data)); data[5] = 0x0f;
     assert(SioInputReport(data,12,&pad,&motion) && pad.hat == SioNeutralHat);
-    puts("SIO command vectors, stream recovery, gamepad and motion reports passed.");
+    /* Raw SIO bits from Switchroot Ubuntu: ZR=7, ZL=23. Other inputs remain gamepad-only. */
+    memset(data,0,sizeof(data));
+    data[7] = data[10] = 8;
+    data[8] = data[11] = 0x80;
+    int32_t fraction[2] = {0,0};
+    for (unsigned triggers = 0; triggers < 4; ++triggers) {
+        data[3] = triggers & 1 ? 0x80 : 0;
+        data[5] = triggers & 2 ? 0x80 : 0;
+        assert(SioInputReport(data,12,&pad,&motion));
+        SIO_MOUSE_REPORT mouse = SioPointerReport(&pad,8,fraction);
+        assert(mouse.id == 2 && mouse.buttons == triggers && !mouse.dx && !mouse.dy);
+    }
+    data[3] = 0x80; data[5] = 0;
+    data[7] = 12; data[8] = 0x40; /* left stick right and up */
+    assert(SioInputReport(data,12,&pad,&motion));
+    SIO_MOUSE_REPORT mouse = SioPointerReport(&pad,8,fraction);
+    assert(mouse.buttons == 1 && mouse.dx == 6 && mouse.dy == -6);
+    mouse = SioPointerReport(&pad,8,fraction);
+    assert(mouse.dx == 6 && mouse.dy == -6); /* a held stick keeps moving */
+    mouse = SioPointerReport(&pad,1000,fraction);
+    assert(mouse.dx < 27 && mouse.dy > -27);
+    pad.buttons = 0; pad.axis[0] = 1024; pad.axis[1] = -1024; pad.axis[2] = 32767;
+    mouse = SioPointerReport(&pad,8,fraction);
+    assert(!mouse.buttons && !mouse.dx && !mouse.dy && !fraction[0] && !fraction[1]);
+    puts("SIO framing, gamepad, motion and desktop mouse reports passed.");
     return 0;
 }

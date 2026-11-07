@@ -1,3 +1,5 @@
+#include "XusbPort.h"
+
 /** @file
   Tegra210 XUSB SuperSpeed (USB3) bring-up: PLLE + UPHY PLL + lane "pcie-6" (usb3-ss) + SS port 0.
 
@@ -210,17 +212,7 @@ SsPortOn (
 {
   UINT32  Idx = 0;
 
-  Rmw (XUSB_PADCTL, SS_PAD_SS_PORT_MAP, (1U << (Idx * 5 + 4)) | (7U << (Idx * 5)), 0U << (Idx * 5));
-  Rmw (XUSB_PADCTL, SS_PAD_ECTL1 (Idx), 3U << 16, 2U << 16);
-  Rmw (XUSB_PADCTL, SS_PAD_ECTL2 (Idx), 0xFFFF, 0x00FC);
-  Wr (XUSB_PADCTL, SS_PAD_ECTL3 (Idx), 0xC0077F1F);
-  Rmw (XUSB_PADCTL, SS_PAD_ECTL4 (Idx), 0xFFFFU << 16, 0x01C7U << 16);
-  Wr (XUSB_PADCTL, SS_PAD_ECTL6 (Idx), 0xFCF01368);
-  Rmw (XUSB_PADCTL, SS_PAD_ELPG1, 1U << (2 + Idx * 3), 0);        // SSPX_ELPG_VCORE_DOWN
-  Us (150);
-  Rmw (XUSB_PADCTL, SS_PAD_ELPG1, 1U << (1 + Idx * 3), 0);        // SSPX_ELPG_CLAMP_EN_EARLY
-  Us (150);
-  Rmw (XUSB_PADCTL, SS_PAD_ELPG1, 1U << (Idx * 3), 0);            // SSPX_ELPG_CLAMP_EN
+  XusbEnableSsPort0 (XUSB_PADCTL);
   Log (L"ss: SS port0 on MAP=%08x ECTL1=%08x ELPG1=%08x", Rd (XUSB_PADCTL, SS_PAD_SS_PORT_MAP), Rd (XUSB_PADCTL, SS_PAD_ECTL1 (Idx)),
        Rd (XUSB_PADCTL, SS_PAD_ELPG1));
 }

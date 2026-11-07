@@ -34,6 +34,20 @@
   DEFINE LITE_BLUETOOTH_FLAGS   =
   DEFINE LITE_BACKLIGHT_FLAGS  =
   DEFINE LITE_BOOT_SD_FLAGS    =
+  DEFINE LITE_XUSB_FLAGS        =
+!ifdef SWITCH_LITE_XUSB
+  !ifndef SWITCH_WIFI_RUNTIME
+    !error "SWITCH_LITE_XUSB requires the B01 shared PCIe/UPHY preparation"
+  !endif
+  !ifndef SWITCH_LITE_SYSTEM
+    !error "SWITCH_LITE_XUSB requires the Lite battery and I2C1"
+  !endif
+  !ifdef SWITCH_ACPI_EHCI
+    !error "Only XUSB owns the Lite USB-C port"
+  !endif
+  DEFINE SWITCH_ACPI_XHCI = 1
+  DEFINE LITE_XUSB_FLAGS = -DSWITCH_LITE_XUSB=1
+!endif
   DEFINE LITE_SIO_FLAGS         =
 !ifdef SWITCH_LITE_SIO
   DEFINE LITE_SIO_FLAGS         = -DSWITCH_LITE_SIO=1
@@ -157,7 +171,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -208,7 +222,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -610,6 +624,9 @@
   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
 !ifdef SWITCH_LITE_BLUETOOTH
   NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteBluetooth.inf
+!endif
+!ifdef SWITCH_LITE_XUSB
+  NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteUsbPrepare.inf
 !endif
 !ifdef SWITCH_LITE_AUDIO
   NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteAudio.inf

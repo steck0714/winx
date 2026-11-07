@@ -296,6 +296,9 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_CRS, ResourceTemplate ()
             {
                 Memory32Fixed (ReadWrite, 0x70090000, 0x00008000)
+#ifdef SWITCH_LITE_XUSB
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 71 }
+#else
                 Memory32Fixed (ReadWrite, 0x70098000, 0x00001000)
                 Memory32Fixed (ReadWrite, 0x70099000, 0x00001000)
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Shared)
@@ -304,6 +307,7 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                     0x00000048, // GIC SPI 40
                     0x00000051  // GIC SPI 49
                 }
+#endif
             })
 
 #ifndef SWITCH_ACPI_USB_SELECT
@@ -327,6 +331,21 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
 #endif
             }
         }
+#ifdef SWITCH_LITE_XUSB
+        // The inbox host driver owns the xHCI aperture and SPI 39. XFW0
+        // services the Falcon mailbox on SPI 40 and the B01 lane-5 LFPS field.
+        Device (XFW0)
+        {
+            Name (_HID, "SWOA0D02")
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate () {
+                Memory32Fixed (ReadWrite, 0x70098000, 0x1000)
+                Memory32Fixed (ReadWrite, 0x7009F5A0, 4)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 72 }
+            })
+            Method (_STA, 0) { Return (\_SB.XHC0.XSTA) }
+        }
+#endif
 #endif
 #ifdef SWITCH_ACPI_EHCI_ENABLE
         // Tegra210 USB1 (ChipIdea dual-role EHCI, usb@7d000000, SPI 20 = INTID 52, level high).
@@ -555,12 +574,20 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         // Connection 0 = MAX17050 fuel gauge, 1 = BQ24193 charger, both on I2C1.
         Device (BAT0)
         {
+#ifdef SWITCH_LITE_XUSB
+            Name (_HID, "SWOA0314")
+#else
             Name (_HID, "SWOA0301")
+#endif
 #ifdef SWITCH_LITE_SYSTEM
             Name (_DEP, Package () { \_SB.I2C1 })
 #endif
             Name (_UID, Zero)
+#ifdef SWITCH_LITE_XUSB
+            Name (BRES, ResourceTemplate ()
+#else
             Name (_CRS, ResourceTemplate ()
+#endif
             {
                 I2cSerialBusV2 (0x0036, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
                 I2cSerialBusV2 (0x006B, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
@@ -569,10 +596,19 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                 // role switching on hot-plug (switchbattery.sys v4).
                 I2cSerialBusV2 (0x0018, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
 #else
-                // Lite uses the upstream two-connection telemetry path. USB-C
-                // role control needs its own XUSB/charger integration.
+                // The Lite battery gauge and charger work before XUSB preparation.
+                // The optional host profile appends the Type-C controller below.
 #endif
             })
+#ifdef SWITCH_LITE_XUSB
+            Name (PRES, ResourceTemplate () {
+                I2cSerialBusV2 (0x0018, ControllerInitiated, 100000, AddressingMode7Bit, "\\_SB.I2C1", 0x00, ResourceConsumer, , Exclusive, )
+            })
+            Method (_CRS, 0) {
+                If (\_SB.XHC0.XSTA == 0x0F) { Return (ConcatenateResTemplate (BRES, PRES)) }
+                Return (BRES)
+            }
+#endif
 
             Method (_STA, 0, NotSerialized)
             {

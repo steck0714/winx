@@ -21,6 +21,14 @@ typedef struct {
     int16_t axis[4];
 } SIO_PAD;
 
+/* Gamepad button indices after decoding Switchroot's SIO input layout. */
+enum { SioPadZl = 1u << 6, SioPadZr = 1u << 7 };
+
+typedef struct {
+    uint8_t id, buttons;
+    int8_t dx, dy;
+} SIO_MOUSE_REPORT;
+
 typedef struct {
     uint8_t count;
     int32_t accelMg[3]; /* newest sample, in console coordinates */
@@ -119,5 +127,35 @@ static inline int SioInputReport(const uint8_t *p, unsigned length, SIO_PAD *pad
         }
     }
     return 1;
+}
+/* Convert the calibrated left stick to relative desktop motion. Retain sub-count
+ * movement for fine aiming. A centered axis discards its fraction immediately. */
+static inline int8_t SioPointerAxis(int axis, unsigned ms, int32_t *fraction)
+{
+    const int deadZone = 3500;
+    const int maxSpeed = 800;  /* HID counts per second at full deflection */
+    int magnitude = axis < 0 ? -axis : axis;
+    if (magnitude <= deadZone) {
+        *fraction = 0;
+        return 0;
+    }
+    int speed = (magnitude - deadZone) * maxSpeed / (32767 - deadZone);
+    if (axis < 0) speed = -speed;
+    int total = *fraction + speed * (int)ms;
+    *fraction = total % 1000;
+    return (int8_t)(total / 1000);
+}
+
+static inline SIO_MOUSE_REPORT SioPointerReport(const SIO_PAD *pad, unsigned elapsedMs, int32_t fraction[2])
+{
+    SIO_MOUSE_REPORT report;
+    /* After a late UART packet, resume motion without catching up a long gap. */
+    unsigned ms = elapsedMs > 32 ? 32 : elapsedMs;
+    report.id = 2;
+    report.buttons = (uint8_t)(((pad->buttons & SioPadZr) ? 1 : 0) |
+                               ((pad->buttons & SioPadZl) ? 2 : 0));
+    report.dx = SioPointerAxis(pad->axis[0], ms, &fraction[0]);
+    report.dy = SioPointerAxis(pad->axis[1], ms, &fraction[1]);
+    return report;
 }
 #endif

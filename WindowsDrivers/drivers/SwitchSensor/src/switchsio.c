@@ -12,19 +12,29 @@ enum { Data = 0, Ier, Fifo, Lcr, Mcr, Lsr, Msr, Scratch, Irda };
 enum { RxCapacity = 1024, PollMs = 8, ResponseMs = 300 };
 #define MS_TO_100NS(ms) ((ULONGLONG)(ms) * 10000)
 
-static UCHAR PadDescriptor[] = {
+static UCHAR InputDescriptor[] = {
     0x05,0x01, 0x09,0x05, 0xA1,0x01, 0x85,0x01, /* Game Pad, report 1 */
     0x05,0x09, 0x19,0x01, 0x29,0x0E, 0x15,0x00, 0x25,0x01,
     0x75,0x01, 0x95,0x0E, 0x81,0x02, 0x95,0x02, 0x81,0x03,
     0x05,0x01, 0x09,0x39, 0x15,0x00, 0x25,0x07,
     0x75,0x04, 0x95,0x01, 0x81,0x42, 0x81,0x03, /* hat with null */
     0x09,0x30, 0x09,0x31, 0x09,0x33, 0x09,0x34,
-    0x16,0x01,0x80, 0x26,0xFF,0x7F, 0x75,0x10, 0x95,0x04, 0x81,0x02, 0xC0
+    0x16,0x01,0x80, 0x26,0xFF,0x7F, 0x75,0x10, 0x95,0x04, 0x81,0x02, 0xC0,
+
+    /* A separate mouse collection lets mouhid consume relative reports. */
+    0x05,0x01, 0x09,0x02, 0xA1,0x01, 0x85,0x02, /* Mouse, report 2 */
+    0x09,0x01, 0xA1,0x00,                        /* Pointer */
+    0x05,0x09, 0x19,0x01, 0x29,0x02, 0x15,0x00, 0x25,0x01,
+    0x75,0x01, 0x95,0x02, 0x81,0x02,             /* left and right buttons */
+    0x75,0x06, 0x95,0x01, 0x81,0x03,
+    0x05,0x01, 0x09,0x30, 0x09,0x31, 0x15,0x81, 0x25,0x7F,
+    0x75,0x08, 0x95,0x02, 0x81,0x06, 0xC0,0xC0   /* signed relative X/Y */
 };
 #pragma pack(push, 1)
 typedef struct { UCHAR Id; USHORT Buttons; UCHAR Hat; SHORT Axis[4]; } PAD_REPORT;
 #pragma pack(pop)
 C_ASSERT(sizeof(PAD_REPORT) == 12);
+C_ASSERT(sizeof(SIO_MOUSE_REPORT) == 4);
 
 typedef struct {
     WDFDEVICE Device;
@@ -44,6 +54,9 @@ typedef struct {
     ULONGLONG LastReply, NextSend, NextVhf;
     BOOLEAN HomeDown, Delivered;
     PAD_REPORT LastPad;
+    ULONGLONG LastMouseTime;
+    int32_t MouseFraction[2];
+    UCHAR MouseButtons;  /* last state accepted by VHF */
     ULONG ReportedState;
 } SIO_DEVICE;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SIO_DEVICE, SioDevice)
@@ -133,7 +146,7 @@ static VOID SampleHome(SIO_DEVICE *D)
 static NTSTATUS StartHid(SIO_DEVICE *D)
 {
     VHF_CONFIG C;
-    VHF_CONFIG_INIT(&C, WdfDeviceWdmGetDeviceObject(D->Device), sizeof(PadDescriptor), PadDescriptor);
+    VHF_CONFIG_INIT(&C, WdfDeviceWdmGetDeviceObject(D->Device), sizeof(InputDescriptor), InputDescriptor);
     NTSTATUS Status = VhfCreate(&C, &D->Vhf);
     if (NT_SUCCESS(Status)) {
         Status = VhfStart(D->Vhf);
@@ -164,10 +177,27 @@ static VOID SubmitPad(SIO_DEVICE *D, const SIO_PAD *Pad)
     }
 }
 
+static VOID SubmitMouse(SIO_DEVICE *D, const SIO_PAD *Pad, ULONGLONG Now)
+{
+    HID_XFER_PACKET xfer;
+    if (!D->Vhf) return;
+    ULONGLONG delta = (Now && D->LastMouseTime) ? Now - D->LastMouseTime : 0;
+    D->LastMouseTime = Now;
+    SIO_MOUSE_REPORT report = SioPointerReport(Pad, (unsigned)(min(delta, MS_TO_100NS(32)) / 10000),
+                                               D->MouseFraction);
+    if (!report.dx && !report.dy && report.buttons == D->MouseButtons) return;
+    xfer.reportId = report.id;
+    xfer.reportBuffer = (PUCHAR)&report;
+    xfer.reportBufferLen = sizeof(report);
+    if (NT_SUCCESS(VhfReadReportSubmit(D->Vhf, &xfer)))
+        D->MouseButtons = report.buttons;
+}
+
 static VOID Neutral(SIO_DEVICE *D)
 {
     const SIO_PAD Pad = {0, SioNeutralHat, {0,0,0,0}};
     D->HomeDown = FALSE;
+    SubmitMouse(D, &Pad, 0);
     SubmitPad(D, &Pad);
     WdfSpinLockAcquire(D->SnapshotLock);
     D->Sensor.Flags = 0;
@@ -196,6 +226,7 @@ static VOID Frame(SIO_DEVICE *D, ULONGLONG Now)
     }
     if (D->Vhf) {
         TraceState(D, SioInput | SioAck);
+        SubmitMouse(D, &Pad, Now);
         SampleHome(D);
         SubmitPad(D, &Pad);
     }
@@ -277,6 +308,8 @@ static VOID Poll(WDFTIMER Timer)
         D->NextSend = 0;
         D->Stream.used = 0;
         TraceState(D, SioInit);
+    } else if (D->Command != SioInput && D->Vhf && D->MouseButtons) {
+        Neutral(D); /* Retry a release that VHF could not accept before the link went down. */
     }
     if (Now >= D->NextSend && (ReadReg(D, Lsr) & 0x20)) {
         UCHAR Command[SioHeaderBytes];
@@ -312,7 +345,9 @@ static NTSTATUS EnterD0(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Previous)
     D->RxHead = D->RxCount = 0;
     D->RxLost = D->Delivered = D->HomeDown = FALSE;
     D->Command = SioInit;
-    D->LastReply = D->NextSend = D->NextVhf = 0;
+    D->LastReply = D->NextSend = D->NextVhf = D->LastMouseTime = 0;
+    D->MouseFraction[0] = D->MouseFraction[1] = 0;
+    D->MouseButtons = 0xff; /* Submit the first button state even after a resume. */
     D->Powered = TRUE;
     TraceState(D, SioInit);
     return STATUS_SUCCESS;

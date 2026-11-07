@@ -1,24 +1,47 @@
 @echo off
 setlocal EnableExtensions
 rem Add shared system drivers to an existing Stage 6 Home installation.
-rem Place this script beside the five shared system/audio packages.
+rem Place this script beside the signed driver directories.
 rem Optional switchbt requires Firmware\BCM4356A3.hcd.
 rem Optional switchwifi requires WifiPrepare.efi and the target board's A3 files in Firmware.
+rem Optional tegraxusb also needs UsbPrepare.efi and the private B01 Falcon image.
 set "drivers=switchfan switchpwrbtn switchbattery switchrtc switchaudio"
 if exist "%~dp0switchsio\switchsio.inf" set "drivers=%drivers% switchsio"
 if exist "%~dp0switchbt\switchbt.inf" set "drivers=%drivers% switchbt"
 if exist "%~dp0switchwifi\switchwifi.inf" set "drivers=%drivers% switchwifi"
-set "wifiOnly="
-if /i "%~1"=="online" if /i "%~2"=="wifi" set "wifiOnly=1"
-if /i "%~1"=="offline" if /i "%~3"=="wifi" set "wifiOnly=1"
-if defined wifiOnly (
+set "component="
+set "usbOnly="
+set "usb="
+if /i "%~1"=="online" set "component=%~2"
+if /i "%~1"=="offline" set "component=%~3"
+if /i "%component%"=="wifi" (
  if not exist "%~dp0switchwifi\switchwifi.inf" exit /b 2
  set "drivers=switchwifi"
+) else if /i "%component%"=="usb-input" (
+ if not exist "%~dp0switchsio\switchsio.inf" exit /b 2
+ set "usb=1"
+ set "drivers=switchbattery tegraxusb switchsio"
+) else if /i "%component%"=="usb" (
+ set "usb=1"
+ set "drivers=switchbattery tegraxusb"
+) else if defined component (
+ goto usage
+) else if exist "%~dp0tegraxusb\tegraxusb.inf" (
+ set "usb=1"
+ set "drivers=%drivers% tegraxusb"
+)
+if defined usb if defined component set "usbOnly=1"
+if defined usb (
+ for %%F in (switchbattery\switchbattery.inf tegraxusb\tegraxusb.inf UsbPrepare.efi Firmware\tegra210b01_xusb_firmware) do if not exist "%~dp0%%F" (
+  echo Missing USB host kit file: %%F
+  exit /b 2
+ )
 )
 if /i "%~1"=="online" goto online
 if /i "%~1"=="offline" goto offline
-echo Install-LiteSystem.cmd online [wifi]
-echo Install-LiteSystem.cmd offline W:\ [wifi]
+:usage
+echo Install-LiteSystem.cmd online [wifi ^| usb ^| usb-input]
+echo Install-LiteSystem.cmd offline W:\ [wifi ^| usb ^| usb-input]
 echo W: must be the drive assigned to the offline WINARM Windows installation.
 exit /b 2
 
@@ -27,9 +50,11 @@ for %%S in (ROOT TrustedPublisher) do (
  reg query "HKLM\SOFTWARE\Microsoft\SystemCertificates\%%S\Certificates\99C510FC6160C2294603EAD48DA8831210BBC56D" >nul 2>&1
  if errorlevel 1 goto trust
 )
-call :wifi "%SystemRoot%" "%SystemDrive%"
-if errorlevel 1 exit /b 1
-if not defined wifiOnly (
+if not defined usbOnly (
+ call :wifi "%SystemRoot%" "%SystemDrive%"
+ if errorlevel 1 exit /b 1
+)
+if not defined component (
  call :bluetooth "%SystemRoot%"
  if errorlevel 1 exit /b 1
 )
@@ -41,7 +66,11 @@ for %%N in (%drivers%) do (
   set "reboot=1"
  ) else if errorlevel 1 exit /b 1
 )
-if defined wifiOnly goto installed
+if defined usb (
+ call :publish-usb "%SystemDrive%"
+ if errorlevel 1 exit /b 1
+)
+if defined component goto installed
 pnputil /scan-devices
 if errorlevel 1 exit /b 1
 call :tools "%PUBLIC%\Desktop"
@@ -66,9 +95,11 @@ for %%S in (ROOT TrustedPublisher) do (
 )
 reg unload "HKLM\%hive%" >nul || exit /b 1
 if "%trusted%"=="0" goto trust
-call :wifi "%vol%\Windows" "%vol%"
-if errorlevel 1 exit /b 1
-if not defined wifiOnly (
+if not defined usbOnly (
+ call :wifi "%vol%\Windows" "%vol%"
+ if errorlevel 1 exit /b 1
+)
+if not defined component (
  call :bluetooth "%vol%\Windows"
  if errorlevel 1 exit /b 1
 )
@@ -80,7 +111,15 @@ for %%N in (%drivers%) do (
   set "reboot=1"
  ) else if errorlevel 1 exit /b 1
 )
-if defined wifiOnly goto installed
+if defined usb (
+ call :publish-usb "%vol%"
+ if errorlevel 1 exit /b 1
+)
+if /i "%component%"=="usb-input" (
+ call :device-rebind "%vol%" SWOA0902
+ if errorlevel 1 exit /b 1
+)
+if defined component goto installed
 for %%H in (SWOA0402 SWOA0C01) do (
  call :device-rebind "%vol%" %%H
  if errorlevel 1 exit /b 1
@@ -155,6 +194,25 @@ rmdir "%incoming%" 2>nul
 exit /b 1
 :wifi-efi-fail
 if exist "%tmp%" del /q "%tmp%"
+exit /b 1
+
+:publish-usb
+rem The boot manager looks for UsbPrepare.efi on WINARM. Publish it last.
+setlocal
+set "dir=%~1\SwitchWOA\Usb"
+if not exist "%dir%" mkdir "%dir%" || exit /b 1
+set "tmp=%dir%\install-%RANDOM%-%RANDOM%.tmp"
+mkdir "%tmp%" || exit /b 1
+copy /b /y "%~dp0Firmware\tegra210b01_xusb_firmware" "%tmp%\tegra210b01_xusb_firmware" >nul || goto usb-fail
+copy /b /y "%~dp0UsbPrepare.efi" "%tmp%\UsbPrepare.efi" >nul || goto usb-fail
+for %%F in (tegra210b01_xusb_firmware UsbPrepare.efi) do (
+ move /y "%tmp%\%%F" "%dir%\%%F" >nul || goto usb-fail
+)
+rmdir "%tmp%" || exit /b 1
+exit /b 0
+:usb-fail
+for %%F in (tegra210b01_xusb_firmware UsbPrepare.efi) do if exist "%tmp%\%%F" del /q "%tmp%\%%F"
+rmdir "%tmp%" 2>nul
 exit /b 1
 
 :tools
