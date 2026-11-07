@@ -10,6 +10,12 @@ The normal build now disables those pulses and uses **native PMC reset for Resta
 
 ## Current sleep/wake work
 
+The owner now prioritizes **S4 hibernation** (save RAM to SD, power off, then
+restore the saved session). SC7 deep sleep is deferred. The 0.4.1.0 SD candidate
+adds a bounded polled dump/hibernate path and separate small DMA allocation;
+build and host tests pass, while physical S4 restoration remains pending. `winresume.efi`, `dumpsd.sys` and `crashdmp.sys` are
+present in the installed trimmed ARM64 image.
+
 Normal shutdown and restart acceptance above does not establish sleep support.
 On 2026-11-07, the owner confirmed one fan-stop/display-wake cycle with fan
 1.0.0.6, then reported lock-screen stalls and a black screen with a moving
@@ -25,6 +31,12 @@ Bluetooth also needs repair: the returned 1.0.0.15 log shows an uncompleted
 patch download at record 150 followed by zero HCI events, while SafeMode and
 BootPending were both zero. Version 1.0.0.17 fails that initialization honestly
 and checks patch retention, reset acknowledgements and baud changes.
+
+`SWITCH_LITE_HIBERNATE=1` exposes the Arm S4 object. With the matching SD
+package, the one-time `Tools/Enable-LiteS4.cmd` enables a full hiberfile and maps
+the power button to Hibernate after setup succeeds. It keeps Fast Startup off
+and records a fixed result under `HKLM\SOFTWARE\SwitchLite\Hibernate`.
+SC7 is outside this update.
 
 `SWITCH_LITE_SLEEP=1` is an experimental firmware profile. It exposes GSI 118
 (PMU_EXT) as a wake interrupt, PMC interrupt inversion, and the T214 PoFx

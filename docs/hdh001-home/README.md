@@ -386,6 +386,15 @@ adds the PMIC wake interrupt and processor power backend; it does not establish
 SC7 deep-sleep support. Keep the card header identical to the selected hidden
 or FAT32-visible SD miniport. See [current work and acceptance](PORTING.md).
 
+For the S4 candidate, also pass `-D SWITCH_LITE_HIBERNATE=1` and build the SD
+miniport with `NV_T214_HIBERNATE=1` in addition to its bounded SDR104 defines.
+After installing both, run an on-device copy of `Tools/Enable-LiteS4.cmd` as
+administrator. It enables a full hiberfile and maps the power button to
+Hibernate, while keeping Fast Startup disabled. A successful setup is not a
+successful resume test: confirm power removal and restoration of the same
+application session. While Windows is hibernated, resume it before mounting
+or modifying either Windows-visible volume from another OS.
+
 This selects the Lite boot/storage, touch, power, audio, Bluetooth, Wi-Fi preparation, SIO and B01 USB profile. It uses Microsoft Basic Display in Windows; the flags do not enable GPU acceleration. The generic `Tools/build.sh` / `build-woa.sh` defaults select a different profile, so use the explicit command above for this guide.
 
 The output is **`edk2/Build/NintendoSwitch-AARCH64/RELEASE_GCC5/FV/TEGRA210_EFI.fd`**, with `FVMAIN_COMPACT.Fv.map` in the same directory. Stop on a build error; continue with that build's matching FD and map only.

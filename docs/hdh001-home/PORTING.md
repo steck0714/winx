@@ -12,12 +12,15 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 ## Current work and acceptance
 
-The active owner-requested work is retained-memory sleep/power-button wake,
+The owner has prioritized **S4 hibernation to SD and restoration of the saved
+session**. SC7 whole-SoC retained-memory sleep is deferred to the plan. Also fix
 Bluetooth initialization and resume recovery, repeated display-off/on stalls,
 and the performance regression when FAT32 is visible. Build, sign and install
 the coherent update on the existing card, including the FAT32-visible SDR104
 profile and its matching BL33. Preserve the hidden profile and all card data.
 Code completion, build/signature checks and physical acceptance are separate.
+The current S4 candidate builds and passes polled identity/write-bound tests;
+saved-session restoration has not yet been tested on the Lite.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
@@ -34,7 +37,7 @@ checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. Candidate 0.4.0.2 combines FAT32 visibility with SDR104/ADMA2, range filtering and SD controller resume context. | Diagnose the UI lag in the optional dual-volume profile. Keep BL33 and the miniport on the same layout. |
+| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. Candidate 0.4.1.0 adds a 512 KiB runtime DMA limit and an opt-in S4 dump path, retaining FAT32 visibility, SDR104, range filtering and bounded asynchronous diagnostics. | Diagnose the UI lag in the optional dual-volume profile. Keep BL33 and the miniport on the same layout. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
@@ -73,16 +76,19 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Install the compiled/signed Bluetooth, fan, RTC, power-button and SD fixes
-   with the matching FAT32-visible BL33. Preserve normal shutdown/restart.
-2. Validate the processor C7/CC6 PoFx backend and PMIC wake interrupt. They are
-   foundations, not proof of whole-SoC sleep. Repeated display wake remains open.
-3. Complete peripheral quiescence, PMC wake routing and SC7 display/storage
-   restoration before advertising a complete retained-memory sleep path.
-4. Measure the FAT32-visible desktop and I/O behavior. Keep the hidden profile
-   available; do not call a mock-test speedup a measured hardware improvement.
-5. Record physical acceptance in this document and the existing power notes.
-   Keep shared sources in their upstream locations.
+1. Finish the FAT32-visible SDR104/ADMA2 and Bluetooth/display-wake update,
+   preserving normal shutdown/restart and all partitions.
+2. Implement the SDPORT dump/hibernate path: bounded WINARM writes, polling
+   without interrupts, and no pageable allocation, registry I/O or dependency
+   on a stopped I2C driver during the final hibernation write.
+3. Enable full S4 only after that path builds and passes the relevant checks.
+   Verify that Windows writes the hibernation image, powers off, and restores
+   the same desktop/application session through `winresume.efi`.
+4. Measure FAT32-visible desktop and I/O behavior. Preserve the hidden profile;
+   code/build checks do not establish a measured performance improvement.
+5. Deferred: complete SC7 peripheral quiescence, PMC wake routing and
+   display/storage restoration. The C7/CC6 and PMIC wake work is foundational,
+   not proof of whole-SoC sleep. Keep evidence in the existing power notes.
 
 Detailed Wi-Fi dependencies are tracked in [WIFI.md](WIFI.md).
 
