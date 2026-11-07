@@ -10,7 +10,7 @@ Continue implementation, compilation and necessary host checks autonomously unti
 
 ## Current stage and evidence
 
-The first milestone is a GPU-written word read back by Windows. ACPI resources, WDDM resource ownership, GM20B entry encoders and T214 idle-GPU power sequencing are implemented. The immediate hardware prerequisite is a firmware power/identity check; Windows GPU execution remains open.
+The first milestone is a GPU-written word read back by Windows. ACPI resources, WDDM resource ownership, GM20B entry encoders and T214 idle-GPU power sequencing are implemented. The power/identity probe is installed on the owner's card with the previous BL33/entry backed up on the host, exact file readback verified and the card safely ejected. The physical result is pending; Windows GPU execution remains open.
 
 | Component | Code | Windows ARM64 build | On the Lite under Windows |
 | --- | --- | --- | --- |
