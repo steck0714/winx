@@ -1,0 +1,340 @@
+From: ruje0504-2
+Subject: [T214] restore SC7 shared clocks before returning to Windows
+
+Apply after 0005. Enabled only with SWITCH_LITE_SC7=1 on T210B01.
+Snapshot CAR at the last-CPU suspend boundary, before SE/TZRAM retention.
+Restore active PLLs, USB/PCIe parent ownership, clock sources and reset/enable
+banks before returning to non-secure drivers. PLLM, PLLP and the EMC source
+remain warmboot-owned. A missing snapshot, conflicting live parent or lock
+failure prevents returning to Windows with inaccessible peripheral registers.
+This does not restore device, PHY, pinmux or display-controller context.
+
+References (Switchroot L4T kernel 2d0059fd):
+https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/clk/tegra/clk-tegra210.c
+https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/clk/tegra/clk-tegra210b01.c
+https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/clk/tegra/clk-pll.c
+
+--- a/plat/nvidia/tegra/soc/t210/platform_t210.mk
++++ b/plat/nvidia/tegra/soc/t210/platform_t210.mk
+@@ -9,7 +9,7 @@
+ SWITCH_LITE_SC7 ?= 0
+ $(eval $(call add_define,SWITCH_LITE_SC7))
+ ifeq (${SWITCH_LITE_SC7},1)
+-BL31_SOURCES += ${SOC_DIR}/t214/sc7.c
++BL31_SOURCES += ${SOC_DIR}/t214/sc7.c ${SOC_DIR}/t214/clocks.c
+ endif
+ 
+ SWITCH_LITE_POWER_TRACE ?= 0
+--- a/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
++++ b/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
+@@ -52,6 +52,8 @@
+ 
+ #if SWITCH_LITE_SC7
+ extern int32_t tegra_lite_sc7_prepare(void);
++extern void tegra_lite_clocks_save(void);
++extern int32_t tegra_lite_clocks_restore(void);
+ #endif
+ 
+ int32_t tegra_soc_validate_power_state(unsigned int power_state,
+@@ -287,6 +289,10 @@
+ 		assert((stateid_afflvl1 == PLAT_MAX_OFF_STATE) ||
+ 			(stateid_afflvl1 == PSTATE_ID_SOC_POWERDN));
+ 
++#if SWITCH_LITE_SC7
++		if (tegra_chipid_is_t210_b01())
++			tegra_lite_clocks_save();
++#endif
+ 		/* Suspend se/se2 and pka1 for T210 B01 and se for T210 */
+ 		if (tegra_se_suspend() != 0) {
+ 			ret = PSCI_E_INTERN_FAIL;
+@@ -511,6 +517,12 @@
+ 			tegra_se_resume();
+ 		}
+ 
++#if SWITCH_LITE_SC7
++		/* All NS devices are still stopped. A lost shared clock must not
++		 * turn their first resumed MMIO into an unrecoverable bus stall. */
++		if (tegra_chipid_is_t210_b01() && tegra_lite_clocks_restore() != PSCI_E_SUCCESS)
++			panic();
++#endif
+ 		/*
+ 		 * Lock scratch registers which hold the CPU vectors
+ 		 */
+--- /dev/null
++++ b/plat/nvidia/tegra/soc/t210/t214/clocks.c
+@@ -0,0 +1,275 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-only
++ * T214 SC7 CAR context, adapted from Switchroot L4T kernel 2d0059fd:
++ * drivers/clk/tegra/{clk-tegra210.c,clk-tegra210b01.c,clk-pll.c,clk.c}.
++ * Copyright (c) 2012-2019, NVIDIA CORPORATION. All rights reserved.
++ * Copyright (c) 2021-2023, CTCaer.
++ * Copyright (c) 2026, ruje0504-2.
++ *
++ * Called at the last-CPU SoC suspend/resume boundary, with NS devices stopped.
++ * CAR is restored before returning to Windows. Controller, pinmux and PHY
++ * state have separate owners; restoring their clocks is not their D0 restore.
++ * Warmboot owns PLLM/PLLP and DRAM. Never write their PLLs or the EMC source.
++ */
++#include <stdbool.h>
++#include <stdint.h>
++#include <arch_helpers.h>
++#include <drivers/delay_timer.h>
++#include <lib/mmio.h>
++#include <lib/psci/psci.h>
++#include <tegra_def.h>
++
++#define CB(n) (1U << (n))
++#define COUNT(a) (sizeof(a) / sizeof((a)[0]))
++#define PLL_ON CB(30)
++#define PLL_LOCK CB(27)
++#define CAR_SIZE 0x800U
++
++struct clock_reg { uint16_t offset; uint32_t mask; };
++struct pll_desc {
++    uint16_t base, lock_reg, iddq_reg, reset_reg;
++    uint32_t lock_mask, iddq_mask, reset_mask;
++    struct clock_reg misc[6];
++};
++#define CX(b,m0,m1,m2,m3) {b,b,m1,m0,CB(26),CB(27),CB(30), \
++    {{m0,0x400ffffbU},{m1,0x38003cffU},{m2,0xffffff17U},{m3,0x00ffffffU}}}
++static const struct pll_desc plls[] = {
++    CX(0x080,0x088,0x08c,0x5d0,0x5d4),
++    CX(0x4e8,0x4ec,0x4f0,0x4f4,0x4f8),
++    CX(0x4fc,0x500,0x504,0x508,0x50c),
++    CX(0x6a4,0x6a8,0x6ac,0x6b0,0x6b4),
++    {0x0e0,0x0e0,0x518,0,PLL_LOCK,CB(3),0,
++     {{0x0e4,0x10c40000U},{0x510,0xf0ffffffU},{0x514,0xffffff11U},
++      {0x518,0x01ff0f0fU},{0x5f0,0x8000ffffU},{0x5f4,0x0000ffffU}}},
++    {0x0b0,0x0b0,0x0b0,0,PLL_LOCK,CB(25),0,
++     {{0x0bc,0x7fffffffU},{0x0b8,0x0000ffffU},{0x5d8,0x06ffffffU}}},
++    {0x0d0,0x0d0,0x0dc,0,PLL_LOCK,CB(20),0,
++     {{0x0dc,0x3ff7ffffU},{0x0d8,0xf0ffffffU}}},
++    {0x4b8,0x4b8,0x4b8,0,PLL_LOCK,CB(18),0,
++     {{0x4bc,0x47ffffffU},{0x570,0xf8000000U},{0x574,0xffffffffU},
++      {0x578,0xffffffffU},{0x76c,0xf0000000U}}},
++    {0x590,0x590,0x590,0,PLL_LOCK,CB(18),0,
++     {{0x594,0x47ffffffU},{0x598,0xf8000000U},{0x59c,0xffffffffU},
++      {0x5a0,0xffffffffU},{0x770,0xf0000000U}}},
++    {0x5a4,0x5a4,0x5a4,0,PLL_LOCK,CB(18),0,{{0x5a8,0x47ffffffU}}},
++    {0x4c4,0x4c8,0x4c8,0,PLL_LOCK,CB(24),0,{{0x4c8,0x67ffffffU}}},
++};
++static const uint16_t source_ranges[][2] = {
++    {0x100,0x198},{0x1a0,0x1f8},{0x3b4,0x42c},{0x49c,0x4b4},
++    {0x560,0x564},{0x600,0x678},{0x694,0x6a0},{0x6b8,0x718}
++};
++static const struct { uint16_t reset, enable; uint32_t valid; } banks[] = {
++    {0x004,0x010,0xdcd7dff9U},{0x008,0x014,0x87d1f3e7U},
++    {0x00c,0x018,0xf3fed3faU},{0x358,0x360,0xffc18cfbU},
++    {0x35c,0x364,0x793fb7ffU},{0x28c,0x280,0x3fe66fffU},
++    {0x2a4,0x298,0xfc1fc7ffU}
++};
++static const uint16_t scalars[] = {
++    0x050,0x028,0x02c,0x030,0x044,0x048,0x368,0x36c,0x370,0x374,
++    0x380,0x384,0x388,0x400,0x55c,0x680,
++    0x084,0x0a4,0x0a8,0x0b4,0x0c4,0x4cc,0x5e4,
++    0x0c0,0x0c8,0x0cc,0x480,0x484,0x488,0x52c,0x530,0x534,
++    0x0e8,0x0ec,0x068,0x48c
++};
++static struct { uint32_t reg[CAR_SIZE / 4]; bool valid; } context;
++
++static uint32_t cr(uint32_t offset)
++{ return mmio_read_32(TEGRA_CAR_RESET_BASE + offset); }
++static void cw(uint32_t offset, uint32_t value)
++{ mmio_write_32(TEGRA_CAR_RESET_BASE + offset, value); }
++static uint32_t saved(uint32_t offset) { return context.reg[offset / 4]; }
++static void cm(uint32_t offset, uint32_t mask, uint32_t value)
++{ cw(offset, (cr(offset) & ~mask) | (value & mask)); }
++static int wait_lock(uint32_t offset, uint32_t mask)
++{
++    for (unsigned int us = 0; us <= 1000; us += 2) {
++        if ((cr(offset) & mask) == mask) { udelay(2); return PSCI_E_SUCCESS; }
++        udelay(2);
++    }
++    return PSCI_E_INTERN_FAIL;
++}
++
++void tegra_lite_clocks_save(void)
++{
++    context.valid = false;
++    for (unsigned int i = 0; i < COUNT(plls); i++) {
++        const struct pll_desc *p = &plls[i];
++        context.reg[p->base / 4] = cr(p->base);
++        for (unsigned int j = 0; j < COUNT(p->misc); j++)
++            if (p->misc[j].offset)
++                context.reg[p->misc[j].offset / 4] = cr(p->misc[j].offset);
++    }
++    for (unsigned int i = 0; i < COUNT(scalars); i++)
++        context.reg[scalars[i] / 4] = cr(scalars[i]);
++    for (unsigned int i = 0; i < COUNT(source_ranges); i++)
++        for (unsigned int o = source_ranges[i][0]; o <= source_ranges[i][1]; o += 4)
++            context.reg[o / 4] = cr(o);
++    for (unsigned int i = 0; i < COUNT(banks); i++) {
++        context.reg[banks[i].reset / 4] = cr(banks[i].reset);
++        context.reg[banks[i].enable / 4] = cr(banks[i].enable);
++    }
++    context.valid = true;
++    flush_dcache_range((uintptr_t)&context, sizeof(context));
++}
++
++static int restore_pll(const struct pll_desc *p)
++{
++    uint32_t base = saved(p->base), value;
++    if (!(base & PLL_ON)) return PSCI_E_SUCCESS;
++    /* B01 moves these PLL analog voltage controls into output registers.
++     * Restore them before relocking, not with the later output dividers. */
++    uint32_t vreg = p->base == 0x0b0 ? 0x0b4 :
++                    p->base == 0x5a4 ? 0x5e4 : p->base == 0x4c4 ? 0x4cc : 0;
++    if (cr(p->base) & PLL_ON) {
++        /* In particular, never retune a PLLX which warmboot may be using.
++         * Reject a conflicting live parent before restoring its consumers. */
++        uint32_t ignore = p->lock_reg == p->base ? p->lock_mask : 0;
++        if ((cr(p->base) & ~ignore) != (base & ~ignore)) return PSCI_E_INTERN_FAIL;
++        if (vreg && ((cr(vreg) ^ saved(vreg)) & 0xf0000000U)) return PSCI_E_INTERN_FAIL;
++        return wait_lock(p->lock_reg, p->lock_mask);
++    }
++    if (vreg) cm(vreg, 0xf0000000U, saved(vreg));
++    value = base & ~PLL_ON;
++    if (p->lock_reg == p->base) value &= ~p->lock_mask;
++    if (p->iddq_reg == p->base) value |= p->iddq_mask;
++    cw(p->base, value);
++    for (unsigned int j = 0; j < COUNT(p->misc); j++) {
++        uint32_t off = p->misc[j].offset;
++        if (!off) continue;
++        value = saved(off);
++        if (off == p->iddq_reg) value |= p->iddq_mask;
++        if (off == p->reset_reg) value |= p->reset_mask;
++        cm(off, p->misc[j].mask, value);
++    }
++    udelay(1);
++    cm(p->iddq_reg, p->iddq_mask, 0);
++    udelay(5);
++    if (p->reset_mask) { cm(p->reset_reg, p->reset_mask, 0); udelay(1); }
++    value = base;
++    if (p->lock_reg == p->base) value &= ~p->lock_mask;
++    cw(p->base, value);
++    return wait_lock(p->lock_reg, p->lock_mask);
++}
++
++static int restore_usb_plls(void)
++{
++    /* B01's PLLU M/N/P and UTMIPLL parameters come from the running board.
++     * Hold software control while relocking, then restore prior ownership.
++     * No USB controller or pad register is touched before clocks are ready. */
++    uint32_t u = saved(0x0c0), useq = saved(0x530), utmi = saved(0x52c);
++    if ((u & PLL_ON) || (useq & CB(24))) {
++        if (!(cr(0x0c0) & PLL_ON)) {
++            cm(0x530, CB(24) | CB(2) | CB(0), CB(2) | CB(0));
++            cm(0x0cc, 0xbfffffffU, (saved(0x0cc) | CB(29)) & ~CB(31));
++            cm(0x0c8, 0xf0000007U, saved(0x0c8));
++            udelay(5);
++            cw(0x0c0, (u & ~(PLL_ON | PLL_LOCK)) | CB(24));
++            udelay(1);
++            cw(0x0c0, (u & ~PLL_LOCK) | PLL_ON | CB(24));
++        } else if ((cr(0x0c0) & 0x1fffffU) != (u & 0x1fffffU)) {
++            return PSCI_E_INTERN_FAIL;
++        }
++        if (wait_lock(0x0c0, PLL_LOCK)) return PSCI_E_INTERN_FAIL;
++    }
++    if ((utmi & (CB(31) | CB(24))) && !(cr(0x52c) & CB(31))) {
++        cw(0x52c, (utmi & ~(CB(31) | CB(24) | CB(1))) | CB(0) | CB(2));
++        cm(0x480, 0x1fffffffU, saved(0x480));
++        cw(0x488, saved(0x488));
++        cw(0x484, (saved(0x484) & ~CB(14)) | CB(15));
++        udelay(20);
++        if (wait_lock(0x52c, CB(31))) return PSCI_E_INTERN_FAIL;
++    }
++    if ((utmi & (CB(31) | CB(24)))) {
++        cw(0x484, saved(0x484));
++        cw(0x488, saved(0x488));
++        cw(0x534, saved(0x534));
++        udelay(1);
++        cw(0x52c, utmi & ~CB(31));
++        udelay(1);
++    }
++    if ((u & PLL_ON) || (useq & CB(24))) {
++        cw(0x0c0, (u & ~PLL_LOCK) | PLL_ON);
++        cw(0x534, saved(0x534));
++        udelay(1);
++        cw(0x530, useq);
++        udelay(1);
++    }
++    return PSCI_E_SUCCESS;
++}
++
++static int restore_plle(void)
++{
++    uint32_t base = saved(0x0e8), aux = saved(0x48c), spread = saved(0x068);
++    if (!(base & CB(31)) && !(aux & CB(24))) return PSCI_E_SUCCESS;
++    if (!(cr(0x0e8) & CB(31))) {
++        cw(0x48c, (aux & ~CB(24)) | CB(4) | CB(6));
++        cw(0x0ec, (saved(0x0ec) & ~(CB(13) | CB(11))) | CB(14) | CB(9));
++        udelay(5);
++        cw(0x068, spread | CB(12) | CB(11) | CB(10));
++        cw(0x0e8, base & ~(CB(31) | CB(30)));
++        udelay(1);
++        cw(0x0e8, (base & ~CB(30)) | CB(31));
++    } else if ((cr(0x0e8) & 0x1f00ffffU) != (base & 0x1f00ffffU)) {
++        return PSCI_E_INTERN_FAIL;
++    } else if (cr(0x48c) == aux && cr(0x068) == spread) {
++        return wait_lock(0x0ec, CB(11));
++    }
++    if (wait_lock(0x0ec, CB(11))) return PSCI_E_INTERN_FAIL;
++    cw(0x068, spread | CB(11));
++    udelay(1);
++    cw(0x068, spread);
++    udelay(1);
++    cw(0x0ec, saved(0x0ec) & ~CB(11));
++    cw(0x48c, aux);
++    udelay(1);
++    return PSCI_E_SUCCESS;
++}
++
++int32_t tegra_lite_clocks_restore(void)
++{
++    if (!context.valid) return PSCI_E_DENIED;
++    /* Consume one snapshot; a failed/duplicate resume cannot replay it. */
++    context.valid = false;
++    cm(0x050, 0xf00003f2U, saved(0x050));
++    udelay(2);
++    if (wait_lock(0x0a0, PLL_ON | PLL_LOCK)) return PSCI_E_INTERN_FAIL;
++    cm(0x680, CB(29) | CB(28), saved(0x680));
++    /* PLLRE may use UTMIPLL as its reference on B01. Restore it first. */
++    if (restore_usb_plls()) return PSCI_E_INTERN_FAIL;
++    for (unsigned int i = 0; i < COUNT(plls); i++)
++        if (restore_pll(&plls[i])) return PSCI_E_INTERN_FAIL;
++    if (restore_plle()) return PSCI_E_INTERN_FAIL;
++
++    /* Restore secondary outputs and shared PLLP HSIO/XUSB branches first. */
++    const uint16_t outputs[] = {0x084,0x0a4,0x0a8,0x0b4,0x0c4,0x4cc,0x5e4};
++    for (unsigned int i = 0; i < COUNT(outputs); i++) cw(outputs[i], saved(outputs[i]));
++
++    /* Switchroot uses safe SCLK dividers before restoring burst policies. */
++    cw(0x030, 1);
++    if (cr(0x400) < saved(0x400)) cw(0x400, saved(0x400));
++    udelay(2);
++    cw(0x370, saved(0x370)); cw(0x374, saved(0x374));
++    cw(0x028, saved(0x028)); cw(0x02c, saved(0x02c));
++    cw(0x400, saved(0x400)); cw(0x030, saved(0x030));
++    cw(0x55c, saved(0x55c)); cw(0x048, saved(0x048)); cw(0x044, saved(0x044));
++
++    for (unsigned int i = 0; i < COUNT(banks); i++) cw(banks[i].enable, banks[i].valid);
++    dsbsy();
++    udelay(2);
++    for (unsigned int i = 0; i < COUNT(source_ranges); i++)
++        for (unsigned int o = source_ranges[i][0]; o <= source_ranges[i][1]; o += 4)
++            cw(o, saved(o));
++    dsbsy();
++    udelay(5);
++    for (unsigned int i = 0; i < COUNT(banks); i++) cw(banks[i].reset, saved(banks[i].reset));
++    dsbsy();
++    udelay(2);
++    for (unsigned int i = 0; i < COUNT(banks); i++) cw(banks[i].enable, saved(banks[i].enable));
++    dsbsy();
++    udelay(2);
++    for (unsigned int i = 0; i < 3; i++) cw(0x380 + i * 4, saved(0x380 + i * 4));
++    cw(0x368, saved(0x368)); cw(0x36c, saved(0x36c));
++    dsbsy();
++    udelay(2);
++    return PSCI_E_SUCCESS;
++}

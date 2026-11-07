@@ -15,6 +15,7 @@ POWER_PATCHES = [REPO / "patches/atf" / name for name in (
     "0003-t214-shutdown-gpio-i2c.patch",
     "0004-t214-power-boundary-trace.patch",
     "0005-t214-bpmp-sc7-prepare.patch",
+    "0006-t214-sc7-clock-context.patch",
 )]
 
 
@@ -33,7 +34,7 @@ def main():
     parser.add_argument("--trace-power-boundary", action="store_true",
                         help="diagnostic fan pulses at final PSCI entry; not a shutdown fix")
     parser.add_argument("--sc7", action="store_true",
-                        help="development: require BPMP acknowledgement before T214 SC7 CPU_SUSPEND")
+                        help="development: T214 SC7 BPMP/wake preparation and CAR context restoration")
     args = parser.parse_args()
     source = args.source.resolve()
     if (source / ".git").exists():

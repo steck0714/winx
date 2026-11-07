@@ -1,6 +1,6 @@
 # T214 PSCI PMIC power patch
 
-The build tool applies patches 0001 through 0005 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only SoC-specific helpers are under `soc/t210/t214`.
+The build tool applies patches 0001 through 0006 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only SoC-specific helpers are under `soc/t210/t214`.
 
 ## Build
 
@@ -17,7 +17,7 @@ The build tool accepts the pinned checkout or its source archive, applies the pa
 
 The default build uses native PMC/Hekate restart and leaves fan tracing disabled. `--native-restart` selects the same default explicitly. `--restart-as-off` reproduces the earlier fallback policy, and `--trace-power-boundary` adds two fan pulses at final power-off entry for diagnosis. Native and fallback builds, with and without tracing, use separate build directories. [Current physical results](../../docs/hdh001-home/power-performance.md)
 
-Patch 0005 is disabled by default. The development option `--sc7` sets
+Patches 0005 and 0006 are disabled by default. The development option `--sc7` sets
 `SWITCH_LITE_SC7=1` and uses a separate build directory. For B01 PSCI
 `CPU_SUSPEND` system-powerdown requests, it requires a live BPMP, sends
 `MRQ_ENABLE_SUSPEND` with `{ TEGRA_PM_SC7, 0 }`, and arms the board's active-low
@@ -26,15 +26,33 @@ PSCI commits to powerdown. Other wake masks, levels and pending events are
 preserved. The paired Windows backend still needs complete device/context
 coordination; this option alone is **not a working SC7 implementation**.
 
+Patch 0006 snapshots CAR at the last-CPU SoC suspend boundary, before the
+security-engine/TZRAM retention sequence. It restores active PLLs, USB/PCIe
+parent clock ownership, peripheral sources and reset/enable banks before
+Windows resumes. It restores B01 analog voltage controls before relocking,
+and UTMIPLL before a PLLRE which uses it as reference. PLLM/PLLP VCO settings
+and the EMC source are never rewritten. A missing snapshot, conflicting live
+parent or lock timeout stops resume before peripheral traffic can continue.
+Device registers, PHYs, pinmux, display and Windows device coordination still
+need their own complete restore paths.
+
 ```sh
 python3 Tools/build-t214-atf.py atf out/t214-sc7 --cross-prefix aarch64-none-elf- --sc7
 python3 Tools/test-t214-sc7.py atf
+python3 Tools/test-t214-clocks.py atf
 ```
 
 The ARM64 development build and actual-validator/PMC fault tests pass. They
 cover missing BPMP, rejected requests, failed wake-mask writes, repeat entry,
 and the original non-B01/default paths. The candidate is not installed and has
 no physical sleep/wake result. [Switchroot entry](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/578d533b99cd5d5c3e57760431d2f621307265cf/drivers/soc/tegra/pm-tegra210.c#L68) · [PMC wake setup](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/soc/tegra/pmc.c#L1940)
+
+The CAR test executes the actual helper through repeated register loss,
+retained/aborted entry, hardware-sequenced parents and lock failures. It checks
+that no peripheral bank is restored before required parents lock, and that
+the DRAM/boot PLL registers remain untouched. Both normal and SC7 ARM64 builds
+pass; with the same compiler, patch 0006 leaves the default binary unchanged.
+[Switchroot CAR resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/clk/tegra/clk-tegra210.c#L3999)
 
 The parameters follow [Lineage's Nintendo NX recipe](https://github.com/LineageOS/android_device_nintendo_nx/blob/lineage-22.2/vendor/nx-vendor.mk):
 

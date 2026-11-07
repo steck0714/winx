@@ -72,8 +72,12 @@ SC7 development now includes opt-in BL31 patch 0005 for BPMP acknowledgement
 and active-low PMC wake event 51. ARM64/default builds and fault tests pass.
 GPIO 1.0.0.5 saves/restores controller state without registry I/O during power
 callbacks; its signed ARM64 package and repeated register-loss test pass.
-Neither is installed. Complete Windows coordination and display/clock restore
+Neither is installed. Complete Windows coordination and display/controller restore
 before enabling whole-system sleep. [Sleep implementation](power-performance.md#current-sleepwake-work)
+Opt-in BL31 patch 0006 adds shared CAR/PLL context restoration at the actual
+SoC sleep/wake boundary. Normal and SC7 ARM64 builds and repeated-loss/fault
+tests pass; the normal binary is unchanged by this patch. Not installed.
+Pinmux, PHYs, display/device context and Windows coordination remain open.
 The signed power-button 1.0.0.3 candidate adds display-aware HID wake reports,
 press-only PMIC interrupts and deferred IRQ diagnostics. Callback tests pass;
 it remains uninstalled and needs physical repeated-wake acceptance.

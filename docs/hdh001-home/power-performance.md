@@ -49,8 +49,19 @@ controller, debounce and interrupt state through GpioClx, with output latches
 restored before output enable and interrupts last. It preserves pending wake
 events and performs no registry I/O in power callbacks. The ARM64 package is
 signed and its register-loss tests pass; physical restoration remains pending.
-Windows device constraints, display/clock restoration and complete SC7
+Windows device constraints, display/controller restoration and complete SC7
 coordination are still required before enabling this path on the card.
+
+BL31 patch 0006 now saves CAR at the last-CPU suspend boundary and restores
+shared clocks before returning to Windows. It covers active PLLs, B01 voltage
+controls, USB/PCIe clock sequencing, peripheral sources and reset/enable banks;
+it does not retune PLLM/PLLP or write the EMC source. Missing context, a
+conflicting live parent or a bounded lock timeout stops the firmware resume.
+Actual-helper repeated-loss/failure tests and both ARM64 builds pass; the
+default binary is unchanged by this opt-in patch with the same compiler.
+The candidate is not installed. PHY, pinmux, display/device registers and
+Windows power coordination still require completion and physical acceptance.
+[Switchroot CAR resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/clk/tegra/clk-tegra210.c#L3999)
 
 Power-button 1.0.0.3 now reports HID System Wake Up when the console display is
 off, retaining the configured power-button action while it is on. Its passive
@@ -68,8 +79,8 @@ while holding the SD/PMIC gate. Those probes are removed, and packet-error
 diagnostics now run after releasing the gate. Actual-callback tests for all
 six I2C routes, repeated context loss, timeouts and unrelated clock-bit
 preservation pass, as do the ARM64 build and package signature checks. It is
-not installed or hardware accepted; global parent clocks still need SC7
-restoration. [Switchroot I2C lifecycle](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/i2c/busses/i2c-tegra.c#L2698)
+not installed or hardware accepted; its global parent clocks depend on the
+SC7 firmware restore above. [Switchroot I2C lifecycle](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/i2c/busses/i2c-tegra.c#L2698)
 
 Bluetooth 1.0.0.19 restores UART-D's clock enable/reset before accessing the
 UART after D0 context loss. It checks the shared PLLP parent without retuning
@@ -87,8 +98,8 @@ the SDR104 source first. Repeated register-loss tests cover SDR104/DDR200,
 clock-off snapshots, stuck gates/reset, PLL/source/clock failures and old-I/O
 non-replay. Both ARM64 partition-profile builds and signed visible-package
 checks pass. It is not installed;
-the card retains 0.5.0.1. Global SC7 clocks, pad/power retention and actual
-card power-loss recovery remain separate requirements.
+the card retains 0.5.0.1. It depends on the new SC7 global-clock restore;
+pad/power retention and actual card power-loss recovery remain separate requirements.
 
 ### Switchroot Ubuntu reference
 
