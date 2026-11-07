@@ -30,7 +30,7 @@ The unmodified reset-to-BL31 entrypoint obtains Hekate's parameters through the 
 
 ## Validation and deployment state
 
-R6 uses Switchroot's GPIO-based PMIC transfer path during final power-off. With SwitchBattery 1.0.0.8 and all optional device drivers enabled, the owner confirmed normal Windows shutdown on the R6 diagnostic build: two fan pulses followed by complete power removal. The normal native-reset build has been compiled with tracing disabled; native restart and this no-pulse build await physical acceptance. [Power status](../../docs/hdh001-home/power-performance.md)
+R6 uses Switchroot's GPIO-based PMIC transfer path during final power-off. With SwitchBattery 1.0.0.8 and all optional device drivers enabled, the owner confirmed normal Windows shutdown on the R6 diagnostic build: two fan pulses followed by complete power removal. The normal native-reset build was then deployed with tracing disabled, and the owner confirmed that Windows Restart completed normally. [Power status](../../docs/hdh001-home/power-performance.md)
 
 The focused host test checks PMC timings, BootROM commands/checksums, the RTC Hekate-menu request and both hardware-I2C and GPIO PMIC failure paths. The ARM64 binary inspection confirms that native restart reaches PMC reset instead of the power-off handler. Build and simulated results are separate from the physical shutdown observation.
 

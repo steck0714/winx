@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--jobs", type=int, default=8)
     restart = parser.add_mutually_exclusive_group()
     restart.add_argument("--native-restart", dest="restart_as_off", action="store_false",
-                         help="use the PMC/Hekate reset path (default; hardware test pending)")
+                         help="use the PMC/Hekate reset path (default)")
     restart.add_argument("--restart-as-off", action="store_true",
                          help="reproduce the earlier restart-to-power-off diagnostic policy")
     parser.set_defaults(restart_as_off=False)

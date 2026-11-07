@@ -16,9 +16,9 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth works on the trimmed Pro installation. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
-| Shutdown | Normal Windows shutdown completely powered off the tested Lite with SwitchBattery 1.0.0.8 and R6 diagnostic firmware, while Wi-Fi, Bluetooth, audio and gamepad remained enabled. [Power status](docs/hdh001-home/power-performance.md) |
+| Shutdown and restart | The owner confirmed complete power-off from normal Windows shutdown and successful native restart. SwitchBattery 1.0.0.8 fixes battery request ownership; the current R6 firmware uses PMC reset and disables diagnostic fan pulses. [Power status](docs/hdh001-home/power-performance.md) |
 
-Native restart to Hekate is prepared and awaits hardware testing. The normal firmware disables diagnostic fan pulses. USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
+USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
 
 Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). The `WindowsDrivers` submodule pins the matching revision.
 
