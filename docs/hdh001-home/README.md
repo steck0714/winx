@@ -319,7 +319,7 @@ git -C atf checkout 85081cab2050051ea6e93206ef0f80bc0676e613
   atf out/firmware --cross-prefix "$GCC5_AARCH64_PREFIX"
 ```
 
-The builder applies patches `0001` through `0006` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. Patches `0005` and `0006` only change behavior with the separate development option `--sc7`; omit that option for the normal build while complete Windows/device context restoration remains unfinished. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check.
+The builder applies patches `0001` through `0007` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. Patches `0005`–`0007` only change behavior with the separate development option `--sc7`; omit that option for the normal build while complete Windows/device context restoration remains unfinished. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check.
 
 For later rebuilds, reuse the patched `atf` checkout and rerun the Python command. The builder recognizes its already-applied patches. The [ATF reference](../../patches/atf/README.md) explains the NX build parameters and optional diagnostic flags.
 

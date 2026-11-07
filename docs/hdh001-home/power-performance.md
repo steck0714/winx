@@ -59,9 +59,17 @@ it does not retune PLLM/PLLP or write the EMC source. Missing context, a
 conflicting live parent or a bounded lock timeout stops the firmware resume.
 Actual-helper repeated-loss/failure tests and both ARM64 builds pass; the
 default binary is unchanged by this opt-in patch with the same compiler.
-The candidate is not installed. PHY, pinmux, display/device registers and
+The candidate is not installed. PHY, pad voltage, display/device registers and
 Windows power coordination still require completion and physical acceptance.
 [Switchroot CAR resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/clk/tegra/clk-tegra210.c#L3999)
+
+Patch 0007 restores GPIO output latches/direction before pin selection, then
+the board's writable pinmux/drive/pad fields. It preserves reserved bits,
+pending GPIO interrupts and PMC wake status; GpioClx owns interrupt restore.
+Actual-callback repeated-loss, retained-lock and failed-write tests pass, as
+do normal and SC7 ARM64 builds. The default binary is unchanged. It is not
+installed; this does not establish physical wake or display recovery.
+[Switchroot pinctrl](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/pinctrl/tegra/pinctrl-tegra.c#L898)
 
 Power-button 1.0.0.3 now reports HID System Wake Up when the console display is
 off, retaining the configured power-button action while it is on. Its passive

@@ -77,7 +77,9 @@ before enabling whole-system sleep. [Sleep implementation](power-performance.md#
 Opt-in BL31 patch 0006 adds shared CAR/PLL context restoration at the actual
 SoC sleep/wake boundary. Normal and SC7 ARM64 builds and repeated-loss/fault
 tests pass; the normal binary is unchanged by this patch. Not installed.
-Pinmux, PHYs, display/device context and Windows coordination remain open.
+Patch 0007 adds GPIO output-before-pinmux restoration with reserved/IRQ-state
+preservation. Repeated-loss/failure tests and both ARM64 builds pass; not installed.
+Pad voltages, PHYs, display/device context and Windows coordination remain open.
 The signed power-button 1.0.0.3 candidate adds display-aware HID wake reports,
 press-only PMIC interrupts and deferred IRQ diagnostics. Callback tests pass;
 it remains uninstalled and needs physical repeated-wake acceptance.
