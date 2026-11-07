@@ -337,9 +337,10 @@ git clone --branch edk2-stable202402 --depth 1 \
   https://github.com/tianocore/edk2.git edk2
 git -C edk2 submodule update --init --recursive
 git -C edk2 apply ../NintendoSwitchPkg/patches/edk2/0001-XhciDxe-write-combined-DMA-buffers.patch
+git -C edk2 apply ../NintendoSwitchPkg/patches/edk2/0002-BaseTools-guard-UINT8_MAX.patch
 ```
 
-This patch is applied to EDK2, not to `NintendoSwitchPkg`. Apply it only once to a fresh checkout; retain the patched tree for later builds. The historical numbered WinX patch bundles are already integrated into this branch.
+These patches apply to the pinned EDK2 checkout. Patch `0001` supplies the existing UEFI xHCI buffer attributes; patch `0002` avoids redefining `UINT8_MAX` when the host SDK already provides it, fixing the observed BaseTools compilation error. They are build/USB adaptations and do not implement SC7 sleep. Apply them once to a fresh checkout and retain the patched tree for later builds. Keep Brotli and libfdt at the commits recorded by EDK2; use `git submodule update --init --recursive`, rather than substituting their latest branches. The historical numbered WinX patch bundles are already integrated into this branch.
 
 **2. Supply the NTFS UEFI driver and card header.** Download the ARM64 read-only binary from [NTFS-3G UEFI 1.9](https://github.com/pbatard/ntfs-3g/releases/tag/1.9):
 
