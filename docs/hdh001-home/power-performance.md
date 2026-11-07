@@ -8,6 +8,32 @@ The tested combination was Windows 11 ARM64 23H2 (22631.2861), SwitchBattery **1
 
 The normal build now disables those pulses and uses **native PMC reset for Restart**. The native path requests the Hekate menu through Switchroot's RTC/BootROM preparation. The owner subsequently confirmed that **Windows Restart completed normally** with this native, no-pulse build. Shutdown and restart are separate firmware actions.
 
+## Current sleep/wake work
+
+Normal shutdown and restart acceptance above does not establish sleep support.
+On 2026-11-07, the owner confirmed one fan-stop/display-wake cycle with fan
+1.0.0.6, then reported lock-screen stalls and a black screen with a moving
+cursor after repeated power-button presses. Windows recorded Modern Standby
+transitions with zero DRIPS residency, followed by an unclean restart. No
+application crash event identified a display-process fault.
+
+The current candidate removes registry I/O from the fan display-notification
+lock, drains power-button polling and RTC work before their I2C dependency
+powers down, and adds optional PMIC wake interrupt resources. The paired
+SDR104 driver saves and restores the quiesced controller's configuration.
+Bluetooth also needs repair: the returned 1.0.0.15 log shows an uncompleted
+patch download at record 150 followed by zero HCI events, while SafeMode and
+BootPending were both zero. Version 1.0.0.17 fails that initialization honestly
+and checks patch retention, reset acknowledgements and baud changes.
+
+`SWITCH_LITE_SLEEP=1` is an experimental firmware profile. It exposes GSI 118
+(PMU_EXT) as a wake interrupt, PMC interrupt inversion, and the T214 PoFx
+processor backend. The backend calls Windows `ProcessorHalt` for PSCI C7/CC6;
+it does not invoke an unprepared, context-losing SMC. These changes compile
+and pass focused host tests. **SC7 deep sleep, complete display restoration,
+S4 hibernation and repeated physical wake are not yet accepted.** Progress
+remains in [the porting goal](PORTING.md).
+
 ## Windows request ownership fix
 
 The previous battery driver called `BatteryClassIoctl` on the underlying IRP of a KMDF-owned request. The battery class driver can complete or retain that WDM IRP directly, leaving KMDF's queue ownership unresolved during power-down.

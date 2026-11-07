@@ -12,17 +12,37 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 
 ## Current work and acceptance
 
+The active owner-requested work is retained-memory sleep/power-button wake,
+Bluetooth initialization and resume recovery, repeated display-off/on stalls,
+and the performance regression when FAT32 is visible. Build, sign and install
+the coherent update on the existing card, including the FAT32-visible SDR104
+profile and its matching BL33. Preserve the hidden profile and all card data.
+Code completion, build/signature checks and physical acceptance are separate.
+
+On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
+reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
+Modern Standby transitions with no DRIPS residency. The returned Bluetooth
+record has SafeMode=0 and BootPending=0; patch download stopped at record 150,
+yet 1.0.0.15 incorrectly published a usable radio with no HCI event replies.
+These regressions remain open until the replacement is tested on the Lite.
+
+The candidate now includes runtime display-idle policies for SIO 0.2.4 and
+touch 1.0.1.1. They stop their polling through existing KMDF D0 callbacks and
+request asynchronous D0 on display-on. The PMIC button provides wake input.
+The initial firmware and eight driver packages build; native catalog/signature
+checks and focused host tests are separate from physical acceptance.
+
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | WINARM-only is the default. Bounded NTFS writes and cold reads passed. Both profiles booted on the same Lite. The owner reported a much smoother desktop after hiding FAT32. | Diagnose the UI lag in the optional dual-volume profile. Keep BL33 and the miniport on the same layout. |
+| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. Candidate 0.4.0.2 combines FAT32 visibility with SDR104/ADMA2, range filtering and SD controller resume context. | Diagnose the UI lag in the optional dual-volume profile. Keep BL33 and the miniport on the same layout. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
-| Backlight | Owner confirmed that the deployed brightness buttons work; display off/on remains untested | Brightness adjustment and display off/on; fan PWM1 stays independent |
+| Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
-| Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed on Home. The owner confirmed working Bluetooth on trimmed Pro with 1.0.0.13. | Discovery, pairing, data exchange and usable range |
+| Bluetooth | Discovery and shutdown passed with 1.0.0.15 once; a later partial firmware download was falsely reported as success. Candidate 1.0.0.17 fixes failure handling and retained-patch/baud checks. | Repeated discovery and sleep/resume, preserving working shutdown. |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
-| Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. The card has 0.2.2 with Capture and Plus. Version 0.2.3 adds right-stick scrolling, middle click and keyboard arrows on the D-pad. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
+| Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. Version 0.2.3 provides Capture, Plus, right-stick scrolling, middle click and D-pad keyboard arrows. Candidate 0.2.4 retains those mappings and adds display-driven runtime idle. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
@@ -53,15 +73,15 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Continue Wi-Fi PCIe, firmware messaging and Windows networking integration.
-   Keep Bluetooth coexistence and the shared chip's power/reset state intact.
-2. Preserve the confirmed normal shutdown and native restart paths, with the
-   battery IRP ownership fix and fan tracing disabled.
-3. Close input and existing-driver gaps using focused physical evidence.
-   Speaker output and brightness buttons are already owner-confirmed.
-4. Complete USB and Lite SIO/control/sensor integration according to their
-   hardware prerequisites; do not load the Erista sensor profile on Lite.
-5. Record physical acceptance and update the existing firmware and driver PRs.
+1. Install the compiled/signed Bluetooth, fan, RTC, power-button and SD fixes
+   with the matching FAT32-visible BL33. Preserve normal shutdown/restart.
+2. Validate the processor C7/CC6 PoFx backend and PMIC wake interrupt. They are
+   foundations, not proof of whole-SoC sleep. Repeated display wake remains open.
+3. Complete peripheral quiescence, PMC wake routing and SC7 display/storage
+   restoration before advertising a complete retained-memory sleep path.
+4. Measure the FAT32-visible desktop and I/O behavior. Keep the hidden profile
+   available; do not call a mock-test speedup a measured hardware improvement.
+5. Record physical acceptance in this document and the existing power notes.
    Keep shared sources in their upstream locations.
 
 Detailed Wi-Fi dependencies are tracked in [WIFI.md](WIFI.md).

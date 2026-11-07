@@ -49,6 +49,15 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name(_UID, 3)
         }
 
+#ifdef SWITCH_LITE_SLEEP
+        Device (PEP0)
+        {
+            Name (_HID, "SWOA0C01")
+            Name (_UID, Zero)
+            Name (_STA, 0x0F)
+        }
+#endif
+
         // Helper functions
         Method (GCRS, 3, NotSerialized)
         {
@@ -882,9 +891,18 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         {
             Name (_HID, "SWOA0601")
             Name (_UID, Zero)
+#ifdef SWITCH_LITE_SLEEP
+            // B01 PMU_EXT: SPI 86, GSI 118. PMC inverts the PMIC's
+            // active-low interrupt before the level-high GIC input.
+            Name (_S0W, 3)
+#endif
             Name (_CRS, ResourceTemplate ()
             {
                 I2cSerialBusV2 (0x003C, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+#ifdef SWITCH_LITE_SLEEP
+                Memory32Fixed (ReadWrite, 0x7000E400, 4)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, ExclusiveAndWake) { 118 }
+#endif
             })
 
             Method (_STA, 0, NotSerialized)

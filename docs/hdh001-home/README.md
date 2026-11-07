@@ -380,6 +380,12 @@ build -a AARCH64 -t GCC5 -b RELEASE -n 8 -p NintendoSwitchPkg/NintendoSwitch.dsc
   -D SWITCH_LITE_XUSB=1 -D SWITCH_LITE_SIO=1
 ```
 
+For the in-progress sleep/wake candidate, also pass `-D SWITCH_LITE_SLEEP=1`
+and stage the matching `tegra214pep` and `switchpwrbtn` packages. That option
+adds the PMIC wake interrupt and processor power backend; it does not establish
+SC7 deep-sleep support. Keep the card header identical to the selected hidden
+or FAT32-visible SD miniport. See [current work and acceptance](PORTING.md).
+
 This selects the Lite boot/storage, touch, power, audio, Bluetooth, Wi-Fi preparation, SIO and B01 USB profile. It uses Microsoft Basic Display in Windows; the flags do not enable GPU acceleration. The generic `Tools/build.sh` / `build-woa.sh` defaults select a different profile, so use the explicit command above for this guide.
 
 The output is **`edk2/Build/NintendoSwitch-AARCH64/RELEASE_GCC5/FV/TEGRA210_EFI.fd`**, with `FVMAIN_COMPACT.Fv.map` in the same directory. Stop on a build error; continue with that build's matching FD and map only.
