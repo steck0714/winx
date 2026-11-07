@@ -19,9 +19,9 @@ the long-term goal. Implement Tegra SC7 through the
 appropriate Windows power-management path; SC7 is not an ACPI "S7" state.
 S4 hibernation has been cancelled and its implementation removed. Also fix
 Bluetooth initialization and resume recovery, repeated display-off/on stalls,
-and the performance regression when FAT32 is visible. Build, sign and install
-the coherent update on the existing card, including the FAT32-visible SDR104
-profile and its matching BL33. The latest owner comparison found no clear
+and retain both storage profiles. Build, sign and install the coherent update
+on the existing card, with FAT32 visible and its matching BL33. The latest
+owner comparison found no clear
 responsiveness difference with FAT32 visible or hidden; keep FAT32 visible.
 Performance investigation is deferred, without claiming a proven cause or fix.
 The owner requests the **latest Bluetooth fix and DDR200 in one card update**;
@@ -37,12 +37,17 @@ and BL33 were installed and read back on 2026-11-07. Hibernation, its RunOnce
 setup and pending resume request were removed; the 3.7 GiB hiberfile was deleted.
 The power button now requests Sleep (action 1). This policy change is not SC7
 acceptance; the complete direct-wake path remains unfinished. The installed
-0.4.2.1 package and paired BL33 expose FAT32. The attempted Bluetooth 1.0.0.15
+DDR200 0.5.0.1 candidate retains the FAT32-visible header and existing BL33.
+The attempted Bluetooth 1.0.0.15
 rollback did not restore reliable discovery: the next record showed loaded
 version 16, BootPending=1 and SafeMode=1. Candidate 1.0.0.18 is based on the
 latest source, removes the persistent failed-boot hold and adds one bounded
-T214 hardware-reset recovery. Its ARM64 build and host fault tests pass;
-signing, combined DDR200 installation and physical verification remain ahead.
+T214 hardware-reset recovery. Both replacements passed ARM64 builds, host
+fault tests and signed catalog checks. On 2026-11-07 the combined update was
+installed and SYS/INF/CAT readbacks matched. Superseded Bluetooth packages
+were removed; radio identity, paired-device state, other drivers and boot
+configuration were preserved. Physical DDR200 mode/fallback and Bluetooth
+discovery remain unverified on this replacement.
 The experimental processor PEP previously prevented cold boot with
 `0xc000000f`; disabling it allowed the owner to reach the desktop. Its loader
 failure must be resolved before using it for retained-memory sleep. The PMIC
@@ -65,14 +70,14 @@ checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | The latest owner comparison found similar responsiveness with FAT32 visible or hidden. The card currently uses visible 0.4.2.1 and paired BL33. | No proven performance difference, cause or fix. Further investigation deferred; both profiles remain available. |
-| SD DDR200 | Capability observation, eight-tap window selection and clock-divider policy compile and pass host tests. Vendor-mode switching, physical tuning and SDR104 recovery remain unfinished. Installed packages use SDR104. | Supported cards enter DDR200; unsupported cards or failed initialization/tuning recover to SDR104 automatically. Verify actual timing, integrity, fallback and sleep/wake. |
+| SD / boot | The latest owner comparison found similar responsiveness with FAT32 visible or hidden. The card now has the visible 0.5.0.1 candidate and the same paired BL33. | No proven performance difference, cause or fix. Further investigation deferred; both profiles remain available. |
+| SD DDR200 | Detection, vendor-mode switching, 128-tap tuning with an eight-tap minimum and bounded SDR104 reinitialization are implemented. Both profile builds and fault tests pass. Signed visible 0.5.0.1 is installed and readback-verified. | Physical activation, read integrity and fallback remain pending; sustained throughput is unmeasured. Sleep/wake acceptance depends on later SC7 work. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
-| Bluetooth | Initialization/search failures recurred. Latest-source 1.0.0.18 removes the sticky BootPending gate and adds one T214 PH4 reset/full-probe retry. ARM64 build and host tests pass. | Install with DDR200, then verify discovery, repeated startup/resume and shutdown. |
+| Bluetooth | Initialization/search failures recurred. Latest-source 1.0.0.18 removes the sticky BootPending gate and adds one T214 PH4 reset/full-probe retry. Build, host tests and signed package checks pass; installed with DDR200. | Verify discovery, repeated startup and shutdown on the new package; resume follows later sleep implementation. |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
 | Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. Version 0.2.3 provides Capture, Plus, right-stick scrolling, middle click and D-pad keyboard arrows. Candidate 0.2.4 retains those mappings and adds display-driven runtime idle. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
@@ -105,10 +110,10 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 ## Execution order
 
-1. Complete the latest Bluetooth recovery fix and DDR200 together, keeping
-   FAT32 visible. Do not deploy another separate rollback package.
-2. Implement Windows DDR200 with the detection, tuning and fallback contract
-   below, then build, sign, install and verify it on the Lite.
+1. Verify the installed Bluetooth 1.0.0.18 and DDR200 0.5.0.1 combination on
+   the Lite, keeping FAT32 visible. Do not deploy another separate rollback.
+2. Capture actual SD timing, tuning and recovery results from the bounded
+   driver diagnostics; resolve failures before claiming DDR200 acceptance.
 3. Complete genuine retained-memory sleep: short power-button press sleeps;
    the next press restores the same session directly, without Hekate. Complete
    the Windows power integration, SC7 firmware/context preservation and PMC
@@ -125,11 +130,17 @@ Reference Switchroot L4T Linux kernel commit
 [SD mode selection and fallback](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/core/sd.c#L519)
 and [Tegra DDR200 manual tuning](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-tegra.c#L1693).
 
-Current development build: completed SCR/CMD6 metadata reads feed the SD 6.x
-and vendor-function-14 capability gate. Host tests cover the eight-tap boundary,
-nonwrapping windows and 399.36 MHz host-clock divider calculation; ARM64 builds
-pass for both partition profiles. This option is not installed or enabled in
-the normal package. Actual mode switching, tuning and fallback are next.
+Candidate **0.5.0.1** is installed with `NV_T214_DDR200=1`. Completed SCR/CMD6
+reads feed the SD 6.x/vendor-function-14 gate. It verifies SDR104, switches
+the card's command system and host DDR signaling, tunes 128 taps at a
+399.36 MHz module / 199.68 MHz card clock, and compares four WINARM boot-sector
+readbacks before normal I/O. Failed setup triggers one bounded SDR104
+reinitialization and identity check. A changed CID/RCA blocks ordinary I/O
+until fresh SDPORT enumeration; physical recovery behavior still needs testing.
+Host fault tests cover both partition views, narrow windows, timeouts,
+corrupted readbacks and clock limits. ARM64 builds and signed package checks
+pass. Installation is not physical DDR200 or throughput acceptance.
+[Implementation and diagnostics](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-ddr200-candidate-0501)
 
 - Detect the SD specification revision and vendor command-system capability
   from SCR/CMD6 responses; do not assume support from branding or capacity.
