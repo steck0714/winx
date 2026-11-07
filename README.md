@@ -8,7 +8,7 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 
 | Feature | Result on the tested Lite |
 | --- | --- |
-| Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. [SDR104 / ADMA2](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-sdr104-candidate) first trial failed to boot (`INACCESSIBLE_BOOT_DEVICE`); investigation is in progress. |
+| Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. [SDR104 / ADMA2](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-sdr104-candidate) 0.4.0.1 reports 199.68 MHz, 4-bit, 1.8 V, successful tuning and no ADMA errors in the captured run. Sustained throughput remains unmeasured. |
 | Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
 | Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
 | Desktop controls | Left stick moves the pointer and ZR/ZL click. Capture toggles desktop mode and **+** opens the On-Screen Keyboard. Version 0.2.3 adds right-stick scrolling, R3 middle click and D-pad keyboard arrows. Hardware test pending. [Button mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
