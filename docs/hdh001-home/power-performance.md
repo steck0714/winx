@@ -43,7 +43,47 @@ boot-start `tegra214pep` service allowed kernel startup. The S4 repair removes
 that experimental package. This comparison isolates a loader blocker, not a
 completed S4 resume or a full boot of the Lite under emulation.
 After that package was removed and the paired BL33 installed, the owner
-confirmed a normal desktop boot on the Lite. S4 itself remains untested.
+confirmed a normal desktop boot on the Lite.
+
+The first S4 attempt powered off while running on battery. Its first following
+boot hung black with the fan running; a second boot reached the desktop. The
+owner had not set the process marker below. Readback confirms `SetupComplete=1`,
+`LastError=0`, both button actions set to 2, and a 3.7 GiB full hiberfile.
+Kernel-Boot event 16 records `0xc000007b`; event 158's diagnostic `0x40600017`
+maps to header version/size/page-size/OS-version validation in the installed
+22621.2792 resume loader, before restoration of memory. The header was zeroed
+when the card returned, so its original contents cannot be inferred. S4 has
+not passed. The owner confirmed there was no external power during that attempt.
+The cause of the invalid header is not yet established.
+
+The owner requested cleanup of the failed hiberfile and a hidden-FAT comparison.
+The next setup recreates the same hiberfile; it does not create a new file on
+every hibernation. S4 must work on battery. External power is only a comparison
+condition, and the observed 54% capacity is not evidence of a battery fault.
+The failed attempt also left BCD `AttemptResume=Yes`; older pre-hibernation
+backups lacked that element. Cleanup removes that pending request together
+with the invalidated file, retaining the loader's resume-object association.
+This prevents a stale recovery request; it does not prove why the image failed.
+
+The temporary Hekate option `hibernate_check=1` displays the first 64 bytes'
+signature, version, header size, page size and OS major version before loading
+Windows. It reads WINARM only, waits 12 seconds for a photograph, and continues
+boot. It does not create a card log or alter the image. This captures evidence
+before the resume loader or subsequent cold boot invalidates the header.
+
+### Switchroot Ubuntu source comparison
+
+The reference is Switchroot's `linux-5.1.2` kernel commit
+`2d0059fd3167a8df756de2aa0489d4aa70a9fc15` and B01 board commit
+`cf785c4c176499b301170d79fe57b77f365b73cd`.
+
+| Path | Switchroot behavior | Windows port implication |
+|---|---|---|
+| [B01 SDMMC1](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/cf785c4c176499b301170d79fe57b77f365b73cd/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi#L280) | `power-off-rail`, tap 11, trim 14, SDR104 limit 200 MHz, dynamic host clock gating disabled, 8 MiB ADMA limit | Keep the board voltage/pad rules. The Windows 512 KiB runtime limit is a deliberate separate choice, not an Ubuntu equivalence claim. |
+| [Host suspend/resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-pltfm.c#L237) | Quiesce host/IRQs before the platform clocks; restore platform first, then host | Do not replay live command/DMA state or enable IRQs before initialization. |
+| [Tegra resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/host/sdhci-tegra.c) | Mark pad calibration required and start at 400 kHz for identification | A saved SDR104 register image is insufficient after full card power loss. |
+| [SD card resume](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/mmc/core/sd.c#L1789) | Power off after notification/deselection; power up and re-identify the same card | The Windows SDPORT bus-init path must re-establish card state; the retained-power context helper alone does not implement S4. |
+| [ARM64 hibernate header](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/arch/arm64/kernel/hibernate.c#L148) | Validate saved-image invariants and resume CPU before restoring mappings/context | Investigate the current Windows header failure before treating it as a late device-resume failure. Windows still owns its hiberfile format and restore loader. |
 
 For the S4 acceptance check, use a process-local marker in Command Prompt:
 run `set S4TEST=123`, request hibernation, then cold-start Windows through

@@ -58,6 +58,41 @@ CheckPowerBeforeWindows (VOID)
   for (;;) __asm__ volatile ("wfi");
 }
 
+/* Inspect the saved-image header before winresume can invalidate it. The
+ * current failure is its header-validation diagnostic 0x40600017. This
+ * opt-in check is read-only and creates no file on the deployment card. */
+STATIC VOID
+CheckHibernateHeader (EFI_FILE_PROTOCOL *Root)
+{
+  EFI_FILE_PROTOCOL *File;
+  EFI_STATUS Status;
+  UINT8 Header[64];
+  UINTN Size = sizeof (Header);
+  UINT32 Signature, Version, Length, PageSize, OsMajor;
+
+  if (BootCheckMode ("hibernate_check=") != 1) return;
+  ZeroMem (Header, sizeof (Header));
+  Status = Root->Open (Root, &File, L"\\hiberfil.sys", EFI_FILE_MODE_READ, 0);
+  if (!EFI_ERROR (Status)) {
+    Status = File->Read (File, &Size, Header);
+    File->Close (File);
+    if (!EFI_ERROR (Status) && Size < sizeof (Header)) Status = EFI_END_OF_FILE;
+  }
+  Print (L"S4 HEADER CHECK: %r\r\n", Status);
+  if (!EFI_ERROR (Status)) {
+    CopyMem (&Signature, Header, sizeof (Signature));
+    CopyMem (&Version, Header + 4, sizeof (Version));
+    CopyMem (&Length, Header + 12, sizeof (Length));
+    CopyMem (&PageSize, Header + 24, sizeof (PageSize));
+    CopyMem (&OsMajor, Header + 56, sizeof (OsMajor));
+    Print (L"Signature=%08x Version=%u Length=%u Page=%u OS=%u\r\n",
+           Signature, Version, Length, PageSize, OsMajor);
+    Print (L"22621 expects Version=12 Length<=1096 Page=4096 OS=10.\r\n");
+  }
+  Print (L"Read-only check; Windows starts in 12 seconds.\r\n");
+  gBS->Stall (12000000);
+}
+
 STATIC VOID
 ReplayWifiOutput (VOID);
 
@@ -274,6 +309,9 @@ BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
   Status = CheckBootFile (Root, WINDOWS_LOADER, "MZ", 2);
   if (!EFI_ERROR (Status)) Status = CheckBootFile (Root, L"\\EFI\\Microsoft\\Boot\\BCD", "regf", 4);
   if (!EFI_ERROR (Status)) Status = CheckBootFile (Root, L"\\Windows\\System32\\winload.efi", "MZ", 2);
+#if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
+  if (!EFI_ERROR (Status)) CheckHibernateHeader (Root);
+#endif
   Root->Close (Root);
   if (EFI_ERROR (Status)) return Status;
 

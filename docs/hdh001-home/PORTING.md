@@ -17,10 +17,12 @@ session**. SC7 whole-SoC retained-memory sleep is deferred to the plan. Also fix
 Bluetooth initialization and resume recovery, repeated display-off/on stalls,
 and the performance regression when FAT32 is visible. Build, sign and install
 the coherent update on the existing card, including the FAT32-visible SDR104
-profile and its matching BL33. Preserve the hidden profile and all card data.
+profile and its matching BL33. The owner has now requested the matched hidden
+profile for comparison after recurring roughly one-minute stalls. Keep both
+source profiles and investigate visible-FAT performance; preserve all card data.
 Code completion, build/signature checks and physical acceptance are separate.
 The current S4 candidate builds and passes polled identity/write-bound tests;
-saved-session restoration has not yet been tested on the Lite. On 2026-11-07,
+saved-session restoration has not passed on the Lite. On 2026-11-07,
 the signed 0.4.1.0 FAT32-visible package, matching S4 BL33, Bluetooth 1.0.0.17
 and the fan/input/wake updates were installed and read back from the card.
 The first cold boot stopped at recovery `0xc000000f`, before logon or any
@@ -32,8 +34,18 @@ Its development hardware ID is also separated from the existing audio ID.
 The PEP removal and paired BL33 have been installed and read back; other
 driver binaries and service start modes, BCD and BL31 were preserved.
 The owner confirmed a normal desktop boot with that repair on 2026-11-07.
-The full-hibernation setup result has not yet been read back; physical S4
-restoration, repeated wake, Bluetooth recovery and performance remain unverified.
+Returned-card readback confirms S4 setup completed, AC/DC button action 2 and
+a 3.7 GiB full hiberfile. The battery-only attempt powered off; the first next
+boot hung black with its fan running, and the second reached the desktop.
+Kernel-Boot event 16 reports `0xc000007b`; operational event 158 identifies
+hiber-header validation (`0x40600017`). This is a failed attempt, not S4
+acceptance. The owner confirmed no charger was connected, but no evidence
+establishes battery capacity or supply interruption as the cause. Battery-only
+S4 must work; external power is a diagnostic comparison, not a prerequisite.
+The signed hidden-FAT comparison package is 0.4.1.1, with the same SD transfer
+algorithm as 0.4.1.0. The paired firmware includes an opt-in read-only hiber
+header display. Repeated wake, Bluetooth recovery and visible-FAT performance
+remain unverified.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
