@@ -1,198 +1,269 @@
-# HDH-001 Windows 11 Lite
+# Stage 6 — Switch Lite Windows installation
 
-This branch integrates the tested Switch Lite SD path, an NTFS desktop boot path, and GPIO, I²C3 and Hoag FTM4 touch support. Select **Windows 11 Lite** in Hekate.
+This guide covers the full HDH-001 / T214 installation and subsequent driver updates. The Hekate entry is **Windows 11 Lite**. Windows 11 ARM64 23H2 (22631.2861) has booted on the test Lite; the original installation used Home and the current installation uses a trimmed Pro image. The entry name does not select a Windows edition.
 
-On 2026-11-05, one HDH-001 booted Simplified Chinese Windows 11 ARM64 Home 23H2 (22631.2861) from an 80 GiB NTFS WINARM volume. The owner could tap the Windows Setup error dialog. Setup phase 4 and windeploy subsequently completed successfully. The planned reboot before OOBE left the screen dark; manual startup subsequently reached the OOBE network-selection page. The BasicDisplay rollback later reached the desktop; the desktop three-circle touch check is still unconfirmed.
+This is a source-based development port. A first installation requires firmware and a boot-storage driver built for the target card, signed driver packages, private board firmware, and your own Windows image. The repository does not contain a complete Windows installation image. Check [porting status](PORTING.md) for hardware results and remaining limitations.
 
-The latest offline SYSTEM hive records OOBEInProgress=0, SystemSetupInProgress=0, and SetupType=0. The media update preserves that completed state. The media update was deployed, then its display path was withdrawn after a black screen; see the display rollback below.
+- [Prepare the card and matching builds](#1-prepare-the-card-and-matching-builds)
+- [Assemble the complete driver kit](#2-assemble-the-complete-driver-kit)
+- [Apply Windows and install drivers](#3-apply-windows-and-install-drivers)
+- [Configure Windows boot and Hekate](#4-configure-windows-boot-and-hekate)
+- [First boot and everyday settings](#5-first-boot-and-everyday-settings)
+- [Update an existing installation](#6-update-an-existing-installation)
+- [Troubleshooting](#troubleshooting)
+- [Firmware and driver build reference](#firmware-and-driver-build-reference)
 
-## Firmware build
+<a id="firmware-build"></a>
 
-Use the EDK2 and devkitA64 build environment from the [WinPE source recipe](../hdh001-lab/README.md). This branch builds a desktop firmware using the same per-card identity header as the Windows SD miniport.
+## 1. Prepare the card and matching builds
 
-1. Generate the local header from a saved whole-card image with the existing target generator. Its supported layout is described in the [R3 notes](../hdh001-winarm-r3/README.md).
+You need a Switch Lite that already boots Hekate, a card reader, a backup of the existing card, and an ARM64 Windows maintenance environment with DISM, BCDBoot and BCDEdit. Native ARM64 WinPE is used for offline servicing. A Mac can prepare source and copy FAT32 boot files; its normal NTFS mount cannot install Windows drivers.
 
-   ```sh
-   target=docs/hdh001-home/generated
-   python3 WindowsDrivers/drivers/Tegra210Sdhc/winarm/configure-target.py /path/to/saved-card.img "$target"
-   cp "$target/winarm-target.h" WindowsDrivers/drivers/Tegra210Sdhc/src/
-   ```
+The current target generator supports this specific layout:
 
-2. Download the read-only ARM64 NTFS-3G UEFI 1.9 driver to `LiteSdTest/ntfs_aa64_ro.efi`. Its SHA-256 is `c04d008d79b4add54a2a770fb904b0df89ae7b1ea63d2d7e5d273145f4106a45`. [Driver release](https://github.com/pbatard/ntfs-3g/releases/tag/1.9)
+| Item | Required layout |
+|---|---|
+| Sector size | 512 bytes |
+| Partition table | Hybrid MBR and GPT; eleven 128-byte GPT entries starting at LBA 2 |
+| Windows partition | GPT slot 11, Microsoft Basic Data, named `WINARM`, exactly 80 GiB |
+| Hybrid MBR | Slot 4 describes that same NTFS partition |
+| NTFS | 512-byte sectors, 4096-byte clusters; matching partition bounds and a nonzero serial |
 
-3. Build RELEASE AARCH64 with `-D SWITCH_HEKATE=1 -D SWITCH_FB_ROTATE=2 -D SWITCH_EXCFB=1 -D SWITCH_ACPI_SD_NVTSDHC=1 -D SWITCH_LITE_TOUCH=1`. Pack BL33 using `Tools/make-bl33.py` and the corresponding FV map. Put BL31 and BL33 in `switchroot/woa-lite-home/`, then copy [woa-lite-home.ini](woa-lite-home.ini) to `bootloader/ini/`.
+Prepare the dedicated Windows space without overwriting existing FAT32, Ubuntu, Android or emuMMC data. Resizing an existing filesystem must precede shrinking its partition. **The generator does not repartition or format a card.** If your layout differs, the target-generation and storage code must be adapted before using this port. Do not copy another card's generated header or boot-storage binary.
 
-The command above generates the default **WINARM-only** profile. Windows sees the 80 GiB NTFS system partition as the sole active MBR entry. Hekate uses the original FAT32 partition for its boot files.
+After preparing the layout, save a complete card image. From the WinX checkout root, generate its private build inputs:
 
-To expose FAT32 as a second Windows volume, generate a new target with `--expose-fat32`. This is an experimental option. On the same hardware and card the owner reported substantially smoother desktop interaction after switching back to WINARM only. Both profiles leave the physical partition table intact.
+```sh
+mkdir -p docs/hdh001-home/generated
+python3 WindowsDrivers/drivers/Tegra210Sdhc/winarm/configure-target.py \
+  /path/to/saved-card.img docs/hdh001-home/generated/target
+cp docs/hdh001-home/generated/target/winarm-target.h \
+  WindowsDrivers/drivers/Tegra210Sdhc/src/winarm-target.h
+```
 
-Use the **same generated header** for BL33 and the Windows SD miniport. The firmware includes it directly from the miniport source directory. Deploy the two matching components together. Different partition views caused stop 0x7B on this Lite.
+The output directory `generated/target` must not already exist. Build **both BL33 and nvtsdhc from this same header** using the [build reference](#firmware-and-driver-build-reference).
 
-## Windows drivers
+By default, firmware and Windows present only WINARM as an active MBR partition. Hekate still uses the physical FAT32 partition. `--expose-fat32` retains the experimental two-volume option; it caused noticeable desktop lag on the test Lite. Keep the default WINARM-only profile unless investigating that option. Changing the presented view does not modify the physical partition table.
 
-Build the SD miniport with the `winarm` profile (the default) and package it with `winarm/nvtsdhc.inf`. [SD build script](../hdh001-lab/build-miniport.sh). Build the GPIO, I²C and touch packages with [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh). Sign the final SYS files, generate catalogs from the final INF/SYS pairs with MakeCat, and sign the catalogs with your development certificate. The installed image needs that certificate in Root and TrustedPublisher and a BCD loader entry with test signing enabled.
+## 2. Assemble the complete driver kit
 
-On an offline ARM64 Windows image, install all four INF packages through DISM. Keep nvtsdhc, sdbus and sdstor as boot-start services. The SD INF selects ACPI NVDA0101, and the touch profile exposes SWOA0101, SWOA0201 and SWOA0502.
+Use the matching ARM64 firmware and signed drivers. Each driver directory must contain its final `.inf`, `.sys` and `.cat`; signing the SYS must precede catalog generation. The installation scripts expect these directory names:
 
-Build [touch-check.c](../../LiteTouch/touch-check.c) with [build-check.sh](../../LiteTouch/build-check.sh). Copy its output to `Users/Public/Desktop/LiteTouchCheck.exe` in the offline image. After Windows first-run configuration finishes, tap and release the three circles. TOUCH PASS means the application observed the expected touch pointer events.
+```text
+Stage6Kit/
+  Install-LiteTouch.cmd
+  Install-LiteSystem.cmd
+  Stage6-Test.cer
+  nvtsdhc/
+  tegra210gpio/
+  tegra210i2c/
+  switchtouch/
+  switchfan/
+  switchpwrbtn/
+  switchbattery/
+  switchrtc/
+  switchaudio/
+  switchbt/
+  switchwifi/
+  switchsio/
+  tegraxusb/
+  WifiPrepare.efi
+  UsbPrepare.efi
+  LiteTouchCheck.exe
+  LitePerformanceCheck.exe
+  Firmware/
+    BCM4356A3.hcd
+    brcmfmac4356A3-pcie.bin
+    brcmfmac4356A3-pcie.txt
+    tegra210b01_xusb_firmware
+```
 
-## First-run findings
+Copy the installers from [LiteTouch](../../LiteTouch/Install-LiteTouch.cmd) and [this directory](Install-LiteSystem.cmd). The kit covers storage, GPIO/I2C/touch, fan/brightness, power and volume buttons, battery/RTC, audio, Bluetooth, Wi-Fi, built-in controls and USB-C host support. Volume buttons use the inbox HID interrupt driver. Windows provides the basic display, Bluetooth class, and USB host class drivers.
 
-- The initial EfiFs driver opened `bootmgfw.efi` but returned Volume Corrupt on the first read. On the same card exposed read-only to ARM64 UEFI, NTFS-3G read the loader, BCD and winload.efi successfully and loaded the complete boot manager.
-- Setup initially reached specialize but failed in `Sysprep_Online_Specialize_Bcd` with `0xC0000452`. The inactive MBR partition was rejected by the system-partition validation routine. The presented active bit is the corresponding firmware/SD change.
-- The failed run left `GeneralizationState=6`, which caused windeploy to stop with `0x8030000C`.
-- Restoring GeneralizationState to 4 exposed the next stale setup state. `ChildCompletion/setup.exe=1` caused an unexpected-restart dialog and exit code `0x1f`. The original Home image has no such value and uses SetupType 1. Restore the original first-run state when retrying this interrupted installation, after preserving the current SYSTEM hive.
+Supply the wireless firmware and the target board's calibration from its working Switchroot installation. Bluetooth uses the Switch BCM4356A3 HCD patch. USB uses the **T210B01** Falcon image, not the Erista image. These private binaries are not committed here. See [Wi-Fi packaging](../../WindowsDrivers/drivers/SwitchWifi/README.md), [Bluetooth notes](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/docs/hdh001/README.md#bluetooth-preparation) and [USB firmware extraction](PORTING.md#usb-c-host-on-hdh-001).
 
-A subsequent log showed that Setup tried to resume an installation whose saved MainQueueOnline was absent. The recovery now archives the Panther setup record and clears Setup/WorkingDirectory so the next boot can build a new first-boot queue.
+The system installer installs the five base system/audio packages and includes Bluetooth, Wi-Fi, SIO and USB when their package directories are present. GPIO/I2C/touch and nvtsdhc are installed separately in the next step. A kit missing an optional directory will not install that function. USB-C remains pending hardware acceptance. The active Lite configuration uses Microsoft Basic Display and CPU software rendering; exclude `winxdisplay` and `LiteLandscape` from this kit.
 
-These last state changes are specific to this interrupted installation. Logs in `Windows/Panther` and `Windows/Panther/UnattendGC` determine whether a retry is appropriate. The next physical run completed phase 4 with return code 0, and windeploy also returned 0 after requesting a reboot before OOBE. SYSTEM then recorded GeneralizationState 7 and ChildCompletion/setup.exe 3. Preserve this successful state. The black screen was at the reboot boundary; see [the reset candidate](power-performance.md). Manual startup reached OOBE network selection, and the later saved hive cleared the setup flags as recorded above. The desktop touch check remains pending.
+## 3. Apply Windows and install drivers
 
-## Power-button development
+For these **Command Prompt** examples:
 
-Add `-D SWITCH_LITE_POWER=1` to the Lite touch build to expose I2C5 and the MAX77620 power-button device, ACPI SWOA0601. PmicDxe already enables and initializes I2C5. The existing tegra210i2c and switchpwrbtn drivers provide the bus and VHF System Power Down report. Hekate also reads the Hoag power button through MAX77620 ONOFFSTAT on I2C5. [Hekate button source](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/utils/btn.c)
+- `W:` is the prepared, empty WINARM volume for a first installation.
+- `D:` holds your ARM64 Windows `sources\install.wim`.
+- `K:\Stage6Kit` holds the complete kit above.
 
-The power-enabled firmware and ARM64/KMDF 1.15 power-button driver compile. Real button input and the Windows power action remain untested on this Lite. The Hekate entry continues to be **Windows 11 Lite**.
+Replace these letters with the ones actually assigned in the maintenance environment. Identify WINARM by its label, 80 GiB size and saved card identity. Existing installations should use [the update procedure](#6-update-an-existing-installation); applying an image over an existing Windows directory is not an update.
 
-## Fan and clock configuration
+Use maintenance WinPE with the matching nvtsdhc/firmware partition view. A host that sees the physical GPT instead can encode different partition identifiers in BCD. The Windows volume and boot files must ultimately resolve in the WINARM-only MBR view used on the Lite.
 
-The combined Lite build adds `-D SWITCH_LITE_POWER=1 -D SWITCH_LITE_FAN=1 -D SWITCH_FAN_DUTY=76 -D SWITCH_LITE_RESET=1 -D SWITCH_LITE_PERFORMANCE=1` to the base Home flags. Use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) as `bootloader/ini/woa-lite-home.ini`; the entry name remains **Windows 11 Lite**.
+Inspect the available editions, then apply the ARM64 edition that matches your license. Replace `N` with its index:
 
-`cpu_oc=1996800` requests 1996.8 MHz CPU. `ram_oc=2100000` prepares the 2100 MHz memory timing in Hekate and requests it through BPMP in firmware. Setting `cpu_oc=0` and `ram_oc=1600000` restores the normal boot profile on the next launch. Fan control is automatic; GPU overclocking is not implemented.
+```bat
+dism /Get-WimInfo /WimFile:D:\sources\install.wim
+dism /Apply-Image /ImageFile:D:\sources\install.wim /Index:N /ApplyDir:W:\
+```
 
-The firmware preserves the Hekate environment, identifies the MAX77812 variant, resolves a trained EMC rate through BPMP, checks the existing VDD_CORE supply against the Linux DVB voltage bands, and records the resulting clock in reserved memory. The shared `WindowsDrivers/drivers/SwitchFan` driver consumes this handoff. Its T214 CPU helper uses MAX77812 M4 at 1120 mV and PLLX for the requested 1996.8 MHz. It restores the boot frequency at 80 C or after repeated sensor failures and resumes below 70 C. A valid CPU overclock request keeps at least 51/236 fan duty even if clock preparation fails. CPU preparation is independent of the EMC result; voltage readback and temperature checks still apply.
+Keep a WIM larger than 4 GiB on NTFS or host storage rather than the FAT32 boot volume. [Microsoft image deployment reference](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/capture-and-apply-windows-using-a-single-wim?view=windows-11)
 
-Shared GPIO, I2C and fan sources remain in their upstream directories. The model-specific clock helper is `WindowsDrivers/drivers/SwitchFan/src/t214/`; firmware-specific handoff and reset code live under the corresponding ClockManagementDxe/PmicDxe `t214` directories. The shared fan driver retains the Erista backlight path. Older Lite firmware maps PWM1 only; the optional Lite backlight profile adds a separate PWM0 resource and enables the same brightness interface.
+### Trust the signing certificate in the target image
 
-Build the status application with `Tools/LitePerformanceCheck/build.sh` and copy it to the public desktop as `LitePerformanceCheck.exe`. It reports runtime CPU/EMC frequency, temperatures, PWM duty and driver status. A green status requires fresh sensor updates and both requested frequencies; it is not a stability or fan-RPM test.
+The supplied installers check for the Stage 6 certificate thumbprint `99C510FC6160C2294603EAD48DA8831210BBC56D` in the target's machine Root and TrustedPublisher stores. Use the public certificate that signed the packages. If you build with your own certificate, update that check in both installers to its thumbprint; the private signing key stays on your build machine.
 
-Validation: AARCH64 firmware and ARM64/KMDF builds, signed driver/catalog verification, the firmware fan-register comparison against Hekate, and host checks of the actual CPU helper's frequency calculation, voltage ordering, thermal hysteresis and failure handling. CPU 1996.8 MHz readback and PWM duty 51 were recorded on the next physical run. EMC 2100 MHz, sustained stability, physical fan response and restart remain unresolved. See [restart preparation](power-performance.md) for the Linux BootROM command table.
+In maintenance WinPE, import that public certificate into its temporary machine stores, then copy **only its certificate entry** into the offline Windows SOFTWARE hive. Set `thumbprint` to the certificate actually used:
 
-## Battery, RTC, and volume buttons
+```bat
+set "thumbprint=99C510FC6160C2294603EAD48DA8831210BBC56D"
+certutil -addstore -f Root K:\Stage6Kit\Stage6-Test.cer
+certutil -addstore -f TrustedPublisher K:\Stage6Kit\Stage6-Test.cer
+reg load HKLM\Stage6Software W:\Windows\System32\config\SOFTWARE
+reg copy "HKLM\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates\%thumbprint%" "HKLM\Stage6Software\Microsoft\SystemCertificates\Root\Certificates\%thumbprint%" /s /f
+reg copy "HKLM\SOFTWARE\Microsoft\SystemCertificates\TrustedPublisher\Certificates\%thumbprint%" "HKLM\Stage6Software\Microsoft\SystemCertificates\TrustedPublisher\Certificates\%thumbprint%" /s /f
+reg unload HKLM\Stage6Software
+```
 
-Add `-D SWITCH_LITE_SYSTEM=1` to the combined fan/power build above. This exposes the existing upstream device definitions on HDH-001, with dependencies on the GPIO and I²C controllers:
+Stop if a command fails; unload the offline hive before retrying. Some minimal PE images omit CertUtil. Use the ARM64 SDK `certmgr.exe -add -c Stage6-Test.cer -s -r localMachine Root` and the corresponding `TrustedPublisher` command in that case. Importing into PE alone does not establish trust in `W:\Windows`. [Microsoft test-signing requirements](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/test-signing)
 
-| Device | Resources | Windows driver |
-|---|---|---|
-| BAT0, SWOA0301 | I2C1: MAX17050 at 0x36 and BQ24193 at 0x6B | Shared `switchbattery` 1.0.0.6 |
-| RTC0, SWOA0801 | I2C5: MAX77620 RTC at 0x68 | Shared `switchrtc` 1.0.0.2 |
-| BTNS, ACPI0011 | PX6 / GPIO 190 and PX7 / GPIO 191, both-edge interrupts | Windows inbox `hidinterrupt.inf` through `tegra210gpio` |
+### Install the complete kit
 
-BAT0 supplies the upstream driver's two-connection path: battery percentage, voltage, temperature, and charger status. It omits the BM92T connection, so this profile does not start the driver's USB-C role-switching timer or change charger settings. This is battery telemetry; USB-C host/charging integration is a separate porting step.
+Run these from an elevated maintenance prompt, checking each result before continuing:
 
-RTC uses the upstream Windows-only offset. After a manual time change or a successful time synchronization, it records `OffsetSeconds` and `OffsetFormat=2` under `Services\switchrtc\Parameters`. Subsequent starts restore RTC time plus that offset. It latches the RTC read registers but does not rewrite the calendar shared with Horizon. With no learned offset, it leaves Windows time unchanged.
+```bat
+cd /d K:\Stage6Kit
+dism /Image:W:\ /Add-Driver /Driver:nvtsdhc\nvtsdhc.inf
+call Install-LiteTouch.cmd offline W:\
+call Install-LiteSystem.cmd offline W:\
+copy /y LiteTouchCheck.exe W:\Users\Public\Desktop\LiteTouchCheck.exe
+dism /Image:W:\ /Get-Drivers /Format:Table
+```
 
-The volume keys reuse the upstream ACPI button mapping. Hekate configures PX6/PX7 as inputs; the Lite GPIO driver already exposes the corresponding bank interrupt. No separate volume-button binary is needed. Working volume-button input does not imply audio playback support.
+The system installer copies the wireless/USB support files to their runtime locations and copies `LitePerformanceCheck.exe` when supplied. Success is exit code `0`; the system installer also accepts `3010` as installed with a restart required. A staged package still needs to bind successfully on the Lite.
 
-`LiteTouch/build-drivers.sh` now also builds the battery and RTC packages; the battery link requires the ARM64 WDK `battc.lib` in WDK_EXTRA_LIB. Keep the shared sources under `WindowsDrivers/drivers/SwitchBattery` and `SwitchRtc`. Place signed INF/SYS/catalog files in the matching subdirectories beside [Install-LiteSystem.cmd](Install-LiteSystem.cmd). Use `Install-LiteSystem.cmd offline W:\` from ARM64 maintenance WinPE, or `Install-LiteSystem.cmd online` from an elevated prompt in the existing Home installation. GPIO and I²C must already be installed. Replace W: with WINARM's actual drive letter. The current script stages fan, power-button, battery, RTC, and audio drivers without changing Windows setup state. It does not install a display miniport or landscape helper. Bluetooth is optional when its directory and firmware patch are supplied.
+Check the offline SYSTEM hive's `Select` key and use its selected control set. For a fresh image selecting `1`, the boot-storage settings are:
 
-The Hekate entry remains **Windows 11 Lite**. Firmware and ARM64/KMDF builds pass. Signed SYS/catalog verification and PnPUtil staging of both packages passed in ARM64 WinPE 22621.1. Battery readings, RTC persistence, and physical volume-key input still await testing on this Lite.
+```bat
+reg load HKLM\Stage6System W:\Windows\System32\config\SYSTEM
+reg query HKLM\Stage6System\Select
+reg add HKLM\Stage6System\ControlSet001\Services\nvtsdhc /v Start /t REG_DWORD /d 0 /f
+reg add HKLM\Stage6System\ControlSet001\Services\sdbus /v Start /t REG_DWORD /d 0 /f
+reg add HKLM\Stage6System\ControlSet001\Services\sdstor /v Start /t REG_DWORD /d 0 /f
+reg unload HKLM\Stage6System
+```
 
-Board references: [Switchroot Lite power tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [Lite button pinmux](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-pinmux.dtsi), and [Hekate button inputs](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/soc/hw_init.c).
+If `Select` points elsewhere, substitute that control set. Preserve Windows Setup's initial state; no historical setup-state reset is part of a fresh install.
 
-## Performance R1 hardware finding and correction
+## 4. Configure Windows boot and Hekate
 
-The first physical run recorded `CpuActualKhz=998400`, `HandoffStatus=3`, `RamActualKhz=0`, 292 temperature polls, 34 C SoC / 33 C board temperature, and fan duty zero. The temperature driver was running; the EMC handoff had failed, and the old `CpuConfigured` condition also disabled the requested fan floor. Zero RAM readback means unknown, not a measured zero clock.
+Create the ARM64 UEFI boot files **on WINARM itself**. This port's read-only NTFS UEFI driver loads `\EFI\Microsoft\Boot\bootmgfw.efi` from that volume. Run BCDBoot in the matching partition view described above:
 
-The firmware now sends ATOMICS GET to trigger register 0x70016000 and reads result register 0x70016C00, following Switchroot `mail_t210.c`. It accepts and maps Hekate's CPU-accessible Mariko BPMP DRAM carveout at 0xFFE00000, in addition to the IRAM channel range. The previous code wrote to the result register and accepted only IRAM. `BpmpChannel` and an explicit initialization error now travel in the handoff. Shared SwitchFan 1.0.0.4 keeps the requested minimum fan duty and permits CPU setup independently of an EMC failure. The host CPU-helper regression covers that observed failure state.
+```bat
+W:\Windows\System32\bcdboot W:\Windows /s W: /f UEFI
+bcdedit /store W:\EFI\Microsoft\Boot\BCD /set {default} testsigning on
+bcdedit /store W:\EFI\Microsoft\Boot\BCD /enum {default}
+```
 
-The correction is built and deployed. The next physical trace reached CPU 1996.8 MHz and PWM duty 51. RAM 2100 MHz remains unresolved because the firmware found no matching EMC timing.
+The loader must use `\Windows\System32\winload.efi`, with `device` and `osdevice` resolving to WINARM and `testsigning` enabled. Keep Windows boot files on WINARM when FAT32 is hidden. [BCDBoot reference](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcdboot-command-line-options-techref-di?view=windows-11)
 
-## Display rollback
+After servicing finishes, unload any offline registry hives, dismount WINARM and safely eject the card. On the FAT32 volume copy the matching boot files to:
 
-The earlier `INACCESSIBLE_BOOT_DEVICE` (0x7B) occurred when UEFI exposed only WINARM while nvtsdhc 0.3.2.6 exposed WINARM and FAT32. Replacing BL33 made UEFI present the same two volumes in the same order as the Windows driver. The next physical boot reached the desktop. The owner also confirmed FAT32 visibility, landscape and working Bluetooth on that boot.
+```text
+bootloader/ini/woa-lite-home.ini
+switchroot/woa-lite-home/bl31.bin
+switchroot/woa-lite-home/bl33.bin
+```
 
-The WinX/Microsoft KMDOD experiment supplies software framebuffer blits and rotation, not GPU rendering acceleration. Its ARM64 VM rotation check passed, but the first Lite media boot went black at display-device restart. The owner subsequently chose to drop the extra CPU rotation work and cancelled the proposed physical PE trial.
+Use a compatible NX/Hekate BL31 and the card-specific BL33. Keep one Windows entry, with this baseline configuration:
 
-The active Home build omits `SWITCH_LITE_DISPLAY`. The targeted recovery removes `winxdisplay` and the `LiteLandscape` Run value/application from Windows. The normal installer no longer stages either component. The upstream display sources remain in their existing directory for reference; they are not part of the current Lite update. Home uses its previous native framebuffer orientation and Microsoft Basic Display. BCD, completed setup state, and the single Hekate entry were preserved and checked after the rollback; no PE trial is scheduled. The combined card update was safely ejected.
+```ini
+[Windows 11 Lite]
+l4t=1
+boot_prefixes=switchroot/woa-lite-home/
+sld_type=1
+ram_oc=1600000
+```
 
-Saved records show display installation at the restart boundary with Kernel-PnP status 0xC00000E5. The audio endpoint was created. The fan trace recorded CPU 1996800 kHz, PWM duty 51, 34 C and no sensor failures. EMC status was `LitePerfNoTiming`, with 204000 kHz readback. These are hardware register/log observations, not proof of audible audio, fan RPM, sustained stability, or a working 2100 MHz memory target.
+Merge it with existing Hekate configuration without removing entries for other operating systems. Remove obsolete duplicate Windows test entries. Normal startup must not include temporary `wifi_check` or power-check options. The normal Wi-Fi preparation runs automatically from WINARM before Windows boots.
 
-## Speaker and headphone audio
+## 5. First boot and everyday settings
 
-Add `-D SWITCH_LITE_AUDIO=1` with the Lite fan/I2C1 profile. `Drivers/UsbPowerAuditDxe/LiteAudio.inf` builds an audio-only entry from the existing upstream source. It prepares the APE power domain and clocks, initializes I2C1 explicitly, and calls the shared R403 codec/I2S/headphone setup. It does not invoke the Erista USB or CPU bring-up entry.
+Select **Windows 11 Lite** in Hekate and finish Windows first-run setup. If Wi-Fi is not yet available, the tested 22631 image supports `OOBE\BYPASSNRO` from the setup command prompt (`Shift+F10`); after the requested restart it offers offline setup. This requires keyboard access and a build retaining that script. Completing setup offline does not disable the Wi-Fi adapter.
 
-The Lite wiring matches Switchroot: RT5639 at I2C1 address 0x1C, codec LDO enable PZ4, I2S1/DAP1, and active-low headphone detection PV6. The Lite power tree supplies the speaker amplifier from the battery and codec rails from SD3; the port retains those board supplies. The shared Windows `switchaudio` 1.0.0.8 uses PortCls/WaveRT, ADMA channel 0, ADMAIF1, and 48 kHz / 16-bit stereo. Speakers and headphones share one Windows endpoint; the driver switches the codec output after jack changes. Microphone capture is not implemented by this upstream driver.
+At the desktop:
 
-Build with `WindowsDrivers/drivers/SwitchAudio/build-arm64.sh`, using ARM64 WDK `portcls.lib` and `libcntpr.lib`. Sign the final package and inject `switchaudio.inf` alongside the fan and system-device packages. Firmware and driver builds pass; actual playback, jack switching, and audio quality remain unverified on HDH-001.
+- Connect through Windows network settings. The installed Wi-Fi driver must expose a station adapter before a Wi-Fi option appears. Windows can save the network credentials normally.
+- Run `osk.exe` for the on-screen keyboard. The Plus mapping invokes it with `Ctrl+Win+O`; the system image must still contain the keyboard and its shortcut support. Full touch-keyboard auto-popup also depends on the Windows components retained by the image.
+- Run `LiteTouchCheck.exe` and tap/release its three circles. `TOUCH PASS` confirms those input events. Use `LitePerformanceCheck.exe` for brightness, temperatures and actual CPU/EMC readings.
+- In Advanced system settings → Performance → Advanced → Virtual memory, select the Windows volume and set **512 MB initial / 2048 MB maximum** if using the agreed paging configuration. The firmware must include `SWITCH_LITE_BOOT_SD=1` so Windows sees a fixed boot slot.
+- Use the built-in controls according to the [mapping table](../../WindowsDrivers/drivers/SwitchSensor/README.md). Capture toggles the desktop mapping; gamepad compatibility is described there.
 
-References: [Switchroot common audio wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Lite supplies](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-vali-power-tree.dtsi), [upstream R403 firmware](https://github.com/hayato41200/Windows-for-Switch/blob/main/Drivers/UsbPowerAuditDxe/UsbPowerAudit.c), and [Switchroot BPMP transport](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/linux-5.1.2/drivers/firmware/tegra/mail_t210.c).
+For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
-## Bluetooth on HDH-001
+Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [porting status](PORTING.md). USB-C, headphone switching and other unaccepted functions remain listed there. Windows shutdown/restart can still leave the screen black and the fan running; that is not a completed shutdown. Do not remove the card while the console is still powered. Keep extra test tones disabled.
 
-Add `-D SWITCH_LITE_BLUETOOTH=1` to the combined Home profile; it requires the Lite I2C5 power profile. `Drivers/UsbPowerAuditDxe/LiteBluetooth.inf` reuses the existing Bluetooth setup through a dedicated entry. It initializes I2C5, the PMIC GPIO4 32 kHz output, UART-D pins/clock, PH4 reset, and PH3 wake. It then checks HCI at 115200 before Windows takes ownership. The firmware exposes BTH0 (`ACPI\SWOA0B01`), UART-D at 0x70006300 and GSI 122.
+## 6. Update an existing installation
 
-The card has switchbt 1.0.0.13. The shared driver loads the Broadcom patch,
-switches UART-D to 3 Mbaud, and attaches its radio child to Windows BthMini.
-The separate 1.0.0.14 build starts its retry timer after the UART interrupt
-connects and drains the timer and HCI requests before the interrupt disconnects.
-It counts ten seconds from successful child creation before clearing the boot
-marker. Windows PE 22621.2861 bound the signed 1.0.0.14 driver to an
-ACPI UART and ran its timer in safe mode. The guest vetoed device disable.
-The owner confirmed working Bluetooth on the physical Lite with 1.0.0.13.
-Device pairing, radio range and power transitions still need specific measurements.
+Back up the current boot files and Windows installation, then assemble the complete matching kit from step 2. Keep the same card-specific storage header and WINARM-only view. Driver updates do not require formatting, reapplying Windows or resetting OOBE.
 
-For installation, add the signed `switchbt` directory beside `Install-LiteSystem.cmd` and supply the Switch-specific patch as `Firmware/BCM4356A3.hcd`. The optional installer copies it to `Windows/System32/drivers/SwitchWOA` before staging the driver. The standard five-package system/audio kit works without the Bluetooth directory. The firmware blob is not committed to this repository. The local test kit uses Switchroot's `CYW4356A3_001.004.009.0092.0095.bin`, unchanged apart from the filename; it is 38,950 bytes and contains 192 HCD command records. This is a Bluetooth patch, not a Wi-Fi driver.
+From an elevated Command Prompt **inside the installed Windows**, run:
 
-The combined firmware and ARM64 Bluetooth driver build. Signed package checks and native Windows staging pass. The BasicDisplay/audio/Bluetooth update is deployed, with the Bluetooth INF/CAT/SYS and patch read back and matched; radio discovery, keyboard/gamepad pairing, range, and restart behavior await physical testing. Upstream reports limited range without Wi-Fi-side antenna initialization, so a successful package install is not evidence of radio performance.
+```bat
+cd /d C:\Stage6Kit
+call Install-LiteTouch.cmd online
+call Install-LiteSystem.cmd online
+```
 
-The Wi-Fi-only mode accepts `Install-LiteSystem.cmd online wifi` or
-`Install-LiteSystem.cmd offline W:\ wifi`. It stages the signed station driver,
-private A3 firmware/NVRAM pair and `WifiPrepare.efi` on WINARM. The runtime
-BL33 is separate. The display-isolation card retains its existing profile.
-[Wi-Fi package and hardware status](WIFI.md#windows-connection-package).
+For an installation that cannot boot, use ARM64 maintenance WinPE and the actual assigned Windows volume:
 
+```bat
+cd /d K:\Stage6Kit
+call Install-LiteTouch.cmd offline W:\
+call Install-LiteSystem.cmd offline W:\
+```
 
-Switchroot assigns the Lite IMU to SIO. Add `-D SWITCH_LITE_SIO=1` to the
-Lite touch/GPIO firmware build to expose UART-C and the Home GPIO as
-`ACPI\SWOA0902`. Stage the signed `switchsio` package to enable the internal
-gamepad and read accelerometer samples through SwitchSensor. The firmware and
-driver build and the host protocol tests pass. Physical controls and motion
-still need a board result.
+These commands cover the touch/controller and complete system kit. They retain the existing certificate requirement. An nvtsdhc update is a separate boot-critical operation: stage its signed INF offline with DISM and deploy the matching BL33 together, before the next Lite boot. If only unrelated device drivers changed, keep the working storage pair.
 
-References: [Lite SIO ownership](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/tegra210b01-vali.dts), [UART-D Bluetooth wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210b01-nx-common.dtsi), [Switchroot patch provenance](https://gitlab.com/switchroot/android/proprietary_vendor_firmware/-/blob/main/README.md), and [upstream Bluetooth source and recovery tool](https://github.com/hayato41200/Windows-for-Switch-Drivers/tree/main/kits/Switch-Bluetooth).
+When a release requires new firmware, replace the matching files under `switchroot/woa-lite-home/` while the card is connected to the maintenance computer. Keep the existing Hekate name and settings. Check the installed driver version in Device Manager or `pnputil /enum-drivers` after boot; successful DISM staging alone does not prove the active device selected the new driver.
 
-## Ubuntu EMC comparison and RAM R2
+## Troubleshooting
 
-The Lite Ubuntu path has three separate responsibilities. Hekate selects the MTC set by DRAM ID and prepares the requested `ram_oc` table through Arachne; BPMP owns the trained clock transitions. Linux calls CLK_ROUND_RATE before CLK_SET_RATE. The T210B01 DVFS path uses the DVB frequency/voltage bands, rather than requiring the requested number to occur as an exact entry in MRQ_EMC_DVFS_TABLE.
+| Symptom | Check |
+|---|---|
+| `WINARM filesystem missing` or `Volume Corrupt` before Windows | Card identity/header match, NTFS state, the specified read-only NTFS UEFI driver, and files under `WINARM\EFI\Microsoft\Boot`. |
+| `INACCESSIBLE_BOOT_DEVICE` / stop 0x7B | BL33 and nvtsdhc must use the same partition view and header. Check boot-start storage services, test-signing and BCD's target. |
+| Setup cannot configure Windows or reports an unexpected restart | Preserve `Windows\Panther`, `Windows\Panther\UnattendGC` and the SYSTEM hive before diagnosing the specific failed phase. Old per-machine registry workarounds are not installation steps. |
+| No Wi-Fi option | Matching runtime BL33, `SwitchWOA\Wifi\WifiPrepare.efi`, complete board firmware/NVRAM pair, active `switchwifi` binding and the retained Windows WLAN components. [Diagnostics](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status) |
+| No Bluetooth toggle | Retained Windows Bluetooth components, BTH0 enumeration, signed `switchbt` binding and the BCM4356A3 patch. Use the [Bluetooth status tool](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/kits/Switch-Bluetooth/Bluetooth.ps1) before changing boot markers. |
+| Temporary pagefile warning | Fixed SD slot ACPI profile, requested paging size and enough free space on WINARM. Inspect actual pagefile creation. |
+| Fan keeps running after the screen turns black | Shutdown has not completed. Follow the current [power notes](power-performance.md); pre-Windows power-off success does not establish Windows shutdown success. |
 
-The earlier Home firmware required an exact 2100000 kHz row in that latter table and stopped at NoTiming, leaving a 204000 kHz readback. RAM R2 queries BPMP for a supported rate and checks it against the worst process-bin VDD_CORE requirement from Switchroot's normal/SLT tables. A 2100 MHz rate is covered by the 2133 MHz band (725 mV VDD_CORE). The existing rail is read, never raised; DRAM VDD2/VDDQ are not changed. A rounded rate above the user's request is rejected. A lower supported rate can be applied but remains reported as a target mismatch rather than a successful 2100 MHz overclock. The 48-byte Windows handoff ABI is unchanged.
+## Firmware and driver build reference
 
-The firmware build and focused policy regression pass. Physical 2100 MHz acceptance still depends on the next readback; this change does not invent or copy timing registers from another DRAM part.
+Use the current `hdh001-hekate-sd` branch as `NintendoSwitchPkg` in an `edk2-stable202402` workspace. Install the EDK2 BaseTools prerequisites, Python 3, ACPICA `iasl`, and the AArch64 GCC/binutils toolchain. The tested compiler prefix is `/opt/devkitpro/devkitA64/bin/aarch64-none-elf-`. Initialize EDK2 submodules, build BaseTools and source `edksetup.sh` before running `build`.
 
-References: [Hekate MTC/Arachne preparation](https://github.com/CTCaer/hekate/blob/master/bootloader/l4t/l4t.c), [Linux BPMP rounding](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/linux-5.1.2/drivers/clk/tegra/clk-nv-bpmp.c), [T210B01 voltage bands](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/soc/tegra/tegra210b01-core-dvfs.c), and [DVB selection in Linux](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/soc/tegra/tegra210-dvfs.c).
+Supply [NTFS-3G UEFI 1.9](https://github.com/pbatard/ntfs-3g/releases/tag/1.9) as `NintendoSwitchPkg/LiteSdTest/ntfs_aa64_ro.efi` (SHA-256 `c04d008d79b4add54a2a770fb904b0df89ae7b1ea63d2d7e5d273145f4106a45`). Generate the card header from step 1 before building. The combined profile is:
 
-## Speaker silence investigation and audio R2
+```sh
+export GCC5_AARCH64_PREFIX=/opt/devkitpro/devkitA64/bin/aarch64-none-elf-
+build -a AARCH64 -t GCC5 -b RELEASE -p NintendoSwitchPkg/NintendoSwitch.dsc \
+  -D SWITCH_HEKATE=1 -D SWITCH_FB_ROTATE=2 -D SWITCH_EXCFB=1 \
+  -D SWITCH_ACPI_SD_NVTSDHC=1 -D SWITCH_LITE_TOUCH=1 \
+  -D SWITCH_LITE_POWER=1 -D SWITCH_LITE_FAN=1 -D SWITCH_FAN_DUTY=76 \
+  -D SWITCH_LITE_RESET=1 -D SWITCH_LITE_PERFORMANCE=1 \
+  -D SWITCH_LITE_SYSTEM=1 -D SWITCH_LITE_AUDIO=1 \
+  -D SWITCH_LITE_BLUETOOTH=1 -D SWITCH_LITE_BACKLIGHT=1 \
+  -D SWITCH_LITE_BOOT_SD=1 -D SWITCH_WIFI_RUNTIME=1 \
+  -D SWITCH_LITE_XUSB=1 -D SWITCH_LITE_SIO=1
+```
 
-The next physical Home run reached the desktop. Audio submitted a 12 KiB WaveRT buffer; ADMA completed 13 periods in the 100 ms snapshot and 177 periods before stop, with I2S consuming data. The owner reported silent internal speakers; headphones were not tested. This narrows investigation to the codec/output path but does not prove a cause.
+Pack `Build/NintendoSwitch-AARCH64/RELEASE_GCC5/FV/TEGRA210_EFI.fd` using [Tools/make-bl33.py](../../Tools/make-bl33.py), passing that build's `FVMAIN_COMPACT.Fv.map`. The packer requires `aarch64-linux-gnu-{as,ld,objcopy}` in PATH, or an explicitly assembled 4096-byte `Tools/Bl33/bl33_stub.S` via `--stub`. Copy `WifiPrepare.efi` and `UsbPrepare.efi` from the same build's AARCH64 output into the kit.
 
-The Lite firmware now uses Switchroot's NX codec private initialization: register 0x1D=0x0347, BIAS_CUR3=0x8AAA and class-D tuning 0x20=0x6110, alongside the existing common setup. The original Erista initialization remains selected outside LiteAudioInitialize. SwitchAudio 1.0.0.8 records codec power, mixers, clocks and private bias/tuning values after a jack-route change, without adding work to the render callback. The optional one-shot TestTone mechanism remains available for diagnosis, but it is disabled on the tested Home installation at the owner's request. The normal Windows startup sound is the first audible check.
+Build Windows packages with LLVM `clang-cl` / `lld-link` and ARM64 WDK/SDK headers and libraries. Configure `WDK_INCLUDE`, `WDK_LIB`, `WDF_INCLUDE`, `WDF_LIB` and, where required, `WDK_EXTRA_LIB` according to the [driver build guide](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/docs/hdh001/README.md).
 
-This is a candidate correction based on the [Switchroot RT5640/RT5639 initialization](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/sound/soc/codecs/rt5640.c). Audible output remains pending.
+| Packages | Build entry |
+|---|---|
+| nvtsdhc | [build-miniport.sh](../hdh001-lab/build-miniport.sh), `winarm` profile and `winarm/nvtsdhc.inf` |
+| GPIO, I2C, touch, power button, fan, battery, RTC, Bluetooth, SIO, USB mailbox | [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh), with the `WindowsDrivers` tree and an output directory; pair each output with its matching source INF/CDF |
+| Audio | [SwitchAudio/build-arm64.sh](../../WindowsDrivers/drivers/SwitchAudio/build-arm64.sh) |
+| Wi-Fi | [SwitchWifi build and packaging](../../WindowsDrivers/drivers/SwitchWifi/README.md#build-and-test) using KMDF 1.33 / NetAdapterCx 2.2 / WiFiCx 1.0 |
+| Desktop checks | [LiteTouch/build-check.sh](../../LiteTouch/build-check.sh) and [LitePerformanceCheck/build.sh](../../Tools/LitePerformanceCheck/build.sh) |
 
-On the existing offline Home installation, DISM Add-Driver staged 1.0.0.8 while the device still referenced 1.0.0.7. Native maintenance identified and removed the superseded non-boot-critical package, then retained the signed 1.0.0.8 package. The retained audio devnode is marked with CONFIGFLAG_REINSTALL (0x20) for PnP reinstallation at the next enumeration, using the [documented configuration flag](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/determining-whether-a-device-is-plugged-in). Windows PnP binding and audible playback must be checked at the next physical boot; staging alone is not reported as a running driver update.
-
-## Pagefile setting for the tested Home installation
-
-At the owner's request, the offline SYSTEM hive sets `ControlSet001\Control\Session Manager\Memory Management\PagingFiles` to the REG_MULTI_SZ value `C:\pagefile.sys 512 2048`: 512 MB initial, 2048 MB maximum. The prior setting was system-managed (`0 0`) with TempPageFile=1 and no persistent pagefile visible after shutdown. The new allocation is created by Windows at its next boot; the stale temporary-pagefile indicator is not forcibly cleared to hide a creation failure. Setup and BCD are preserved.
-
-The native units and registry mapping are documented by [Win32_PageFileSetting](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-pagefilesetting).
-
-## R2 hardware follow-up: startup sound
-
-The next physical boot bound audio 1.0.0.8, cleared the reinstall flag and read all recorded codec registers successfully. Jack=0 selected the speakers, SPK_VOL=0x1414 was unmuted, and ADMA completed 439 periods. These observations establish driver activation and data-path activity, not audible playback.
-
-The owner clarified that only the Windows startup sound had been checked. The offline SOFTWARE hive had `Microsoft\Windows\CurrentVersion\Authentication\LogonUI\BootAnimation\DisableStartupSound=1`, with no overriding sound policy. The normal startup sound is enabled by setting this value to 0. The optional driver TestTone remains 0. No additional driver or firmware change is made for this configuration correction. Desktop playback and headphone output remain untested.
-
-The same boot read CPU 1996.8 MHz and RAM 1866 MHz. BPMP rounded below the 2100 MHz request, so the firmware correctly reported a target mismatch rather than claiming 2100 MHz success.
-
-## Backlight, audio pads and paging follow-up
-
-`SWITCH_LITE_BACKLIGHT=1` adds PWM0 (0x7000A000, four bytes) to FAN0 separately from PWM1. Shared SwitchFan 1.0.0.5 retains the fan/CPU behavior and enables its existing brightness IOCTLs and display-power callback when PWM0 is present. It preserves the firmware divider, uses the inherited Lite brightness on first start, and restores the saved user setting thereafter. LitePerformanceCheck adds touch-sized Darker/Brighter buttons. Old Lite firmware remains supported without backlight access. This does not provide GPU acceleration or software rotation.
-
-The owner confirmed silence during Windows Settings playback after enabling startup sound. SwitchAudio 1.0.0.8 was active, the speaker route was unmuted, codec reads succeeded, and ADMA completed transfers. The new Lite firmware explicitly selects 1.8 V for AUDIO/AUDIO_HV, exits pad DPD when required, and uses the Vali DAP1 output pinmux. These settings follow Switchroot's board DT and B01 PMC implementation; they are a candidate correction, not yet proven to restore sound. SwitchAudio 1.0.0.9 adds readback of pads, clock source, digital mixer and existing PCM-buffer peak/nonzero counts at the existing start/stop snapshots. It produces no extra sound and does no additional per-position/render work. TestTone remains disabled.
-
-Windows kept TempPageFile=1 and created no persistent pagefile despite the requested 512–2048 MB setting. Inspection of the target SDPORT binary with Microsoft public symbols found that SdhostQueryRemovability reads `_ADR`/`_RMV` on a slot child, and SdhostPdoDeviceUsageNotification rejects paging for a removable slot. Home had no slot child. The companion `SWITCH_LITE_BOOT_SD=1` profile now describes slot 0 / memory function 0 as a fixed boot device for the Windows session. The card is removable only after shutdown. This changes ACPI metadata, not the SD miniport, card partitions or 80 GiB write limits. Returned-card readback confirms a 536870912-byte pagefile.sys, the 512–2048 MB request and no TempPageFile value; crash-dump/hibernate support is not claimed.
-
-The paired update has been deployed to the existing WINARM installation and the card was safely ejected. Native ARM64 DISM staged SwitchFan 1.0.0.5 and SwitchAudio 1.0.0.9; both existing devnodes are marked for next-boot PnP reinstallation. The performance/brightness application is on the public desktop. The 512–2048 MB pagefile request, disabled extra test tone, completed setup state and BCD were preserved. On the next physical run, the owner confirmed audible output and working brightness buttons. Returned-card readback confirms active audio 1.0.0.9 and fan 1.0.0.5, ConfigFlags=0 for both, and a 512 MiB pagefile. Headphones, jack switching and display wake remain unconfirmed. The owner also confirmed that restart and shutdown still hang; shutdown makes the screen black without actually powering off.
-
-References: [Switchroot display/backlight wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/linux-5.1.2/kernel-dts/nx-platforms/tegra210-nx-common-disp.dtsi), [B01 pad control](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/soc/tegra/pmc.c), and [Windows SD slot ACPI objects](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/other-acpi-namespace-objects#sd-host-controllers-and-devices).
+Sign every final SYS, generate the CAT from the exact INF/SYS bytes with the package's CDF and MakeCat, then sign the CAT. Keep the public certificate with the kit. Build success, package installation and physical acceptance are separate results; consult the linked device notes for the current evidence. Earlier debugging history remains in Git.
