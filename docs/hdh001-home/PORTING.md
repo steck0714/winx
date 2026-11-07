@@ -77,12 +77,15 @@ before enabling whole-system sleep. [Sleep implementation](power-performance.md#
 The signed power-button 1.0.0.3 candidate adds display-aware HID wake reports,
 press-only PMIC interrupts and deferred IRQ diagnostics. Callback tests pass;
 it remains uninstalled and needs physical repeated-wake acceptance.
+The signed I2C 1.0.0.6 candidate restores per-controller clock/reset and bus
+configuration, removes D0 self-test traffic and moves error diagnostics out
+of the SD/PMIC gate. Six-route context-loss/failure tests pass; not installed.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
 | SD / boot | The latest owner comparison found similar responsiveness with FAT32 visible or hidden. The card now has the visible 0.5.0.1 candidate and the same paired BL33. | No proven performance difference, cause or fix. Further investigation deferred; both profiles remain available. |
 | SD DDR200 | Detection, vendor-mode switching, 128-tap tuning with an eight-tap minimum and bounded SDR104 reinitialization are implemented. Both profile builds and fault tests pass. Signed visible 0.5.0.1 is installed and readback-verified. | Physical activation, read integrity and fallback remain pending; sustained throughput is unmeasured. Sleep/wake acceptance depends on later SC7 work. |
-| GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work. GPIO 1.0.0.5 adds sleep context save/restore; built, signed and host-tested, not installed. | Touch press/release and three-point check, without stuck contacts; GPIO restoration needs physical acceptance. |
+| GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work. GPIO 1.0.0.5 and I2C 1.0.0.6 add power-transition context restoration; built, signed and host-tested, not installed. | Touch press/release and three-point check, without stuck contacts; controller restoration needs physical acceptance. |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |

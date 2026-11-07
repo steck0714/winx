@@ -61,6 +61,16 @@ signing and callback tests pass. It is not installed, and this is not evidence
 that the reported repeated black-screen/lock-screen stall is resolved.
 [Windows HID usages](https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input) · [Wake interrupt lifecycle](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/using-an-interrupt-to-wake-a-device)
 
+I2C 1.0.0.6 now restores its own clock/reset, divisors and stable packet-mode
+configuration on D0 reentry. The previous callback only read self-test device
+registers and did not restore lost controller state. It also wrote diagnostics
+while holding the SD/PMIC gate. Those probes are removed, and packet-error
+diagnostics now run after releasing the gate. Actual-callback tests for all
+six I2C routes, repeated context loss, timeouts and unrelated clock-bit
+preservation pass, as do the ARM64 build and package signature checks. It is
+not installed or hardware accepted; global parent clocks still need SC7
+restoration. [Switchroot I2C lifecycle](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/i2c/busses/i2c-tegra.c#L2698)
+
 ### Switchroot Ubuntu reference
 
 Use kernel commit `2d0059fd3167a8df756de2aa0489d4aa70a9fc15` and B01 board
