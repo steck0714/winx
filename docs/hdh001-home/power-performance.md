@@ -71,6 +71,15 @@ preservation pass, as do the ARM64 build and package signature checks. It is
 not installed or hardware accepted; global parent clocks still need SC7
 restoration. [Switchroot I2C lifecycle](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/i2c/busses/i2c-tegra.c#L2698)
 
+Bluetooth 1.0.0.19 restores UART-D's clock enable/reset before accessing the
+UART after D0 context loss. It checks the shared PLLP parent without retuning
+it, preserves an already-ready cold-start host, and retains the bounded
+1.0.0.18 chip recovery. Failed host preparation does not issue HCI or firmware
+commands. Repeated context-loss, clock/reset failure, interrupt and D0 cleanup
+tests pass, as do ARM64 compilation and SYS/catalog checks. It is not installed;
+1.0.0.18 remains the deployed Bluetooth version.
+[Switchroot UART initialization](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/tty/serial/serial-tegra.c#L1108)
+
 ### Switchroot Ubuntu reference
 
 Use kernel commit `2d0059fd3167a8df756de2aa0489d4aa70a9fc15` and B01 board

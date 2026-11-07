@@ -80,6 +80,9 @@ it remains uninstalled and needs physical repeated-wake acceptance.
 The signed I2C 1.0.0.6 candidate restores per-controller clock/reset and bus
 configuration, removes D0 self-test traffic and moves error diagnostics out
 of the SD/PMIC gate. Six-route context-loss/failure tests pass; not installed.
+Bluetooth 1.0.0.19 is the latest signed candidate. It restores UART-D's own
+clock/reset before a resumed HCI probe, preserving the 1.0.0.18 recovery path.
+Repeated context-loss and failure tests pass; 1.0.0.18 is still installed.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
@@ -90,7 +93,7 @@ of the SD/PMIC gate. Six-route context-loss/failure tests pass; not installed.
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
-| Bluetooth | Initialization/search failures recurred. Latest-source 1.0.0.18 removes the sticky BootPending gate and adds one T214 PH4 reset/full-probe retry. Build, host tests and signed package checks pass; installed with DDR200. | Verify discovery, repeated startup and shutdown on the new package; resume follows later sleep implementation. |
+| Bluetooth | Installed 1.0.0.18 removes the sticky BootPending gate and adds one T214 PH4 reset/full-probe retry. Latest signed candidate 1.0.0.19 also restores UART-D clock/reset after D0 context loss; host tests pass, not installed. | Verify discovery, repeated startup and shutdown on the replacement; complete sleep/resume acceptance separately. |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
 | Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. Version 0.2.3 provides Capture, Plus, right-stick scrolling, middle click and D-pad keyboard arrows. Candidate 0.2.4 retains those mappings and adds display-driven runtime idle. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
