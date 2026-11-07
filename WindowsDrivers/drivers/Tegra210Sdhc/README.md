@@ -67,8 +67,11 @@ completion; the default WINARM-only view is unchanged. Allocation or mapping
 constraints keep PIO available. Controller errors are returned to SDPORT
 and a failed DMA operation requires a completed DAT reset before reuse.
 
-Status: ARM64 build and host DMA/filter/bounds tests pass; physical SDR104
-negotiation, card I/O and throughput remain unverified. Read `Signaling18V`,
+Status: ARM64 build and host DMA/filter/bounds tests pass. The first physical
+trial of 0.4.0.0 failed with `INACCESSIBLE_BOOT_DEVICE` before the desktop.
+Persisted diagnostics still belong to the previous legacy-driver boot; they
+do not identify the failing SDR104 stage. Investigation is in progress.
+Physical SDR104 negotiation, card I/O and throughput are not verified. Read `Signaling18V`,
 `Tuned`, `TuningTap`, `ClockKhzActual`, `AdmaBlocks` and `AdmaErrors` under
 `Services\nvtsdhc\Parameters\Diag`. These counters do not replace a
 file-integrity check or a measured throughput result.
