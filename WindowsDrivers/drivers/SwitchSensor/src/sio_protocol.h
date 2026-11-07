@@ -22,12 +22,25 @@ typedef struct {
 } SIO_PAD;
 
 /* Gamepad button indices after decoding Switchroot's SIO input layout. */
-enum { SioPadZl = 1u << 6, SioPadZr = 1u << 7 };
+enum { SioPadZl = 1u << 6, SioPadZr = 1u << 7, SioPadCapture = 1u << 13 };
 
 typedef struct {
     uint8_t id, buttons;
     int8_t dx, dy;
 } SIO_MOUSE_REPORT;
+
+typedef struct {
+    int32_t fraction[2];
+    uint8_t disabled, captureDown, synced, blockedButtons;
+} SIO_POINTER_STATE;
+
+/* Keep the chosen mode across suspend and UART reconnection. The first real
+ * frame establishes a baseline so an already-held Capture is never a new press. */
+static inline void SioPointerResync(SIO_POINTER_STATE *state)
+{
+    state->synced = 0;
+    state->fraction[0] = state->fraction[1] = 0;
+}
 
 typedef struct {
     uint8_t count;
@@ -104,7 +117,7 @@ static inline int SioInputReport(const uint8_t *p, unsigned length, SIO_PAD *pad
     for (unsigned i = 0; i < sizeof(sourceBit); ++i)
         pad->buttons |= (uint16_t)(((buttons >> sourceBit[i]) & 1u) << i);
     /* Home is a separate active-low GPIO. Capture is the fourteenth button. */
-    pad->buttons |= (uint16_t)(buttons & (1u << 13));
+    pad->buttons |= (uint16_t)(buttons & SioPadCapture);
     int x = (int)((buttons >> 18) & 1u) - (int)((buttons >> 19) & 1u);
     int y = (int)((buttons >> 16) & 1u) - (int)((buttons >> 17) & 1u);
     pad->hat = hat[y + 1][x + 1];
@@ -146,16 +159,34 @@ static inline int8_t SioPointerAxis(int axis, unsigned ms, int32_t *fraction)
     return (int8_t)(total / 1000);
 }
 
-static inline SIO_MOUSE_REPORT SioPointerReport(const SIO_PAD *pad, unsigned elapsedMs, int32_t fraction[2])
+static inline SIO_MOUSE_REPORT SioPointerReport(SIO_POINTER_STATE *state, const SIO_PAD *pad,
+                                                unsigned elapsedMs)
 {
-    SIO_MOUSE_REPORT report;
-    /* After a late UART packet, resume motion without catching up a long gap. */
+    SIO_MOUSE_REPORT report = {2, 0, 0, 0};
+    uint8_t buttons = (uint8_t)(((pad->buttons & SioPadZr) ? 1 : 0) |
+                                ((pad->buttons & SioPadZl) ? 2 : 0));
+    uint8_t capture = (pad->buttons & SioPadCapture) != 0;
+
+    if (!state->synced) {
+        state->synced = 1;
+        state->blockedButtons = buttons;
+        elapsedMs = 0;
+    } else if (capture && !state->captureDown) {
+        state->disabled = !state->disabled;
+        state->fraction[0] = state->fraction[1] = 0;
+        state->blockedButtons = buttons;
+        elapsedMs = 0;
+    }
+    state->captureDown = capture;
+    state->blockedButtons &= buttons;
+    if (state->disabled) return report;
+
+    /* A trigger held when mouse mode returns must be released before a click.
+     * Limit the first movement after a late UART packet. */
     unsigned ms = elapsedMs > 32 ? 32 : elapsedMs;
-    report.id = 2;
-    report.buttons = (uint8_t)(((pad->buttons & SioPadZr) ? 1 : 0) |
-                               ((pad->buttons & SioPadZl) ? 2 : 0));
-    report.dx = SioPointerAxis(pad->axis[0], ms, &fraction[0]);
-    report.dy = SioPointerAxis(pad->axis[1], ms, &fraction[1]);
+    report.buttons = (uint8_t)(buttons & ~state->blockedButtons);
+    report.dx = SioPointerAxis(pad->axis[0], ms, &state->fraction[0]);
+    report.dy = SioPointerAxis(pad->axis[1], ms, &state->fraction[1]);
     return report;
 }
 #endif

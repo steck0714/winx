@@ -10,13 +10,16 @@ if exist "%~dp0switchsio\switchsio.inf" set "drivers=%drivers% switchsio"
 if exist "%~dp0switchbt\switchbt.inf" set "drivers=%drivers% switchbt"
 if exist "%~dp0switchwifi\switchwifi.inf" set "drivers=%drivers% switchwifi"
 set "component="
-set "usbOnly="
+set "skipWifi="
 set "usb="
 if /i "%~1"=="online" set "component=%~2"
 if /i "%~1"=="offline" set "component=%~3"
 if /i "%component%"=="wifi" (
  if not exist "%~dp0switchwifi\switchwifi.inf" exit /b 2
  set "drivers=switchwifi"
+) else if /i "%component%"=="input" (
+ if not exist "%~dp0switchsio\switchsio.inf" exit /b 2
+ set "drivers=switchsio"
 ) else if /i "%component%"=="usb-input" (
  if not exist "%~dp0switchsio\switchsio.inf" exit /b 2
  set "usb=1"
@@ -30,7 +33,7 @@ if /i "%component%"=="wifi" (
  set "usb=1"
  set "drivers=%drivers% tegraxusb"
 )
-if defined usb if defined component set "usbOnly=1"
+if defined component if /i not "%component%"=="wifi" set "skipWifi=1"
 if defined usb (
  for %%F in (switchbattery\switchbattery.inf tegraxusb\tegraxusb.inf UsbPrepare.efi Firmware\tegra210b01_xusb_firmware) do if not exist "%~dp0%%F" (
   echo Missing USB host kit file: %%F
@@ -40,8 +43,8 @@ if defined usb (
 if /i "%~1"=="online" goto online
 if /i "%~1"=="offline" goto offline
 :usage
-echo Install-LiteSystem.cmd online [wifi ^| usb ^| usb-input]
-echo Install-LiteSystem.cmd offline W:\ [wifi ^| usb ^| usb-input]
+echo Install-LiteSystem.cmd online [wifi ^| input ^| usb ^| usb-input]
+echo Install-LiteSystem.cmd offline W:\ [wifi ^| input ^| usb ^| usb-input]
 echo W: must be the drive assigned to the offline WINARM Windows installation.
 exit /b 2
 
@@ -50,7 +53,7 @@ for %%S in (ROOT TrustedPublisher) do (
  reg query "HKLM\SOFTWARE\Microsoft\SystemCertificates\%%S\Certificates\99C510FC6160C2294603EAD48DA8831210BBC56D" >nul 2>&1
  if errorlevel 1 goto trust
 )
-if not defined usbOnly (
+if not defined skipWifi (
  call :wifi "%SystemRoot%" "%SystemDrive%"
  if errorlevel 1 exit /b 1
 )
@@ -95,7 +98,7 @@ for %%S in (ROOT TrustedPublisher) do (
 )
 reg unload "HKLM\%hive%" >nul || exit /b 1
 if "%trusted%"=="0" goto trust
-if not defined usbOnly (
+if not defined skipWifi (
  call :wifi "%vol%\Windows" "%vol%"
  if errorlevel 1 exit /b 1
 )
@@ -115,7 +118,7 @@ if defined usb (
  call :publish-usb "%vol%"
  if errorlevel 1 exit /b 1
 )
-if /i "%component%"=="usb-input" (
+for %%N in (%drivers%) do if /i "%%N"=="switchsio" (
  call :device-rebind "%vol%" SWOA0902
  if errorlevel 1 exit /b 1
 )

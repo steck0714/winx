@@ -62,26 +62,48 @@ int main(void)
     memset(data,0,sizeof(data));
     data[7] = data[10] = 8;
     data[8] = data[11] = 0x80;
-    int32_t fraction[2] = {0,0};
+    SIO_POINTER_STATE pointer = {0};
     for (unsigned triggers = 0; triggers < 4; ++triggers) {
         data[3] = triggers & 1 ? 0x80 : 0;
         data[5] = triggers & 2 ? 0x80 : 0;
         assert(SioInputReport(data,12,&pad,&motion));
-        SIO_MOUSE_REPORT mouse = SioPointerReport(&pad,8,fraction);
+        SIO_MOUSE_REPORT mouse = SioPointerReport(&pointer,&pad,8);
         assert(mouse.id == 2 && mouse.buttons == triggers && !mouse.dx && !mouse.dy);
     }
     data[3] = 0x80; data[5] = 0;
     data[7] = 12; data[8] = 0x40; /* left stick right and up */
     assert(SioInputReport(data,12,&pad,&motion));
-    SIO_MOUSE_REPORT mouse = SioPointerReport(&pad,8,fraction);
+    SIO_MOUSE_REPORT mouse = SioPointerReport(&pointer,&pad,8);
     assert(mouse.buttons == 1 && mouse.dx == 6 && mouse.dy == -6);
-    mouse = SioPointerReport(&pad,8,fraction);
+    mouse = SioPointerReport(&pointer,&pad,8);
     assert(mouse.dx == 6 && mouse.dy == -6); /* a held stick keeps moving */
-    mouse = SioPointerReport(&pad,1000,fraction);
+    mouse = SioPointerReport(&pointer,&pad,1000);
     assert(mouse.dx < 27 && mouse.dy > -27);
     pad.buttons = 0; pad.axis[0] = 1024; pad.axis[1] = -1024; pad.axis[2] = 32767;
-    mouse = SioPointerReport(&pad,8,fraction);
-    assert(!mouse.buttons && !mouse.dx && !mouse.dy && !fraction[0] && !fraction[1]);
-    puts("SIO framing, gamepad, motion and desktop mouse reports passed.");
+    mouse = SioPointerReport(&pointer,&pad,8);
+    assert(!mouse.buttons && !mouse.dx && !mouse.dy && !pointer.fraction[0] && !pointer.fraction[1]);
+    /* A physical Capture edge releases a current drag and leaves the pad intact. */
+    pad.buttons = SioPadZr; pad.axis[0] = 32767;
+    mouse = SioPointerReport(&pointer,&pad,8);
+    assert(mouse.buttons == 1 && mouse.dx > 0);
+    pad.buttons |= SioPadCapture;
+    mouse = SioPointerReport(&pointer,&pad,8);
+    assert(pointer.disabled && !mouse.buttons && !mouse.dx && pad.buttons == (SioPadZr|SioPadCapture));
+    mouse = SioPointerReport(&pointer,&pad,8);
+    assert(pointer.disabled && !mouse.buttons && !mouse.dx);
+    SioPointerResync(&pointer); /* still holding Capture across suspend */
+    mouse = SioPointerReport(&pointer,&pad,32);
+    assert(pointer.disabled && !mouse.buttons && !mouse.dx);
+    pad.buttons = SioPadZr;
+    (void)SioPointerReport(&pointer,&pad,8);
+    pad.buttons |= SioPadCapture;
+    mouse = SioPointerReport(&pointer,&pad,8);
+    assert(!pointer.disabled && !mouse.buttons && !mouse.dx);
+    mouse = SioPointerReport(&pointer,&pad,8);
+    assert(!mouse.buttons && mouse.dx > 0);
+    pad.buttons = 0; (void)SioPointerReport(&pointer,&pad,8);
+    pad.buttons = SioPadZr; mouse = SioPointerReport(&pointer,&pad,8);
+    assert(mouse.buttons == 1);
+    puts("SIO framing, gamepad, motion, desktop mouse and Capture mode transitions passed.");
     return 0;
 }

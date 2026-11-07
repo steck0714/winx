@@ -55,7 +55,7 @@ typedef struct {
     BOOLEAN HomeDown, Delivered;
     PAD_REPORT LastPad;
     ULONGLONG LastMouseTime;
-    int32_t MouseFraction[2];
+    SIO_POINTER_STATE Pointer;
     UCHAR MouseButtons;  /* last state accepted by VHF */
     ULONG ReportedState;
 } SIO_DEVICE;
@@ -177,27 +177,34 @@ static VOID SubmitPad(SIO_DEVICE *D, const SIO_PAD *Pad)
     }
 }
 
-static VOID SubmitMouse(SIO_DEVICE *D, const SIO_PAD *Pad, ULONGLONG Now)
+static VOID SendMouseReport(SIO_DEVICE *D, SIO_MOUSE_REPORT *Report)
 {
     HID_XFER_PACKET xfer;
-    if (!D->Vhf) return;
-    ULONGLONG delta = (Now && D->LastMouseTime) ? Now - D->LastMouseTime : 0;
-    D->LastMouseTime = Now;
-    SIO_MOUSE_REPORT report = SioPointerReport(Pad, (unsigned)(min(delta, MS_TO_100NS(32)) / 10000),
-                                               D->MouseFraction);
-    if (!report.dx && !report.dy && report.buttons == D->MouseButtons) return;
-    xfer.reportId = report.id;
-    xfer.reportBuffer = (PUCHAR)&report;
-    xfer.reportBufferLen = sizeof(report);
+    if (!D->Vhf || (!Report->dx && !Report->dy && Report->buttons == D->MouseButtons)) return;
+    xfer.reportId = Report->id;
+    xfer.reportBuffer = (PUCHAR)Report;
+    xfer.reportBufferLen = sizeof(*Report);
     if (NT_SUCCESS(VhfReadReportSubmit(D->Vhf, &xfer)))
-        D->MouseButtons = report.buttons;
+        D->MouseButtons = Report->buttons;
+}
+
+static VOID SubmitMouse(SIO_DEVICE *D, const SIO_PAD *Pad, ULONGLONG Now)
+{
+    ULONGLONG delta = D->LastMouseTime ? Now - D->LastMouseTime : 0;
+    unsigned ms = (unsigned)(min(delta, MS_TO_100NS(32)) / 10000);
+    SIO_MOUSE_REPORT report = SioPointerReport(&D->Pointer, Pad, ms);
+    D->LastMouseTime = Now;
+    SendMouseReport(D, &report);
 }
 
 static VOID Neutral(SIO_DEVICE *D)
 {
     const SIO_PAD Pad = {0, SioNeutralHat, {0,0,0,0}};
     D->HomeDown = FALSE;
-    SubmitMouse(D, &Pad, 0);
+    SIO_MOUSE_REPORT mouse = {2, 0, 0, 0};
+    D->LastMouseTime = 0;
+    SioPointerResync(&D->Pointer);
+    SendMouseReport(D, &mouse);
     SubmitPad(D, &Pad);
     WdfSpinLockAcquire(D->SnapshotLock);
     D->Sensor.Flags = 0;
@@ -346,7 +353,7 @@ static NTSTATUS EnterD0(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Previous)
     D->RxLost = D->Delivered = D->HomeDown = FALSE;
     D->Command = SioInit;
     D->LastReply = D->NextSend = D->NextVhf = D->LastMouseTime = 0;
-    D->MouseFraction[0] = D->MouseFraction[1] = 0;
+    SioPointerResync(&D->Pointer);
     D->MouseButtons = 0xff; /* Submit the first button state even after a resume. */
     D->Powered = TRUE;
     TraceState(D, SioInit);
