@@ -56,13 +56,14 @@ when the card returned, so its original contents cannot be inferred. S4 has
 not passed. The owner confirmed there was no external power during that attempt.
 The cause of the invalid header is not yet established.
 
-The owner requested cleanup of the failed hiberfile and a hidden-FAT comparison.
+The failed 3.7 GiB hiberfile was removed and the paired hidden-FAT SDR104
+0.4.1.1 package and BL33 were installed and read back on 2026-11-07.
 The next setup recreates the same hiberfile; it does not create a new file on
 every hibernation. S4 must work on battery. External power is only a comparison
 condition, and the observed 54% capacity is not evidence of a battery fault.
 The failed attempt also left BCD `AttemptResume=Yes`; older pre-hibernation
-backups lacked that element. Cleanup removes that pending request together
-with the invalidated file, retaining the loader's resume-object association.
+backups lacked that element. Native BCDEdit removed that pending request,
+retaining the loader's resume-object association and all other boot elements.
 This prevents a stale recovery request; it does not prove why the image failed.
 
 The temporary Hekate option `hibernate_check=1` displays the first 64 bytes'

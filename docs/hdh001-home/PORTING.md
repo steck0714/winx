@@ -44,8 +44,11 @@ establishes battery capacity or supply interruption as the cause. Battery-only
 S4 must work; external power is a diagnostic comparison, not a prerequisite.
 The signed hidden-FAT comparison package is 0.4.1.1, with the same SD transfer
 algorithm as 0.4.1.0. The paired firmware includes an opt-in read-only hiber
-header display. Repeated wake, Bluetooth recovery and visible-FAT performance
-remain unverified.
+header display. Both were installed and read back on 2026-11-07. Cleanup
+removed the invalidated 3.7 GiB hiberfile and its pending BCD resume request;
+the next logon recreates the same single file. Other driver binaries, their
+service settings and BL31 were preserved. Repeated wake, Bluetooth recovery,
+S4 restoration and visible-FAT performance remain unverified.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
@@ -62,7 +65,7 @@ checks and focused host tests are separate from physical acceptance.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
-| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. Candidate 0.4.1.0 adds a 512 KiB runtime DMA limit and an opt-in S4 dump path, retaining FAT32 visibility, SDR104, range filtering and bounded asynchronous diagnostics. | Diagnose the UI lag in the optional dual-volume profile. Keep BL33 and the miniport on the same layout. |
+| SD / boot | Both partition views booted; hiding FAT32 improved responsiveness on the earlier PIO build. The 0.4.1 series adds a 512 KiB runtime DMA limit and an opt-in S4 dump path. The installed 0.4.1.1 comparison hides FAT32 while preserving SDR104 and range filtering; the visible profile remains available in source. | Diagnose the recurring roughly one-minute stalls. Keep BL33 and the miniport on the same layout. |
 | GPIO / I2C / touch | Shared controllers loaded; Lite touch clicks work | Touch press/release and three-point check, without stuck contacts |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
 | Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
