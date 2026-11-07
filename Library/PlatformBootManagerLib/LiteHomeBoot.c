@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBm.h"
+#ifdef SWITCH_LITE_BOOT_SD
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/IoLib.h>
@@ -335,3 +336,5 @@ PlatformBootManagerAfterConsole (VOID)
   Print (L"Hold POWER 12s to turn off.\r\n");
   for (;;) __asm__ volatile ("wfi");
 }
+
+#endif /* SWITCH_LITE_BOOT_SD */

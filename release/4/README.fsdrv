@@ -1,0 +1,20 @@
+Non-FAT file systems and the resident XUSB mailbox service
+==========================================================
+
+1. File systems (-D SWITCH_FSDRV=1 -D SWITCH_BIGFD=1)
+   Read-only UEFI drivers from pbatard/EfiFs v1.12 (GRUB 2.14 code, GPLv3), linked into the firmware volume:
+     Windows : NTFS, exFAT
+     Linux   : ext2/3/4, XFS, Btrfs
+     Android : ext4, F2FS, EROFS
+   They bind to any BlockIo/partition the SD driver exposes, so e.g. an ext4 or NTFS partition on the SD card
+   shows up as fsN: after `map -r` in the shell. WRITE IS NOT SUPPORTED (the SD driver itself is read-only too).
+   Setup:  Tools/setup_efifs.sh <edk2 dir>   (clones EfiFs, fetches GRUB 2.14, applies EfiFs' own GRUB patch)
+   SWITCH_BIGFD is required: the firmware no longer fits into 0xE0000 (bl33.bin becomes exactly 1 MiB).
+   bl33.bin = bl33 stub (4 KiB) + FD; hekate loads it at 0xAA000000 as before.
+
+2. XUSB resident mailbox (shell command `xusbinit`, SWITCH_XUSB)
+   Before: `xusbinit svc` answered the xHCI firmware's clock requests only while the command ran (30 s).
+   Now:    `xusbinit up [xusb.bin]`  = clk, pad, ss, fw, ports, then a timer daemon (10 ms) that keeps answering
+           until ExitBootServices.  `xusbinit daemon [stop]`, `xusbinit dlog` (what it logged).
+   Still missing (not done): a PCI-IO emulation so EDK2's stock XhciDxe can drive XUSB, and an OS-side
+   mailbox handler (after ExitBootServices nothing answers the firmware). Untested on hardware.

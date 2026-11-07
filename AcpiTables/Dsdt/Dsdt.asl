@@ -282,6 +282,7 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         // Enabled with -D SWITCH_ACPI_XHCI=1. UNTESTED ON HARDWARE.
         Device (XHC0)
         {
+#if defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_XUSB)
             // Layout verified on hardware by hayato41200/Windows-for-Switch (R378):
             // PNP0D10 binds the inbox USBXHCI, _CCA = 0 declares the controller
             // non-cache-coherent (the xHCI DMA buffers are not snooped), and the FPCI
@@ -310,7 +311,17 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
 #endif
             })
 
-#ifndef SWITCH_ACPI_USB_SELECT
+#else
+            // Preserve usually's original xHCI description outside the WOA/Lite profiles.
+            Name (_HID, "NVDA0210")
+            Name (_CID, "PNP0D10")
+            Name (_UID, Zero)
+            Method (_CRS, 0, NotSerialized)
+            {
+                Return (GCRS (0x70090000, 0x8000, 0x47))
+            }
+#endif
+#if !defined(SWITCH_ACPI_USB_SELECT) && (defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_XUSB))
             // R389 (hayato41200/Windows-for-Switch): hidden unless UsbPowerAuditDxe brought XUSB up.
             // It patches this byte (AML 08 'XSTA' 0A 10) to 0x0F and fixes the DSDT checksum.
             // usbxhci touching an XUSB that was never started froze Windows at the logo.
@@ -326,8 +337,10 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
                 }
 
                 Return (Zero)
-#else
+#elif defined(SWITCH_ACPI_SWOA_ENABLE) || defined(SWITCH_LITE_XUSB)
                 Return (XSTA)
+#else
+                Return (0x0F)
 #endif
             }
         }

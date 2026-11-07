@@ -111,6 +111,11 @@ SdDiagOnReadyToBoot (
 )
 {
     SdLogControllerRegs ();
+#ifndef SWITCH_LITE_BOOT_SD
+    if (gST->ConOut != NULL) {
+        gST->ConOut->OutputString (gST->ConOut, mSdDiag);
+    }
+#endif
     SdDiagPublish ();
     gBS->CloseEvent (Event);
 }
@@ -1161,12 +1166,14 @@ retry:
 		Instance->BlockMedia.BlockSize = mBlkDesc.blksz;
 		// mBlkDesc.lba is the block COUNT; Media->LastBlock is the index of the last block.
 		Instance->BlockMedia.LastBlock = mBlkDesc.lba - 1;
+#ifdef SWITCH_LITE_BOOT_SD
         Status = LitePrepareWindowsDisk (Instance);
         if (EFI_ERROR (Status)) {
             SdLog (L"WINARM identity check: %r\r\n", Status);
             FreePool (Instance);
             goto exit;
         }
+#endif
 		Status = gBS->InstallMultipleProtocolInterfaces(
 			&Instance->Handle,
 			&gEfiBlockIoProtocolGuid,    

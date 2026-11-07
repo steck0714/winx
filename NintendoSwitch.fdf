@@ -95,10 +95,12 @@ READ_LOCK_STATUS   = TRUE
   INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
+!ifdef SWITCH_LITE_SYSTEM
   # Read-only NTFS-3G UEFI 1.9 for the dedicated WINARM boot volume.
   FILE DRIVER = E607DA2C-5D59-43C3-894B-533847989930 {
     SECTION PE32 = NintendoSwitchPkg/LiteSdTest/ntfs_aa64_ro.efi
   }
+!endif
 
   # Display
   INF NintendoSwitchPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
@@ -131,6 +133,11 @@ READ_LOCK_STATUS   = TRUE
   INF RuleOverride = ACPITABLE NintendoSwitchPkg/AcpiTables/AcpiTables.inf
 
   # Drivers
+!ifndef SWITCH_WOA
+!ifndef SWITCH_LITE_TOUCH
+  INF NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
+!endif
+!endif
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
 !ifdef SWITCH_LITE_BLUETOOTH
@@ -150,6 +157,10 @@ READ_LOCK_STATUS   = TRUE
 !endif
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
 !ifndef SWITCH_WOA
+!ifndef SWITCH_LITE_TOUCH
+  INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
+  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+!endif
 !ifdef SWITCH_FAN_DUTY
 !ifdef SWITCH_LITE_FAN
   INF NintendoSwitchPkg/Drivers/FanDxe/LiteFanPower.inf
