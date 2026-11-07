@@ -8,16 +8,18 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 
 | Feature | Result on the tested Lite |
 | --- | --- |
-| Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. [SDR104 / ADMA2](WindowsDrivers/drivers/Tegra210Sdhc/README.md#t214-sdr104-candidate) first trial failed to boot (`INACCESSIBLE_BOOT_DEVICE`); investigation is in progress. |
+| Storage | Windows boots from the 80 GiB NTFS volume `WINARM`. Writes survived shutdown and a cold boot. [SDR104 / ADMA2](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-sdr104-candidate) first trial failed to boot (`INACCESSIBLE_BOOT_DEVICE`); investigation is in progress. |
 | Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
 | Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
-| Desktop controls | Left stick moves the pointer and ZR/ZL click. Capture toggles desktop mode and **+** opens the On-Screen Keyboard. Version 0.2.3 adds right-stick scrolling, R3 middle click and D-pad keyboard arrows. Hardware test pending. [Button mapping](WindowsDrivers/drivers/SwitchSensor/README.md) |
+| Desktop controls | Left stick moves the pointer and ZR/ZL click. Capture toggles desktop mode and **+** opens the On-Screen Keyboard. Version 0.2.3 adds right-stick scrolling, R3 middle click and D-pad keyboard arrows. Hardware test pending. [Button mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
 | 3D graphics | Windows uses CPU software rendering. Native GM20B Vulkan acceleration is planned with Mesa NVK. [GPU driver status](docs/gpu-vulkan/STATUS.md) |
 | Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth works on the trimmed Pro installation. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 
 On R5, shutting down Windows still leaves the screen black and the fan running until the owner holds the power button. Restart uses the same firmware handler and awaits a separate R5 test. USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
+
+Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). The `WindowsDrivers` submodule pins the matching revision.
 
 ## Storage profiles
 

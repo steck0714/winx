@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 here = Path(__file__).resolve().parent
-source = (here.parents[1] / "WindowsDrivers/drivers/SwitchTouch/src/switchtouch.c").read_text()
+source = (here.parents[1] / "WindowsDrivers/drivers/SwitchLiteTouch/src/switchtouch.c").read_text()
 
 def routine(name):
     start = re.search(r"^static [A-Za-z]+ " + name + r"\([^;]*?\)\n\{", source, re.M).start()

@@ -12,6 +12,7 @@ cc=${CLANG_CL:-clang-cl}; ld=${LLD_LINK:-lld-link}
 for pair in Tegra210Gpio:tegra210gpio Tegra210I2c:tegra210i2c SwitchTouch:switchtouch SwitchPowerButton:switchpwrbtn SwitchFan:switchfan SwitchBattery:switchbattery SwitchRtc:switchrtc SwitchBluetooth:switchbt SwitchSensor:switchsio TegraXusb:tegraxusb; do
     dir=${pair%:*}; name=${pair#*:}; dest="$out/$name"
     driver_dir="$src/drivers/$dir"
+    if [ "$dir" = SwitchTouch ]; then driver_dir="$src/drivers/SwitchLiteTouch"; fi
     mkdir -p "$dest"
     for file in "$driver_dir/src/$name.c" "$src/tools/kmdf_support.c"; do
         obj=${file##*/}; obj=${obj%.c}.obj

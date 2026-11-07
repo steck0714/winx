@@ -1,6 +1,6 @@
 # HDH-001 Wi-Fi
 
-Windows driver 0.5.5 automatically reconnected to a saved WPA2-Personal network on the physical Lite. Windows obtained an IPv4 DHCP lease and default gateway, and the owner confirmed Internet access. [Windows driver and diagnostics](../../WindowsDrivers/drivers/SwitchWifi/README.md)
+Windows driver 0.5.5 automatically reconnected to a saved WPA2-Personal network on the physical Lite. Windows obtained an IPv4 DHCP lease and default gateway, and the owner confirmed Internet access. [Windows driver and diagnostics](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md)
 
 ## Bring-up history
 
@@ -34,7 +34,7 @@ bridged and length-encapsulated EAPOL. The owner confirmed Internet access on th
 The returned station configuration confirms an IPv4 DHCP lease and a default gateway. Sustained throughput and group rekey remain unmeasured.
 The trimmed image includes the Windows on-screen keyboard at
 `%SystemRoot%\System32\osk.exe` for entering network credentials.
-[Station startup record](../../WindowsDrivers/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
+[Station startup record](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#station-adapter-startup-on-hdh-001)
 
 ## Verified source facts
 
@@ -227,7 +227,7 @@ The Windows interface target is WiFiCx 1.0 with NetAdapterCx 2.2/KMDF 1.33 for t
 ## Windows runtime implementation
 
 The canonical `drivers/SwitchWifi` implementation is mirrored in
-[WindowsDrivers](../../WindowsDrivers/drivers/SwitchWifi/README.md). It includes
+[WindowsDrivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md). It includes
 msgbuf-v5 flow creation/deletion, Ethernet TX/RX descriptors and packet ownership,
 producer/consumer rings, a serialized command engine and retained event buffers.
 Paired reply-buffer/request publication is atomic; a full ring publishes neither.
@@ -354,7 +354,7 @@ joins workers before hardware reset; cancellation alone never authorizes DMA
 release. A recovery callback queues separate owner work rather than resetting
 inline from a DPC or a worker being flushed.
 
-The [Windows Wi-Fi lifecycle](../../WindowsDrivers/drivers/SwitchWifi/README.md#device-startup-power-and-radio-capabilities) now initializes WiFiCx with the station-adapter factory supplied by the device owner. Interrupt-enabled D0 startup obtains the firmware radio state and legal channels and publishes device, band and PHY capabilities. The command worker implements the software radio task using WDI TLV parsing, a masked firmware write, readback, radio-status indication and matching task completion. The capability and command components build for ARM64. The Windows scan/abort handlers use the shared UEFI escan format, with firmware-regulated channels and WDI BSS indications. The KMDF device callbacks and station transmit/receive queues now link into
+The [Windows Wi-Fi lifecycle](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#device-startup-power-and-radio-capabilities) now initializes WiFiCx with the station-adapter factory supplied by the device owner. Interrupt-enabled D0 startup obtains the firmware radio state and legal channels and publishes device, band and PHY capabilities. The command worker implements the software radio task using WDI TLV parsing, a masked firmware write, readback, radio-status indication and matching task completion. The capability and command components build for ARM64. The Windows scan/abort handlers use the shared UEFI escan format, with firmware-regulated channels and WDI BSS indications. The KMDF device callbacks and station transmit/receive queues now link into
 the signed driver. The runtime-only `WIRS` method checks PCIEX/PEX/AFI reset
 state and can hold these dedicated reset lines if both endpoint halt and port
 reset fail. The Windows package staged in an isolated PE VM. The Lite has not
@@ -363,7 +363,7 @@ key installation. Windows scanning subsequently passed on the physical Lite. Dri
 
 ## Windows connection package
 
-The [station driver](../../WindowsDrivers/drivers/SwitchWifi/README.md#association-and-keys)
+The [station driver](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#association-and-keys)
 uses Windows for the WPA2 handshake. It verifies the associated BSSID, SSID
 and negotiated request before reporting success. The firmware checks receive
 protection and the driver gates traffic during key changes. Protected-bit
@@ -379,7 +379,7 @@ air protection. Optional BCM metadata supplies receive signal strength.
 Windows link indications use the measured rates for the associated peer.
 The device's `SwitchWifiReport` value records initialization, scans, joins,
 acknowledged key slots and observed frame types. See the
-[status fields and read command](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).
+[status fields and read command](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#on-device-status).
 An isolated ARM64 Windows PE 22621.1 guest accepted the signed 0.3.0.0 package as `oem0.inf`. The existing 22631.2861 ARM64 installation media includes WiFiCx, NetAdapterCx and the WLAN service. Driver 0.5.5 later passed WPA2 association, DHCP and Internet access on the physical Lite. Group rekey remains unmeasured.
 
 The station now registers the four ordinary data filters with NetAdapterCx
@@ -406,4 +406,4 @@ The 0.5.0.0 ACPI fixture exposed only GSI 130 and returned
 `hw=3/C0000182 irq=0 ring=0` at the expected missing-memory check. The
 pre-Windows physical scan uses polling. Hardware interrupt delivery and ring
 completions in Windows must be observed on the board.
-[Driver report and fixture](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status).
+[Driver report and fixture](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#on-device-status).

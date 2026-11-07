@@ -19,6 +19,16 @@ This is a source-based development port. A first installation requires firmware 
 
 You need a Switch Lite that already boots Hekate, a card reader, a backup of the existing card, and an ARM64 Windows maintenance environment with DISM, BCDBoot and BCDEdit. Native ARM64 WinPE is used for offline servicing. A Mac can prepare source and copy FAT32 boot files; its normal NTFS mount cannot install Windows drivers.
 
+The Windows drivers are maintained in the [driver repository](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). `WindowsDrivers` is a Git submodule pinned to the revision used by this firmware checkout. Initialize it before building or generating the card header:
+
+```sh
+git clone --recurse-submodules https://github.com/ruje0504-2/winx.git
+# For an existing WinX checkout:
+git submodule update --init WindowsDrivers
+```
+
+Use `git submodule update --init WindowsDrivers` after pulling a new WinX revision to select its recorded driver revision. The Lite build selects `drivers/SwitchLiteTouch`, which matches SWOA0502; the original SwitchTouch driver remains available for the upstream hardware.
+
 The current target generator supports this specific layout:
 
 | Item | Required layout |
@@ -80,7 +90,7 @@ Stage6Kit/
 
 Copy the installers from [LiteTouch](../../LiteTouch/Install-LiteTouch.cmd) and [this directory](Install-LiteSystem.cmd). The kit covers storage, GPIO/I2C/touch, fan/brightness, power and volume buttons, battery/RTC, audio, Bluetooth, Wi-Fi, built-in controls and USB-C host support. Volume buttons use the inbox HID interrupt driver. Windows provides the basic display, Bluetooth class, and USB host class drivers.
 
-Supply the wireless firmware and the target board's calibration from its working Switchroot installation. Bluetooth uses the Switch BCM4356A3 HCD patch. USB uses the **T210B01** Falcon image, not the Erista image. These private binaries are not committed here. See [Wi-Fi packaging](../../WindowsDrivers/drivers/SwitchWifi/README.md), [Bluetooth notes](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/docs/hdh001/README.md#bluetooth-preparation) and [USB firmware extraction](PORTING.md#usb-c-host-on-hdh-001).
+Supply the wireless firmware and the target board's calibration from its working Switchroot installation. Bluetooth uses the Switch BCM4356A3 HCD patch. USB uses the **T210B01** Falcon image, not the Erista image. These private binaries are not committed here. See [Wi-Fi packaging](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md), [Bluetooth notes](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/docs/hdh001/README.md#bluetooth-preparation) and [USB firmware extraction](PORTING.md#usb-c-host-on-hdh-001).
 
 The system installer installs the five base system/audio packages and includes Bluetooth, Wi-Fi, SIO and USB when their package directories are present. GPIO/I2C/touch and nvtsdhc are installed separately in the next step. A kit missing an optional directory will not install that function. USB-C remains pending hardware acceptance. The active Lite configuration uses Microsoft Basic Display and CPU software rendering; exclude `winxdisplay` and `LiteLandscape` from this kit.
 
@@ -193,7 +203,7 @@ At the desktop:
 - Run `osk.exe` for the on-screen keyboard. The Plus mapping invokes it with `Ctrl+Win+O`; the system image must still contain the keyboard and its shortcut support. Full touch-keyboard auto-popup also depends on the Windows components retained by the image.
 - Run `LiteTouchCheck.exe` and tap/release its three circles. `TOUCH PASS` confirms those input events. Use `LitePerformanceCheck.exe` for brightness, temperatures and actual CPU/EMC readings.
 - In Advanced system settings → Performance → Advanced → Virtual memory, select the Windows volume and set **512 MB initial / 2048 MB maximum** if using the agreed paging configuration. The firmware must include `SWITCH_LITE_BOOT_SD=1` so Windows sees a fixed boot slot.
-- Use the built-in controls according to the [mapping table](../../WindowsDrivers/drivers/SwitchSensor/README.md). Capture toggles the desktop mapping; gamepad compatibility is described there.
+- Use the built-in controls according to the [mapping table](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md). Capture toggles the desktop mapping; gamepad compatibility is described there.
 
 For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
@@ -230,7 +240,7 @@ When a release requires new firmware, replace the matching files under `switchro
 | `WINARM filesystem missing` or `Volume Corrupt` before Windows | Card identity/header match, NTFS state, the specified read-only NTFS UEFI driver, and files under `WINARM\EFI\Microsoft\Boot`. |
 | `INACCESSIBLE_BOOT_DEVICE` / stop 0x7B | BL33 and nvtsdhc must use the same partition view and header. Check boot-start storage services, test-signing and BCD's target. |
 | Setup cannot configure Windows or reports an unexpected restart | Preserve `Windows\Panther`, `Windows\Panther\UnattendGC` and the SYSTEM hive before diagnosing the specific failed phase. Old per-machine registry workarounds are not installation steps. |
-| No Wi-Fi option | Matching runtime BL33, `SwitchWOA\Wifi\WifiPrepare.efi`, complete board firmware/NVRAM pair, active `switchwifi` binding and the retained Windows WLAN components. [Diagnostics](../../WindowsDrivers/drivers/SwitchWifi/README.md#on-device-status) |
+| No Wi-Fi option | Matching runtime BL33, `SwitchWOA\Wifi\WifiPrepare.efi`, complete board firmware/NVRAM pair, active `switchwifi` binding and the retained Windows WLAN components. [Diagnostics](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#on-device-status) |
 | No Bluetooth toggle | Retained Windows Bluetooth components, BTH0 enumeration, signed `switchbt` binding and the BCM4356A3 patch. Use the [Bluetooth status tool](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/kits/Switch-Bluetooth/Bluetooth.ps1) before changing boot markers. |
 | Temporary pagefile warning | Fixed SD slot ACPI profile, requested paging size and enough free space on WINARM. Inspect actual pagefile creation. |
 | Fan keeps running after the screen turns black | Shutdown has not completed. Follow the current [power notes](power-performance.md); pre-Windows power-off success does not establish Windows shutdown success. |
@@ -262,8 +272,8 @@ Build Windows packages with LLVM `clang-cl` / `lld-link` and ARM64 WDK/SDK heade
 |---|---|
 | nvtsdhc | [build-miniport.sh](../hdh001-lab/build-miniport.sh), `winarm` profile and `winarm/nvtsdhc.inf` |
 | GPIO, I2C, touch, power button, fan, battery, RTC, Bluetooth, SIO, USB mailbox | [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh), with the `WindowsDrivers` tree and an output directory; pair each output with its matching source INF/CDF |
-| Audio | [SwitchAudio/build-arm64.sh](../../WindowsDrivers/drivers/SwitchAudio/build-arm64.sh) |
-| Wi-Fi | [SwitchWifi build and packaging](../../WindowsDrivers/drivers/SwitchWifi/README.md#build-and-test) using KMDF 1.33 / NetAdapterCx 2.2 / WiFiCx 1.0 |
+| Audio | [SwitchAudio/build-arm64.sh](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchAudio/build-arm64.sh) |
+| Wi-Fi | [SwitchWifi build and packaging](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#build-and-test) using KMDF 1.33 / NetAdapterCx 2.2 / WiFiCx 1.0 |
 | Desktop checks | [LiteTouch/build-check.sh](../../LiteTouch/build-check.sh) and [LitePerformanceCheck/build.sh](../../Tools/LitePerformanceCheck/build.sh) |
 
 Sign every final SYS, generate the CAT from the exact INF/SYS bytes with the package's CDF and MakeCat, then sign the CAT. Keep the public certificate with the kit. Build success, package installation and physical acceptance are separate results; consult the linked device notes for the current evidence. Earlier debugging history remains in Git.

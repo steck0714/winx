@@ -57,3 +57,5 @@ a registered mark as far as this summary knows; check before commercial use.
 * Upstream parts: see file headers (Bingxing Wang and others).
 * Ported parts: CTCaer (hekate).
 * winx changes: Copyright (c) 2026 winx contributors - put the real name(s) here.
+
+Windows driver sources are now referenced by the `WindowsDrivers` Git submodule. The driver repository retains its own source notices and GPL-2.0 license.
