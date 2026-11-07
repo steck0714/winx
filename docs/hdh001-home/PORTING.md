@@ -26,7 +26,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
-| 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. | Run a Direct3D workload on a Tegra hardware adapter. |
+| 3D graphics | Windows uses CPU software rendering. The GM20B Vulkan driver is in early bring-up. | Verify GPU readback, Vulkan drawing and window presentation in order. [GPU driver status](../gpu-vulkan/STATUS.md) |
 | Power lifecycle | Pre-Windows power-off passed on R4. On R5, Windows shutdown still leaves the fan running until a long power-button press. R6 implements the board's GPIO power-off path for shutdown and restart. It passed a simulated PMIC test and awaits hardware testing. | Confirm power removal after normal Windows shutdown and restart. [R5 results and R6 firmware](power-performance.md#gpio-power-off-path-r6) |
 
 ## USB-C host on HDH-001

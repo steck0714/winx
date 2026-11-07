@@ -12,7 +12,7 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
 | Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
 | Desktop controls | The left stick moves the pointer, ZR maps to left click and ZL to right click. Capture toggles desktop controls in 0.2.1 (on the card). In 0.2.2, **+** opens the On-Screen Keyboard in desktop mode. The shortcut is packaged and awaits a hardware test. [Button mapping](WindowsDrivers/drivers/SwitchSensor/README.md) |
-| 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. |
+| 3D graphics | Windows uses CPU software rendering. Native GM20B Vulkan acceleration is planned with Mesa NVK. [GPU driver status](docs/gpu-vulkan/STATUS.md) |
 | Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. Bluetooth works on the trimmed Pro installation. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
