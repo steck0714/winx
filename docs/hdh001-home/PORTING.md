@@ -20,7 +20,11 @@ the coherent update on the existing card, including the FAT32-visible SDR104
 profile and its matching BL33. Preserve the hidden profile and all card data.
 Code completion, build/signature checks and physical acceptance are separate.
 The current S4 candidate builds and passes polled identity/write-bound tests;
-saved-session restoration has not yet been tested on the Lite.
+saved-session restoration has not yet been tested on the Lite. On 2026-11-07,
+the signed 0.4.1.0 FAT32-visible package, matching S4 BL33, Bluetooth 1.0.0.17
+and the fan/input/wake updates were installed and read back from the card.
+The one-time full-hibernation setup is queued for the next administrator logon;
+physical S4 restoration, repeated wake and performance remain unverified.
 
 On 2026-11-07, fan 1.0.0.6 passed one display-off/on cycle, but the owner then
 reported lock-screen/black-screen stalls after repeated cycles. Windows recorded
