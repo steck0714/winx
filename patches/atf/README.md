@@ -1,6 +1,6 @@
 # T214 PSCI PMIC power patch
 
-The build tool applies patches 0001 through 0003 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
+The build tool applies patches 0001 through 0004 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
 
 ## Build
 
@@ -15,7 +15,7 @@ python3 Tools/test-t214-pmic.py atf
 
 The build tool accepts the pinned checkout or its source archive, applies the patch (or recognizes it as already applied), and writes `out/t214-atf/bl31.bin`. It uses a separate build directory to avoid reusing objects from the rejected default-address build. SOURCE_DATE_EPOCH and the build string are fixed; use the same compiler for byte-identical output.
 
-R5 routes a B01 restart request through full power-off in the Windows BL31. The owner tested Windows shutdown on R5 and still had to hold the power button after the display went black and the fan kept running. R5 restart awaits a separate hardware result. To build the earlier native PMC/Hekate restart behavior, pass `--native-restart`. Each restart policy has a separate build directory. [Windows shutdown investigation](../../docs/hdh001-home/power-performance.md#windows-power-off-fallback-r5)
+The default build uses native PMC/Hekate restart and leaves fan tracing disabled. `--native-restart` selects the same default explicitly. `--restart-as-off` reproduces the earlier fallback policy, and `--trace-power-boundary` adds two fan pulses at final power-off entry for diagnosis. Native and fallback builds, with and without tracing, use separate build directories. [Current physical results](../../docs/hdh001-home/power-performance.md)
 
 The parameters follow [Lineage's Nintendo NX recipe](https://github.com/LineageOS/android_device_nintendo_nx/blob/lineage-22.2/vendor/nx-vendor.mk):
 
@@ -30,10 +30,8 @@ The unmodified reset-to-BL31 entrypoint obtains Hekate's parameters through the 
 
 ## Validation and deployment state
 
-R6 uses Switchroot's GPIO-based PMIC transfer path during final power-off. The host test simulates a MAX77620 on the PY3/PY4 lines, checks both register updates and verifies pin restoration on failure. R6 built for ARM64 and awaits hardware testing. R5 is still on the test card. [R6 findings and scope](../../docs/hdh001-home/power-performance.md#gpio-power-off-path-r6)
+R6 uses Switchroot's GPIO-based PMIC transfer path during final power-off. With SwitchBattery 1.0.0.8 and all optional device drivers enabled, the owner confirmed normal Windows shutdown on the R6 diagnostic build: two fan pulses followed by complete power removal. The normal native-reset build has been compiled with tracing disabled; native restart and this no-pulse build await physical acceptance. [Power status](../../docs/hdh001-home/power-performance.md)
 
-The focused host test simulates PMC and I2C/PMIC registers. It decodes the BootROM blocks, checks their byte checksums and the RTC Hekate-menu request, verifies the active-high PMC requests and NX timers, and confirms that restart preparation performs no live I2C rail writes. Shutdown tests cover interrupt-latch reads, configuration preservation and I2C failures. These checks do not emulate physical power or establish that Windows reaches PSCI.
-
-R2 failed before Windows because it did not follow the NX startup contract. R3 boots but its owner-tested restart still leaves a black screen with the fan running; R3 shutdown was not tested. R4 replaces the direct PMIC restart attempt with Switchroot's PMC/BootROM route and preserves the R3 entrypoint/build contract. R4 is built and deployed. The owner confirms Windows boots but restart still black-screens with the fan running. R4 shutdown also fails with the fan running; the owner reports a recognizable Windows sound after the screen goes black. A subsequent pre-Windows shutdown using the same R4 BL31 powered off normally; Windows power actions remain unresolved, and pre-Windows restart is untested. See [power status](../../docs/hdh001-home/power-performance.md).
+The focused host test checks PMC timings, BootROM commands/checksums, the RTC Hekate-menu request and both hardware-I2C and GPIO PMIC failure paths. The ARM64 binary inspection confirms that native restart reaches PMC reset instead of the power-off handler. Build and simulated results are separate from the physical shutdown observation.
 
 The new helper is GPL-2.0-only, derived from Switchroot's PMC/PMIC power code and Hekate's I2C code; original copyright is retained in its source. The remaining ATF source retains its upstream notices.

@@ -27,7 +27,7 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
 | 3D graphics | Windows uses CPU software rendering. The GM20B Vulkan driver is in early bring-up. | Verify GPU readback, Vulkan drawing and window presentation in order. [GPU driver status](../gpu-vulkan/STATUS.md) |
-| Power lifecycle | Pre-Windows power-off passed on R4. On R5, Windows shutdown still leaves the fan running until a long power-button press. R6 implements the board's GPIO power-off path for shutdown and restart. It passed a simulated PMIC test and awaits hardware testing. | Confirm power removal after normal Windows shutdown and restart. [R5 results and R6 firmware](power-performance.md#gpio-power-off-path-r6) |
+| Power lifecycle | Normal Windows shutdown powered off the Lite after SwitchBattery 1.0.0.8, with Wi-Fi, Bluetooth, audio and gamepad enabled. The owner observed two R6 diagnostic fan pulses and then complete power removal. | Native restart to Hekate and the normal firmware without fan pulses await testing. [Power status](power-performance.md) |
 
 ## USB-C host on HDH-001
 
@@ -55,8 +55,8 @@ The combined build adds `SWITCH_LITE_SIO=1` for the separate Lite UART-C control
 
 1. Continue Wi-Fi PCIe, firmware messaging and Windows networking integration.
    Keep Bluetooth coexistence and the shared chip's power/reset state intact.
-2. Trace the remaining Windows shutdown/restart failure. Pre-Windows shutdown
-   has passed; do not treat that as Windows power-lifecycle acceptance.
+2. Check native restart to Hekate and the normal firmware without fan pulses. Normal
+   Windows shutdown has passed with the battery IRP ownership correction.
 3. Close input and existing-driver gaps using focused physical evidence.
    Speaker output and brightness buttons are already owner-confirmed.
 4. Complete USB and Lite SIO/control/sensor integration according to their

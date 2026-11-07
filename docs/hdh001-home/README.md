@@ -207,7 +207,7 @@ At the desktop:
 
 For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
-Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [porting status](PORTING.md). USB-C, headphone switching and other unaccepted functions remain listed there. Windows shutdown/restart can still leave the screen black and the fan running; that is not a completed shutdown. Do not remove the card while the console is still powered. Keep extra test tones disabled.
+Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [porting status](PORTING.md). Normal Windows shutdown powered off the tested Lite with SwitchBattery **1.0.0.8** and R6 diagnostic firmware, with the other drivers enabled. The successful diagnostic build pulsed the fan twice at the final firmware boundary. The normal build now disables those pulses and selects native restart to Hekate; that build awaits its own hardware result. Wait for complete power removal before taking out the card. USB-C, headphone switching and other unaccepted functions remain listed in porting status. Keep extra test tones disabled.
 
 ## 6. Update an existing installation
 

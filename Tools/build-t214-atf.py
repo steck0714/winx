@@ -13,6 +13,7 @@ POWER_PATCHES = [REPO / "patches/atf" / name for name in (
     "0001-t214-psci-pmic-power.patch",
     "0002-t214-windows-shutdown.patch",
     "0003-t214-shutdown-gpio-i2c.patch",
+    "0004-t214-power-boundary-trace.patch",
 )]
 
 
@@ -22,8 +23,14 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--cross-prefix", default=os.environ.get("CROSS_COMPILE", "aarch64-none-elf-"))
     parser.add_argument("--jobs", type=int, default=8)
-    parser.add_argument("--native-restart", action="store_true",
-                        help="retain the experimental PMC/Hekate reset instead of powering off")
+    restart = parser.add_mutually_exclusive_group()
+    restart.add_argument("--native-restart", dest="restart_as_off", action="store_false",
+                         help="use the PMC/Hekate reset path (default; hardware test pending)")
+    restart.add_argument("--restart-as-off", action="store_true",
+                         help="reproduce the earlier restart-to-power-off diagnostic policy")
+    parser.set_defaults(restart_as_off=False)
+    parser.add_argument("--trace-power-boundary", action="store_true",
+                        help="diagnostic fan pulses at final PSCI entry; not a shutdown fix")
     args = parser.parse_args()
     source = args.source.resolve()
     if (source / ".git").exists():
@@ -42,7 +49,9 @@ def main():
     make = shutil.which("gmake") or shutil.which("make")
     if not make:
         raise SystemExit("GNU make is required")
-    build_base = "build-lite-power-r6-native" if args.native_restart else "build-lite-power-r6-off"
+    build_base = "build-lite-power-r6-off" if args.restart_as_off else "build-lite-power-r6-native"
+    if args.trace_power_boundary:
+        build_base += "-trace"
     # LineageOS android_device_nintendo_nx/vendor/nx-vendor.mk. Hekate loads
     # at 0xFFF00000 and supplies the reset-to-BL31 parameters through IRAM.
     flags = [make, f"-j{args.jobs}", "PLAT=tegra", "TARGET_SOC=t210",
@@ -52,8 +61,9 @@ def main():
              "SDEI_SUPPORT=0", "CRASH_REPORTING=1", "PLAT_LOG_LEVEL_ASSERT=0",
              f"CROSS_COMPILE={args.cross_prefix}", "DEBUG=0", "LOG_LEVEL=0",
              "ENABLE_ASSERTIONS=1", "SWITCH_LITE_PMIC_RESET=1",
-             f"SWITCH_LITE_RESTART_AS_OFF={int(not args.native_restart)}",
-             "BUILD_STRING=85081ca-lite-power-r6"]
+             f"SWITCH_LITE_POWER_TRACE={int(args.trace_power_boundary)}",
+             f"SWITCH_LITE_RESTART_AS_OFF={int(args.restart_as_off)}",
+             "BUILD_STRING=85081ca-lite-power-r6" + ("-trace" if args.trace_power_boundary else "")]
     help_text = subprocess.check_output([args.cross_prefix + "ld", "--help"], text=True)
     if "--no-warn-rwx-segments" in help_text:
         # TF-A 2.6's ELF layout predates this binutils diagnostic. Runtime MMU
@@ -70,7 +80,7 @@ def main():
         raise SystemExit("BL31 exceeds the platform's reserved image range")
     args.output.mkdir(parents=True, exist_ok=True)
     shutil.copy2(binary, args.output / "bl31.bin")
-    print(f"Built {args.output / 'bl31.bin'}; physical power-off/restart not yet verified")
+    print(f"Built {args.output / 'bl31.bin'}; physical results: docs/hdh001-home/power-performance.md")
 
 
 if __name__ == "__main__":
