@@ -11,7 +11,7 @@ The normal build now disables those pulses and uses **native PMC reset for Resta
 ## Current sleep/wake work
 
 Retained-memory sleep and direct power-button wake without Hekate remain
-unimplemented as a complete, hardware-accepted path. Development is isolated
+unimplemented as a complete, hardware-accepted path. Development is paused and isolated
 on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), paired with
 [WindowsDrivers `sc7-test`](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/sc7-test).
 The branch retains the Switchroot references, experimental PEP, PMIC wake,
@@ -25,11 +25,13 @@ notification lock. One screen-off/on cycle passed on 1.0.0.6, but repeated
 lock-screen/black-screen stalls remain unresolved; cooling alone is not sleep.
 
 Bluetooth 1.0.0.19 retains bounded patch/reset recovery and UART-D host
-preparation. SD 0.5.0.2 retains DDR200 development and corrects clock ordering
+preparation. SD 0.5.0.3 retains DDR200 development and corrects clock ordering
 when the card keeps power. These ordinary device-recovery changes remain in
 the default branch and do not require the experimental PEP. Their builds,
-focused tests and package signatures passed; neither candidate is installed.
-The installed Bluetooth 1.0.0.18 + DDR200 0.5.0.1 combination now fails with
+focused tests and package signatures passed. SD 0.5.0.3 additionally fixes
+event-mask loss during private SDR104 fallback; it and Bluetooth 1.0.0.19
+are now installed/readback-verified, with physical results pending.
+The earlier Bluetooth 1.0.0.18 + DDR200 0.5.0.1 combination failed with
 INACCESSIBLE_BOOT_DEVICE. The owner supplied the stop-code photograph; no
 current crash dump or driver diagnostics survived on the returned card.
 The cause remains under investigation. [Current status](PORTING.md)
