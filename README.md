@@ -18,6 +18,8 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 | Shutdown and restart | The owner confirmed complete power-off from normal Windows shutdown and successful native restart. SwitchBattery 1.0.0.8 fixes battery request ownership; the current R6 firmware uses PMC reset and disables diagnostic fan pulses. [Power status](docs/hdh001-home/power-performance.md) |
 
+**Known sleep/wake issue:** after several short power-button presses or repeated use of Windows sleep controls, the display may freeze, turn black, or the system may hang. A movable pointer does not necessarily mean the lock screen can be unlocked. [Details](docs/hdh001-home/README.md#repeated-sleep-and-wake)
+
 USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
 
 Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). The `WindowsDrivers` submodule pins the matching revision.

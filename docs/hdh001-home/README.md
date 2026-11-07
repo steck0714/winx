@@ -49,18 +49,18 @@ After preparing the layout, save a complete card image as `card-backup.img` in t
 ```sh
 mkdir -p NintendoSwitchPkg/docs/hdh001-home/generated
 python3 NintendoSwitchPkg/WindowsDrivers/drivers/Tegra210Sdhc/winarm/configure-target.py \
-  card-backup.img NintendoSwitchPkg/docs/hdh001-home/generated/target
+  card-backup.img NintendoSwitchPkg/docs/hdh001-home/generated/target --expose-fat32
 cp NintendoSwitchPkg/docs/hdh001-home/generated/target/winarm-target.h \
   NintendoSwitchPkg/WindowsDrivers/drivers/Tegra210Sdhc/src/winarm-target.h
 ```
 
-The output directory `generated/target` must not already exist. Build **both BL33 and nvtsdhc from this same header** using the [build reference](#firmware-and-driver-build-reference). BL33 includes it through `Include/LiteSdTarget.h`; a separate firmware copy is not needed. Keep the generated card identity private.
+The example selects the currently tested FAT32-visible view. Omit `--expose-fat32` for WINARM only. The output directory `generated/target` must not already exist. Build **both BL33 and nvtsdhc from this same header** using the [build reference](#firmware-and-driver-build-reference). BL33 includes it through `Include/LiteSdTarget.h`; a separate firmware copy is not needed. Keep the generated card identity private.
 
 By default, firmware and Windows present only WINARM as an active MBR partition. Hekate still uses the physical FAT32 partition. `--expose-fat32` selects the two-volume profile currently used by the owner. The latest comparison did not establish a clear responsiveness difference between the two views. Changing the presented view does not modify the physical partition table.
 
 ## 2. Assemble the complete driver kit
 
-Use the matching ARM64 firmware and signed drivers. Each driver directory must contain its final `.inf`, `.sys` and `.cat`; signing the SYS must precede catalog generation. The installation scripts expect these directory names:
+Use the matching ARM64 firmware and signed drivers. The latest owner-tested combination includes **nvtsdhc 0.5.0.3** and **switchbt 1.0.0.19**, with desktop boot and Bluetooth working. Actual DDR200 selection and throughput still need runtime evidence. Each driver directory must contain its final `.inf`, `.sys` and `.cat`; signing the SYS must precede catalog generation. The installation scripts expect these directory names:
 
 ```text
 Stage6Kit/
@@ -107,7 +107,7 @@ For these **Command Prompt** examples:
 
 Replace these letters with the ones actually assigned in the maintenance environment. Identify WINARM by its label, 80 GiB size and saved card identity. Existing installations should use [the update procedure](#6-update-an-existing-installation); applying an image over an existing Windows directory is not an update.
 
-Use maintenance WinPE with the matching nvtsdhc/firmware partition view. A host that sees the physical GPT instead can encode different partition identifiers in BCD. The Windows volume and boot files must ultimately resolve in the WINARM-only MBR view used on the Lite.
+Use maintenance WinPE with the matching nvtsdhc/firmware partition view. A host that sees the physical GPT instead can encode different partition identifiers in BCD. The Windows volume and boot files must resolve in the same synthetic MBR view used on the Lite: WINARM only or WINARM plus FAT32, according to the shared header.
 
 Inspect the available editions, then apply the ARM64 edition that matches your license. Replace `N` with its index:
 
@@ -208,6 +208,10 @@ At the desktop:
 - In Advanced system settings → Performance → Advanced → Virtual memory, select the Windows volume and set **512 MB initial / 2048 MB maximum** if using the agreed paging configuration. The firmware must include `SWITCH_LITE_BOOT_SD=1` so Windows sees a fixed boot slot.
 - Use the built-in controls according to the [mapping table](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md). Capture toggles the desktop mapping; gamepad compatibility is described there.
 
+### Repeated sleep and wake
+
+**Known sleep/wake issue:** after several short power-button presses or repeated use of Windows sleep controls, the display may freeze, turn black, or the system may hang. A movable pointer does not necessarily mean the lock screen can be unlocked. This issue has been observed after repeated attempts; one successful screen-off/on cycle does not establish reliable sleep or resume. Normal shutdown and native restart have separate successful hardware results in the [power notes](power-performance.md).
+
 For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
 Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [porting status](PORTING.md). Normal Windows shutdown and native restart have owner-confirmed physical passes on the tested Lite. Use SwitchBattery **1.0.0.8** or later and the normal R6 firmware, which uses PMC reset for restart and disables diagnostic fan pulses. Wait for complete power removal before taking out the card. USB-C, headphone switching and other unaccepted functions remain listed in porting status. Keep extra test tones disabled.
@@ -232,7 +236,7 @@ call Install-LiteTouch.cmd offline W:\
 call Install-LiteSystem.cmd offline W:\
 ```
 
-These commands cover the touch/controller and complete system kit. They retain the existing certificate requirement. An nvtsdhc update is a separate boot-critical operation: stage its signed INF offline with DISM and deploy the matching BL33 together, before the next Lite boot. If only unrelated device drivers changed, keep the working storage pair.
+These commands cover the touch/controller and complete system kit. They retain the existing certificate requirement. An nvtsdhc update is a separate boot-critical operation: stage its signed INF offline with DISM and confirm the selected package and active SYS version. If the card header or partition view changes, update BL33 and the miniport together before booting. If only the miniport implementation changes and the header/view is identical, retain the matching working BL33. The 0.5.0.3 update used that unchanged FAT32-visible view.
 
 When a release requires new firmware, replace the matching files under `switchroot/woa-lite-home/` while the card is connected to the maintenance computer. Keep the existing Hekate name and settings. Check the installed driver version in Device Manager or `pnputil /enum-drivers` after boot; successful DISM staging alone does not prove the active device selected the new driver.
 
@@ -245,8 +249,9 @@ When a release requires new firmware, replace the matching files under `switchro
 | Setup cannot configure Windows or reports an unexpected restart | Preserve `Windows\Panther`, `Windows\Panther\UnattendGC` and the SYSTEM hive before diagnosing the specific failed phase. Old per-machine registry workarounds are not installation steps. |
 | No Wi-Fi option | Matching runtime BL33, `SwitchWOA\Wifi\WifiPrepare.efi`, complete board firmware/NVRAM pair, active `switchwifi` binding and the retained Windows WLAN components. [Diagnostics](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#on-device-status) |
 | No Bluetooth toggle | Retained Windows Bluetooth components, BTH0 enumeration, signed `switchbt` binding and the BCM4356A3 patch. Use the [Bluetooth status tool](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/kits/Switch-Bluetooth/Bluetooth.ps1) before changing boot markers. |
+| Display freezes, goes black or hangs after repeated power-button/sleep actions | Known repeated sleep/wake issue; the pointer may still move while the lock screen is stuck. See [repeated sleep and wake](#repeated-sleep-and-wake). |
 | Temporary pagefile warning | Fixed SD slot ACPI profile, requested paging size and enough free space on WINARM. Inspect actual pagefile creation. |
-| Fan keeps running after the screen turns black | Shutdown has not completed. Follow the current [power notes](power-performance.md); pre-Windows power-off success does not establish Windows shutdown success. |
+| Fan keeps running after choosing Shut down | Shutdown has not completed. Follow the current [power notes](power-performance.md); pre-Windows power-off success does not establish Windows shutdown success. |
 
 ## Firmware and driver build reference
 
@@ -428,10 +433,12 @@ Build Windows packages with LLVM `clang-cl` / `lld-link` and ARM64 WDK/SDK heade
 
 | Packages | Build entry |
 |---|---|
-| nvtsdhc | [build-miniport.sh](../hdh001-lab/build-miniport.sh), `winarm` profile and `winarm/nvtsdhc.inf` |
+| nvtsdhc | [build-miniport.sh](../hdh001-lab/build-miniport.sh), `winarm-sdr104` profile for SDR104/ADMA2, and `winarm/nvtsdhc.inf`; DDR200 needs the additional define below |
 | GPIO, I2C, touch, power button, fan, battery, RTC, Bluetooth, SIO, USB mailbox | [LiteTouch/build-drivers.sh](../../LiteTouch/build-drivers.sh), with the `WindowsDrivers` tree and an output directory; pair each output with its matching source INF/CDF |
 | Audio | [SwitchAudio/build-arm64.sh](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchAudio/build-arm64.sh) |
 | Wi-Fi | [SwitchWifi build and packaging](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#build-and-test) using KMDF 1.33 / NetAdapterCx 2.2 / WiFiCx 1.0 |
 | Desktop checks | [LiteTouch/build-check.sh](../../LiteTouch/build-check.sh) and [LitePerformanceCheck/build.sh](../../Tools/LitePerformanceCheck/build.sh) |
+
+The shell helper's `winarm` profile is the earlier 3.3 V profile; use `winarm-sdr104` for SDR104/ADMA2. To reproduce the DDR200-enabled 0.5.0.3 build, compile with all three definitions: `NV_T210_LITE_WINARM_WRITE=1`, `NV_T214_SDR104=1`, and `NV_T214_DDR200=1`. The helper does not currently expose a DDR200 preset. The Windows `tools/Build-Driver.ps1` accepts these through `-Defines 'NV_T210_LITE_WINARM_WRITE=1','NV_T214_SDR104=1','NV_T214_DDR200=1'`. Use a separate output directory and the same generated card header. The INF version alone does not select a timing mode. [DDR200 build and runtime status](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/Tegra210Sdhc/README.md#t214-ddr200-candidate-0501)
 
 Sign every final SYS, generate the CAT from the exact INF/SYS bytes with the package's CDF and MakeCat, then sign the CAT. Keep the public certificate with the kit. Build success, package installation and physical acceptance are separate results; consult the linked device notes for the current evidence. Earlier debugging history remains in Git.
