@@ -2,6 +2,8 @@
 
 `switchsio` 0.2.0.0 reads the built-in HDH-001 controls over UART-C. It exposes separate HID gamepad and relative mouse collections through Windows VHF. The original gamepad report, HOME input and accelerometer data remain available.
 
+Games that accept generic HID or DirectInput controllers can read the gamepad collection. XInput-only titles require an Xbox-compatible input path. This package exposes a standard HID gamepad. The mouse collection continues to report in games, so a title that listens to both devices can also receive pointer movement and clicks. [Microsoft controller API comparison](https://learn.microsoft.com/en-us/windows/win32/xinput/xinput-and-directinput)
+
 | Lite input | Windows desktop action |
 | --- | --- |
 | Left stick | Move the pointer. Centering the stick stops movement. |
