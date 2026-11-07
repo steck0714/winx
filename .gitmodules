@@ -1,4 +1,4 @@
 [submodule "WindowsDrivers"]
 	path = WindowsDrivers
 	url = https://github.com/ruje0504-2/Windows-for-Switch-Drivers.git
-	branch = hdh001-winarm-bounded-write
+	branch = vulkan-test
