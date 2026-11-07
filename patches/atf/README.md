@@ -15,7 +15,7 @@ python3 Tools/test-t214-pmic.py atf
 
 The build tool accepts the pinned checkout or its source archive, applies the patch (or recognizes it as already applied), and writes `out/t214-atf/bl31.bin`. It uses a separate build directory to avoid reusing objects from the rejected default-address build. SOURCE_DATE_EPOCH and the build string are fixed; use the same compiler for byte-identical output.
 
-R5 routes a B01 restart request through full power-off in this Windows BL31. To build the earlier native PMC/Hekate restart behavior for comparison, pass `--native-restart`. The primary and recovery PMIC paths use a separate output tree for each restart policy. [Windows shutdown investigation](../../docs/hdh001-home/power-performance.md#windows-power-off-fallback-r5)
+R5 routes a B01 restart request through full power-off in the Windows BL31. The owner tested Windows shutdown on R5 and still had to hold the power button after the display went black and the fan kept running. R5 restart awaits a separate hardware result. To build the earlier native PMC/Hekate restart behavior, pass `--native-restart`. Each restart policy has a separate build directory. [Windows shutdown investigation](../../docs/hdh001-home/power-performance.md#windows-power-off-fallback-r5)
 
 The parameters follow [Lineage's Nintendo NX recipe](https://github.com/LineageOS/android_device_nintendo_nx/blob/lineage-22.2/vendor/nx-vendor.mk):
 

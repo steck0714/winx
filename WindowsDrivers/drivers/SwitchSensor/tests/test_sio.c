@@ -104,6 +104,36 @@ int main(void)
     pad.buttons = 0; (void)SioPointerReport(&pointer,&pad,8);
     pad.buttons = SioPadZr; mouse = SioPointerReport(&pointer,&pad,8);
     assert(mouse.buttons == 1);
-    puts("SIO framing, gamepad, motion, desktop mouse and Capture mode transitions passed.");
+    /* Plus is raw bit 9 and stays in the gamepad report in both modes. */
+    memset(data,0,sizeof(data)); data[7] = 8; data[8] = 0x80;
+    data[4] = 2;
+    assert(SioInputReport(data,12,&pad,&motion) && pad.buttons == SioPadPlus);
+    (void)SioPointerReport(&pointer,&pad,8);
+    assert(pointer.osk == SioOskPress);
+    SIO_KEYBOARD_REPORT chord = SioOskReport(pointer.osk);
+    assert(chord.id == 3 && chord.modifiers == 9 && chord.keys[0] == 0x12);
+    pointer.osk = SioOskRelease; /* a press accepted by VHF */
+    SioPointerResync(&pointer);
+    chord = SioOskReport(pointer.osk);
+    assert(pointer.osk == SioOskRelease && chord.modifiers == 0 && chord.keys[0] == 0);
+    pointer.osk = SioOskIdle;
+    (void)SioPointerReport(&pointer,&pad,8); /* held across reconnection */
+    (void)SioPointerReport(&pointer,&pad,8);
+    assert(pointer.osk == SioOskIdle);
+    pad.buttons = SioPadCapture;
+    (void)SioPointerReport(&pointer,&pad,8);
+    assert(pointer.disabled);
+    pad.buttons = SioPadPlus;
+    (void)SioPointerReport(&pointer,&pad,8);
+    assert(pointer.osk == SioOskIdle && pad.buttons == SioPadPlus);
+    pad.buttons |= SioPadCapture; /* enable with Plus held */
+    (void)SioPointerReport(&pointer,&pad,8);
+    assert(!pointer.disabled && pointer.osk == SioOskIdle);
+    pad.buttons = 0; (void)SioPointerReport(&pointer,&pad,8);
+    pad.buttons = SioPadPlus; (void)SioPointerReport(&pointer,&pad,8);
+    assert(pointer.osk == SioOskPress);
+    SioPointerResync(&pointer); /* cancel a press not yet accepted */
+    assert(pointer.osk == SioOskIdle);
+    puts("SIO framing, gamepad, motion, desktop mouse, Capture toggle and Plus keyboard shortcut passed.");
     return 0;
 }

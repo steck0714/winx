@@ -22,12 +22,12 @@ Ubuntu, Android, emuMMC and WINARM data must be preserved.
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
 | Bluetooth | Patch load, 3 Mbaud transport and BthMini startup confirmed on Home. The owner confirmed working Bluetooth on trimmed Pro with 1.0.0.13. | Discovery, pairing, data exchange and usable range |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
-| Built-in controls / motion | The staged SIO 0.2 driver implements gamepad input, motion data and an Ubuntu-style desktop pointer. Left stick moves, ZR left-clicks and ZL right-clicks. Version 0.2.1 adds a Capture toggle for gamepad-only use. Hardware test pending. | Confirm physical stick movement, held and released buttons, and accelerometer data. |
+| Built-in controls / motion | Windows enumerated the gamepad and mouse and the driver received SIO input on the Lite. The card has 0.2.1 with the Capture toggle. Signed 0.2.2 adds the Plus shortcut for the On-Screen Keyboard. | Try the desktop controls and keyboard on the Lite, then verify game input and motion. |
 | Wi-Fi | SwitchWifi 0.5.5 automatically reconnected to WPA2-Personal, obtained a DHCP lease and default gateway, and reached the Internet on trimmed Pro. | Measure sustained traffic and group rekey. |
 | Paging | Returned card contains a 512 MiB pagefile; 2048 MB maximum retained and TempPageFile absent | Persistent pagefile creation without the startup warning |
 | Display output | The owner confirmed a working landscape desktop on trimmed Pro. | Preserve working landscape output. |
 | 3D graphics | Windows uses CPU software rendering only. The Tegra GPU driver for Windows has not been implemented. | Run a Direct3D workload on a Tegra hardware adapter. |
-| Power lifecycle | R4 powered off before Windows. Windows shutdown and restart can leave the fan running after the display goes black. R5 routes both requests to full power-off and adds I²C5 recovery. | Confirm power removal after normal Windows shutdown. [R5 investigation](power-performance.md#windows-power-off-fallback-r5) |
+| Power lifecycle | Pre-Windows power-off passed on R4. On R5, Windows shutdown still leaves the fan running with the screen black until a long power-button press. Restart uses the same firmware path and awaits a separate R5 test. | Complete normal Windows shutdown with physical power removal. [R5 investigation](power-performance.md#windows-power-off-fallback-r5) |
 
 ## USB-C host on HDH-001
 

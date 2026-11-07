@@ -22,16 +22,21 @@ typedef struct {
 } SIO_PAD;
 
 /* Gamepad button indices after decoding Switchroot's SIO input layout. */
-enum { SioPadZl = 1u << 6, SioPadZr = 1u << 7, SioPadCapture = 1u << 13 };
+enum { SioPadZl = 1u << 6, SioPadZr = 1u << 7, SioPadPlus = 1u << 9, SioPadCapture = 1u << 13 };
 
 typedef struct {
     uint8_t id, buttons;
     int8_t dx, dy;
 } SIO_MOUSE_REPORT;
 
+enum { SioOskIdle, SioOskPress, SioOskRelease };
+typedef struct {
+    uint8_t id, modifiers, reserved, keys[6];
+} SIO_KEYBOARD_REPORT;
+
 typedef struct {
     int32_t fraction[2];
-    uint8_t disabled, captureDown, synced, blockedButtons;
+    uint8_t disabled, captureDown, plusDown, synced, blockedButtons, osk;
 } SIO_POINTER_STATE;
 
 /* Keep the chosen mode across suspend and UART reconnection. The first real
@@ -39,6 +44,7 @@ typedef struct {
 static inline void SioPointerResync(SIO_POINTER_STATE *state)
 {
     state->synced = 0;
+    if (state->osk == SioOskPress) state->osk = SioOskIdle;
     state->fraction[0] = state->fraction[1] = 0;
 }
 
@@ -166,6 +172,7 @@ static inline SIO_MOUSE_REPORT SioPointerReport(SIO_POINTER_STATE *state, const 
     uint8_t buttons = (uint8_t)(((pad->buttons & SioPadZr) ? 1 : 0) |
                                 ((pad->buttons & SioPadZl) ? 2 : 0));
     uint8_t capture = (pad->buttons & SioPadCapture) != 0;
+    uint8_t plus = (pad->buttons & SioPadPlus) != 0;
 
     if (!state->synced) {
         state->synced = 1;
@@ -173,10 +180,14 @@ static inline SIO_MOUSE_REPORT SioPointerReport(SIO_POINTER_STATE *state, const 
         elapsedMs = 0;
     } else if (capture && !state->captureDown) {
         state->disabled = !state->disabled;
+        if (state->osk == SioOskPress) state->osk = SioOskIdle;
         state->fraction[0] = state->fraction[1] = 0;
         state->blockedButtons = buttons;
         elapsedMs = 0;
+    } else if (!state->disabled && plus && !state->plusDown && state->osk == SioOskIdle) {
+        state->osk = SioOskPress;
     }
+    state->plusDown = plus;
     state->captureDown = capture;
     state->blockedButtons &= buttons;
     if (state->disabled) return report;
@@ -189,4 +200,17 @@ static inline SIO_MOUSE_REPORT SioPointerReport(SIO_POINTER_STATE *state, const 
     report.dy = SioPointerAxis(pad->axis[1], ms, &state->fraction[1]);
     return report;
 }
+
+/* Send a tap, even when Plus is held. A failed submission leaves the same
+ * transition pending so that Ctrl and Windows are always released in order. */
+static inline SIO_KEYBOARD_REPORT SioOskReport(uint8_t phase)
+{
+    SIO_KEYBOARD_REPORT report = {3, 0, 0, {0}};
+    if (phase == SioOskPress) {
+        report.modifiers = 0x09; /* Left Ctrl + Left GUI */
+        report.keys[0] = 0x12;   /* HID Keyboard O */
+    }
+    return report;
+}
+
 #endif

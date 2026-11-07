@@ -28,13 +28,22 @@ static UCHAR InputDescriptor[] = {
     0x75,0x01, 0x95,0x02, 0x81,0x02,             /* left and right buttons */
     0x75,0x06, 0x95,0x01, 0x81,0x03,
     0x05,0x01, 0x09,0x30, 0x09,0x31, 0x15,0x81, 0x25,0x7F,
-    0x75,0x08, 0x95,0x02, 0x81,0x06, 0xC0,0xC0   /* signed relative X/Y */
+    0x75,0x08, 0x95,0x02, 0x81,0x06, 0xC0,0xC0,  /* signed relative X/Y */
+
+    /* Keyboard report 3 carries only the Windows On-Screen Keyboard shortcut. */
+    0x05,0x01, 0x09,0x06, 0xA1,0x01, 0x85,0x03,
+    0x05,0x07, 0x19,0xE0, 0x29,0xE7, 0x15,0x00, 0x25,0x01,
+    0x75,0x01, 0x95,0x08, 0x81,0x02,             /* modifier bitmap */
+    0x75,0x08, 0x95,0x01, 0x81,0x03,             /* reserved byte */
+    0x19,0x00, 0x29,0x65, 0x15,0x00, 0x25,0x65,
+    0x75,0x08, 0x95,0x06, 0x81,0x00, 0xC0        /* key usage array */
 };
 #pragma pack(push, 1)
 typedef struct { UCHAR Id; USHORT Buttons; UCHAR Hat; SHORT Axis[4]; } PAD_REPORT;
 #pragma pack(pop)
 C_ASSERT(sizeof(PAD_REPORT) == 12);
 C_ASSERT(sizeof(SIO_MOUSE_REPORT) == 4);
+C_ASSERT(sizeof(SIO_KEYBOARD_REPORT) == 9);
 
 typedef struct {
     WDFDEVICE Device;
@@ -188,13 +197,27 @@ static VOID SendMouseReport(SIO_DEVICE *D, SIO_MOUSE_REPORT *Report)
         D->MouseButtons = Report->buttons;
 }
 
-static VOID SubmitMouse(SIO_DEVICE *D, const SIO_PAD *Pad, ULONGLONG Now)
+static VOID SubmitKeyboard(SIO_DEVICE *D)
+{
+    while (D->Vhf && D->Pointer.osk != SioOskIdle) {
+        SIO_KEYBOARD_REPORT report = SioOskReport(D->Pointer.osk);
+        HID_XFER_PACKET xfer;
+        xfer.reportId = report.id;
+        xfer.reportBuffer = (PUCHAR)&report;
+        xfer.reportBufferLen = sizeof(report);
+        if (!NT_SUCCESS(VhfReadReportSubmit(D->Vhf, &xfer))) return;
+        D->Pointer.osk = D->Pointer.osk == SioOskPress ? SioOskRelease : SioOskIdle;
+    }
+}
+
+static VOID SubmitDesktop(SIO_DEVICE *D, const SIO_PAD *Pad, ULONGLONG Now)
 {
     ULONGLONG delta = D->LastMouseTime ? Now - D->LastMouseTime : 0;
     unsigned ms = (unsigned)(min(delta, MS_TO_100NS(32)) / 10000);
     SIO_MOUSE_REPORT report = SioPointerReport(&D->Pointer, Pad, ms);
     D->LastMouseTime = Now;
     SendMouseReport(D, &report);
+    SubmitKeyboard(D);
 }
 
 static VOID Neutral(SIO_DEVICE *D)
@@ -205,6 +228,7 @@ static VOID Neutral(SIO_DEVICE *D)
     D->LastMouseTime = 0;
     SioPointerResync(&D->Pointer);
     SendMouseReport(D, &mouse);
+    SubmitKeyboard(D);
     SubmitPad(D, &Pad);
     WdfSpinLockAcquire(D->SnapshotLock);
     D->Sensor.Flags = 0;
@@ -233,7 +257,7 @@ static VOID Frame(SIO_DEVICE *D, ULONGLONG Now)
     }
     if (D->Vhf) {
         TraceState(D, SioInput | SioAck);
-        SubmitMouse(D, &Pad, Now);
+        SubmitDesktop(D, &Pad, Now);
         SampleHome(D);
         SubmitPad(D, &Pad);
     }
@@ -315,7 +339,7 @@ static VOID Poll(WDFTIMER Timer)
         D->NextSend = 0;
         D->Stream.used = 0;
         TraceState(D, SioInit);
-    } else if (D->Command != SioInput && D->Vhf && D->MouseButtons) {
+    } else if (D->Command != SioInput && D->Vhf && (D->MouseButtons || D->Pointer.osk == SioOskRelease)) {
         Neutral(D); /* Retry a release that VHF could not accept before the link went down. */
     }
     if (Now >= D->NextSend && (ReadReg(D, Lsr) & 0x20)) {
