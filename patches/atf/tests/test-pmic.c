@@ -7,7 +7,8 @@
 
 static uint32_t regs[64], pmic[256], pmc[0x930/4], pointer, reset_bits, clocks;
 static unsigned int power_requests, delay_ms, transfers, cleared_irqs;
-static bool nack_first, nack_final, mismatch;
+static bool nack_first, nack_final, mismatch, nack_latch, need_bus_recovery, clear_failed;
+static unsigned int recoveries;
 
 void udelay(unsigned int amount) { (void)amount; }
 void mdelay(unsigned int amount) { delay_ms += amount; }
@@ -35,8 +36,17 @@ void mmio_write_32(uintptr_t address, uint32_t value)
     }
     assert(address >= 0x7000d000U && address < 0x7000d100U);
     unsigned int reg = (unsigned int)(address - 0x7000d000U);
+    if (reg == 0x68) { regs[reg / 4] &= ~value; return; }
     regs[reg / 4] = value;
-    if (reg == 0x8c) { regs[reg / 4] = 0; regs[0x68 / 4] = 1U << 11; }
+    if (reg == 0x84 && (value & 7U) == 7U) {
+        recoveries++;
+        if (!clear_failed) {
+            regs[0x68 / 4] |= 1U << 11;
+            regs[0x88 / 4] = 1;
+            need_bus_recovery = false;
+        }
+    }
+    if (reg == 0x8c) { regs[reg / 4] = 0; if ((regs[0x84/4] & 7U) == 3U) regs[0x68/4] |= 1U << 11; }
     if (reg == 0 && (value & 0x200)) {
         transfers++;
         bool read = (value & 0x40) != 0;
@@ -44,7 +54,7 @@ void mmio_write_32(uintptr_t address, uint32_t value)
         uint32_t data = regs[0x0c / 4];
         assert(regs[0x04 / 4] == (0x3cU << 1) + (read ? 1U : 0U));
         regs[0x1c / 4] = 0;
-        if (nack_first) { regs[0x1c / 4] = 1; return; }
+        if (nack_first || need_bus_recovery || (nack_latch && !read && count == 1 && data == 0x0b)) { regs[0x1c / 4] = 1; return; }
         if (read) {
             assert(count == 1 && pointer < sizeof(pmic) / sizeof(pmic[0]));
             regs[0x0c / 4] = pmic[pointer];
@@ -62,7 +72,7 @@ void mmio_write_32(uintptr_t address, uint32_t value)
             } else {
                 assert((data & 0xff) == 0x41);
                 assert((data >> 8) == (pmic[0x41] | 0x80));
-                assert(cleared_irqs == 2);
+                assert(cleared_irqs >= (nack_latch ? 1U : 2U));
                 power_requests++;
                 if (nack_final) regs[0x1c / 4] = 1;
             }
@@ -82,7 +92,8 @@ static void reset_mock(uint32_t config)
     pmic[0x05] = 0xa0; pmic[0x0b] = 0x03;
     pointer = reset_bits = clocks = power_requests = delay_ms = 0;
     transfers = cleared_irqs = 0;
-    nack_first = nack_final = mismatch = false;
+    nack_first = nack_final = mismatch = nack_latch = need_bus_recovery = clear_failed = false;
+    recoveries = 0;
 }
 
 int main(void)
@@ -120,13 +131,19 @@ int main(void)
     assert(cursor == 8);
     reset_mock(0x9f);
     assert(tegra_lite_pmic_off() == -5);
-    assert(pmic[0x42] == 0x1f && power_requests == 1 && delay_ms == 500);
+    assert(pmic[0x42] == 0x1f && power_requests == 2 && delay_ms == 1000);
     reset_mock(0x19); nack_first = true;
     assert(tegra_lite_pmic_off() == -2 && power_requests == 0);
     reset_mock(0x19); mismatch = true;
     assert(tegra_lite_pmic_off() == -3 && power_requests == 0);
     reset_mock(0x19); nack_final = true;
-    assert(tegra_lite_pmic_off() == -4 && power_requests == 1 && delay_ms == 500);
+    assert(tegra_lite_pmic_off() == -4 && power_requests == 2 && delay_ms == 1000);
+    reset_mock(0x9f); nack_latch = true;
+    assert(tegra_lite_pmic_off() == -5 && power_requests == 2);
+    reset_mock(0x9f); need_bus_recovery = true;
+    assert(tegra_lite_pmic_off() == -5 && recoveries == 1 && power_requests == 1);
+    reset_mock(0x9f); need_bus_recovery = clear_failed = true;
+    assert(tegra_lite_pmic_off() == -6 && power_requests == 0);
     puts("Switchroot B01 BootROM/PMC restart and PMIC shutdown policy passed (simulated)");
     return 0;
 }

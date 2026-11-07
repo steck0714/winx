@@ -10,6 +10,7 @@ import subprocess
 REVISION = "85081cab2050051ea6e93206ef0f80bc0676e613"
 REPO = Path(__file__).resolve().parents[1]
 PATCH = REPO / "patches/atf/0001-t214-psci-pmic-power.patch"
+SHUTDOWN_PATCH = REPO / "patches/atf/0002-t214-windows-shutdown.patch"
 
 
 def main():
@@ -18,21 +19,26 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--cross-prefix", default=os.environ.get("CROSS_COMPILE", "aarch64-none-elf-"))
     parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--native-restart", action="store_true",
+                        help="retain the experimental PMC/Hekate reset instead of powering off")
     args = parser.parse_args()
     source = args.source.resolve()
     if (source / ".git").exists():
         head = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
         if head != REVISION:
             raise SystemExit(f"Expected ATF revision {REVISION}; found {head}")
-    check = subprocess.run(["git", "apply", "--check", str(PATCH)], cwd=source, capture_output=True)
-    if check.returncode == 0:
-        subprocess.run(["git", "apply", str(PATCH)], cwd=source, check=True)
-    else:
-        subprocess.run(["git", "apply", "--reverse", "--check", str(PATCH)], cwd=source, check=True)
+    def applied(patch):
+        return subprocess.run(["git", "apply", "--reverse", "--check", str(patch)],
+                              cwd=source, capture_output=True).returncode == 0
+
+    if not applied(SHUTDOWN_PATCH):
+        if not applied(PATCH):
+            subprocess.run(["git", "apply", str(PATCH)], cwd=source, check=True)
+        subprocess.run(["git", "apply", str(SHUTDOWN_PATCH)], cwd=source, check=True)
     make = shutil.which("gmake") or shutil.which("make")
     if not make:
         raise SystemExit("GNU make is required")
-    build_base = "build-lite-power-r4"
+    build_base = "build-lite-power-r5-native" if args.native_restart else "build-lite-power-r5-off"
     # LineageOS android_device_nintendo_nx/vendor/nx-vendor.mk. Hekate loads
     # at 0xFFF00000 and supplies the reset-to-BL31 parameters through IRAM.
     flags = [make, f"-j{args.jobs}", "PLAT=tegra", "TARGET_SOC=t210",
@@ -42,7 +48,8 @@ def main():
              "SDEI_SUPPORT=0", "CRASH_REPORTING=1", "PLAT_LOG_LEVEL_ASSERT=0",
              f"CROSS_COMPILE={args.cross_prefix}", "DEBUG=0", "LOG_LEVEL=0",
              "ENABLE_ASSERTIONS=1", "SWITCH_LITE_PMIC_RESET=1",
-             "BUILD_STRING=85081ca-lite-power-r4"]
+             f"SWITCH_LITE_RESTART_AS_OFF={int(not args.native_restart)}",
+             "BUILD_STRING=85081ca-lite-power-r5"]
     help_text = subprocess.check_output([args.cross_prefix + "ld", "--help"], text=True)
     if "--no-warn-rwx-segments" in help_text:
         # TF-A 2.6's ELF layout predates this binutils diagnostic. Runtime MMU

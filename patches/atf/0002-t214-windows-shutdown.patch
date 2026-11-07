@@ -1,0 +1,136 @@
+From: ruje0504-2
+Subject: [PATCH] t214: recover I2C5 at late shutdown and allow reset to power off
+
+Apply after 0001-t214-psci-pmic-power.patch.
+
+--- a/plat/nvidia/tegra/soc/t210/platform_t210.mk
++++ b/plat/nvidia/tegra/soc/t210/platform_t210.mk
+@@ -7,6 +7,8 @@
+ 
+ SWITCH_LITE_PMIC_RESET ?= 0
+ $(eval $(call add_define,SWITCH_LITE_PMIC_RESET))
++SWITCH_LITE_RESTART_AS_OFF ?= 0
++$(eval $(call add_define,SWITCH_LITE_RESTART_AS_OFF))
+ ifeq (${SWITCH_LITE_PMIC_RESET},1)
+ BL31_SOURCES += ${SOC_DIR}/t214/pmic_power.c
+ endif
+--- a/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
++++ b/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
+@@ -618,10 +618,8 @@
+ 	return PSCI_E_SUCCESS;
+ }
+ 
+-int tegra_soc_prepare_system_reset(void)
+-{
+-	uint32_t scratch0;
+-
++static void tegra_stabilize_power_clock(void)
++{
+ 	/*
+ 	 * Set System Clock (SCLK) to POR default so that the clock source
+ 	 * for the PMC APB clock would not be changed due to system reset.
+@@ -632,6 +630,18 @@
+ 
+ 	/* Wait 1 ms to make sure clock source/device logic is stabilized. */
+ 	mdelay(1);
++}
++
++int tegra_soc_prepare_system_reset(void)
++{
++	uint32_t scratch0;
++
++#if SWITCH_LITE_PMIC_RESET && SWITCH_LITE_RESTART_AS_OFF
++	/* A Windows-requested reset may finish as complete power-off on Lite. */
++	if (tegra_chipid_is_t210_b01())
++		tegra_soc_prepare_system_off();
++#endif
++	tegra_stabilize_power_clock();
+ 
+ #if SWITCH_LITE_PMIC_RESET
+ 	if (tegra_chipid_is_t210_b01()) {
+@@ -660,6 +670,7 @@
+ {
+ #if SWITCH_LITE_PMIC_RESET
+ 	if (tegra_chipid_is_t210_b01()) {
++		tegra_stabilize_power_clock();
+ 		int error = tegra_lite_pmic_off();
+ 		ERROR("Lite PMIC power-off returned %d\n", error);
+ 	}
+--- a/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
++++ b/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
+@@ -118,7 +118,7 @@
+ /* Switchroot's max77620_pm_power_off(): clear latched interrupts, clear
+  * SFT_RST_WK, then set SFT_RST without changing the other ONOFFCNFG1 bits.
+  * Success removes power. No regulator voltage is written by the running CPU. */
+-int tegra_lite_pmic_off(void)
++static int try_power_off(bool recover_bus)
+ {
+ 	uint32_t value, expected, command;
+ 	unsigned int i;
+@@ -136,21 +136,42 @@
+ 		return -1;
+ 	mmio_write_32(I2C5 + 0x6cU, (5U << 16) | 1U);
+ 	mmio_write_32(I2C5 + 0x64U, 0U);
+-	mmio_write_32(I2C5 + 0x84U, (9U << 16) | 3U);
+-	mmio_write_32(I2C5 + I2C_CONFIG_LOAD, 0x25U);
+-	if (wait_clear(I2C_CONFIG_LOAD, 1U, 100U) != 0)
+-		return -1;
+-	for (i = 0; i < 10U; i++) {
+-		if ((mmio_read_32(I2C5 + 0x68U) & (1U << 11)) != 0U)
+-			break;
+-		udelay(25);
++	if (recover_bus) {
++		/* Switchroot i2c-tegra: load nine SCL pulses, STOP and TERMINATE
++		 * before setting ENABLE. Confirm completion and bus recovery. */
++		const uint32_t cfg = (9U << 16) | (1U << 2) | (1U << 1);
++		mmio_write_32(I2C5 + 0x68U, 1U << 11);
++		mmio_write_32(I2C5 + 0x84U, cfg);
++		mmio_write_32(I2C5 + I2C_CONFIG_LOAD, 0x25U);
++		if (wait_clear(I2C_CONFIG_LOAD, 1U, 1000U) != 0)
++			return -1;
++		mmio_write_32(I2C5 + 0x84U, cfg | 1U);
++		for (i = 0; i < 10000U; ++i) {
++			if (mmio_read_32(I2C5 + 0x68U) & (1U << 11))
++				break;
++			udelay(10);
++		}
++		if (i == 10000U || !(mmio_read_32(I2C5 + 0x88U) & 1U))
++			return -6;
++	} else {
++		/* Keep the Hekate sequence used by the known pre-OS shutdown. */
++		mmio_write_32(I2C5 + 0x84U, (9U << 16) | 3U);
++		mmio_write_32(I2C5 + I2C_CONFIG_LOAD, 0x25U);
++		if (wait_clear(I2C_CONFIG_LOAD, 1U, 100U) != 0)
++			return -1;
++		for (i = 0; i < 10U; ++i) {
++			if (mmio_read_32(I2C5 + 0x68U) & (1U << 11))
++				break;
++			udelay(25);
++		}
++		(void)mmio_read_32(I2C5 + 0x88U);
+ 	}
+-	(void)mmio_read_32(I2C5 + 0x88U);
+ 	mmio_write_32(I2C5 + 0x68U, mmio_read_32(I2C5 + 0x68U));
+ 
+-	if (read_register(0x0bU, &value) != 0 || /* ONOFFIRQ */
+-	    read_register(0x05U, &value) != 0 || /* IRQTOP */
+-	    read_register(ONOFFCNFG2, &value) != 0)
++	/* Switchroot treats these read-to-clear interrupts as best effort. */
++	(void)read_register(0x0bU, &value);
++	(void)read_register(0x05U, &value);
++	if (read_register(ONOFFCNFG2, &value) != 0)
+ 		return -2;
+ 	expected = value & ~RESET_WAKE;
+ 	command = ONOFFCNFG2 | (expected << 8);
+@@ -164,3 +185,11 @@
+ 	mdelay(500);
+ 	return result != 0 ? -4 : -5;
+ }
++
++int tegra_lite_pmic_off(void)
++{
++	/* A successful command removes power. Returning here means the CPU
++	 * is still running, even when the final I2C write was acknowledged. */
++	(void)try_power_off(false);
++	return try_power_off(true);
++}

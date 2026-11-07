@@ -39,6 +39,16 @@ These options require the B01 Home touch/performance profile and its reserved
 Hekate environment. The temporary `power_check=2` line was removed from the
 physical card after the successful test, restoring normal Home launch.
 
+## Windows power-off fallback (R5)
+
+On the returned Windows 11 23H2 card, User32 recorded a requested shutdown (event 1074), followed by EventLog stopping (6006). A previous boot also logged Kernel-Power 41. Hibernation and Fast Startup were disabled. These logs stop before the final firmware call.
+
+Inspection of this installation's ARM64 kernel with its matching Microsoft public symbols shows that `HalpShutdown` can issue PSCI `SYSTEM_OFF` (0x84000008), then try UEFI shutdown if control returns. On the boot CPU, `HalpPowerWriteResetCommand` can issue `SYSTEM_RESET` (0x84000009) before its UEFI reset fallback. The FADT selects PSCI through SMC. These are static call paths. The last instruction reached on the failing console is still unknown.
+
+R4 required both interrupt-latch reads to succeed before asking the MAX77620 to turn off. Switchroot Ubuntu treats those reads as best effort. R5 follows that behavior, restores the system clock before the PMIC transaction, and checks the wake configuration before the final power cut. If the CPU is still running after the first attempt, it resets I²C5 and tries once more with Switchroot's nine-clock, STOP and bus-clear completion sequence. [Switchroot PMIC power-off](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/power/reset/max77620-poweroff.c) · [Tegra I²C bus recovery](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/linux-5.1.2/drivers/i2c/busses/i2c-tegra.c)
+
+The Windows-specific R5 BL31 routes **Restart** to the same full power-off handler as **Shut down** on B01. Start the console with the power button after it powers off. The normal Hekate entry and other operating systems keep their own firmware. The R5 ARM64 binary was installed alongside the combined USB-C and input firmware. The emitted Lite reset branch calls the power-off handler. Simulated error and bus-recovery cases passed. Physical Windows power-off remains pending.
+
 ## Build and evidence
 
 Use [the pinned source and build instructions](../../patches/atf/README.md). The Nintendo NX recipe requires `TZDRAM_BASE=0xFFF00000`, reset-to-BL31 startup and the IRAM handoff. R2 used incorrect defaults and failed before Windows; it was withdrawn. R3 corrected that boot regression. R4 retains the same entrypoint and flags.

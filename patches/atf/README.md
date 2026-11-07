@@ -1,6 +1,6 @@
 # T214 PSCI PMIC power patch
 
-Apply `0001-t214-psci-pmic-power.patch` to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
+The build tool applies `0001-t214-psci-pmic-power.patch` and `0002-t214-windows-shutdown.patch` to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
 
 ## Build
 
@@ -14,6 +14,8 @@ python3 Tools/test-t214-pmic.py atf
 ```
 
 The build tool accepts the pinned checkout or its source archive, applies the patch (or recognizes it as already applied), and writes `out/t214-atf/bl31.bin`. It uses a separate build directory to avoid reusing objects from the rejected default-address build. SOURCE_DATE_EPOCH and the build string are fixed; use the same compiler for byte-identical output.
+
+R5 routes a B01 restart request through full power-off in this Windows BL31. To build the earlier native PMC/Hekate restart behavior for comparison, pass `--native-restart`. The primary and recovery PMIC paths use a separate output tree for each restart policy. [Windows shutdown investigation](../../docs/hdh001-home/power-performance.md#windows-power-off-fallback-r5)
 
 The parameters follow [Lineage's Nintendo NX recipe](https://github.com/LineageOS/android_device_nintendo_nx/blob/lineage-22.2/vendor/nx-vendor.mk):
 
