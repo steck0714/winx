@@ -177,7 +177,7 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
   line(dc,556,text);
   if(backlightSetError){wsprintfW(text,L"Brightness change failed: 0x%08lX",backlightSetError);line(dc,644,text);}
-  gpu_line(dc,26,L"GPU - experimental (ABI 8)");
+  wsprintfW(text,L"GPU - experimental (ABI %lu)",(DWORD)TG_GPU_CONTROL_VERSION);gpu_line(dc,26,text);
   gpu_line(dc,68,L"Choose a GPU clock profile");
   if(gpuBusy)wsprintfW(text,L"Running clock and FIFO readback...");
   else if(gpuTestError || gpuError)wsprintfW(text,L"GPU unavailable/error: 0x%08lX",gpuTestError?gpuTestError:gpuError);
