@@ -13,17 +13,17 @@ Keep this file as the single rolling progress entry, about 100 lines or fewer. H
 ## Current stage
 
 **Milestone 1 remains unproven: no GPU-written fence has completed under Windows.**
-Installed probe **0.1.0.8 / ABI 4** failed four consecutive 729.6 MHz tests at **Stage 304 / E6**. Both words stayed `DEADBEEF`; USERD GET/PUT stayed `0/1`, CCSR was `11000001`, and the runlist had one entry.
+Previous probe **0.1.0.8 / ABI 4** failed four consecutive 729.6 MHz tests at **Stage 304 / E6**. Both words stayed `DEADBEEF`; USERD GET/PUT stayed `0/1`, CCSR was `11000001`, and the runlist had one entry.
 PBDMA statuses `10000004`/`10000000` identify no valid channel zero. Their varying GP base/fetch/GET/PUT readings are idle/context-switch SRAM, **not execution progress or a proven RAMFC mismatch**.
 Scheduler and reported FIFO/MMU/PBDMA errors were zero; power/clock restoration returned zero with no retained ownership. BOOT0 was `12E000B1`; the default clock measured 729.6 MHz at 800 mV. Earlier optional-profile checks measured about 1227.8 MHz at 925 mV.
-Local candidate **0.1.0.10 / ABI 5** combines saved-context bootstrap, idle-slowdown suppression, FIFO clock/timeouts, LTC/FB routing and two FB flushes. It suppresses invalid PBDMA counters and records BUS/PRI failures. **It is not installed**; no repeated 0.1.0.8 test is requested.
+Installed candidate **0.1.0.10 / ABI 5** combines saved-context bootstrap, idle-slowdown suppression, FIFO clock/timeouts, LTC/FB routing and two FB flushes. It suppresses invalid PBDMA counters and records BUS/PRI failures. It passed offline installation and awaits one consolidated 729.6 MHz test; no repeated 0.1.0.8 test is requested.
 The WDDM library now includes allocation lifecycle callbacks and an ordered work queue, retiring hardware/context ownership before scheduler notification. This is source-only backend progress, not a registered render adapter or a hardware pass.
 
 | Component | Code state | Build/local evidence | Physical Lite evidence |
 | --- | --- | --- | --- |
 | ACPI resources | Opt-in `SWOA0F01`, separate from POST display | DSDT builds with the existing GCRS warning | Device start/register access pass; IRQ untested |
 | T214 power and clock | Switchroot rail/reset/MC sequence; C1 NA PLL and unwind | ARM64 build and ordering/failure models pass | Power/identity/restoration and clock measurement pass; sustained load untested |
-| FIFO diagnostic | Private arena, one channel, two semaphore releases; consolidated cold initialization | 0.1.0.10 builds, signs and loads in native ARM64 WinPE | Installed 0.1.0.8 still fails Stage 304/E6 |
+| FIFO diagnostic | Private arena, one channel, two semaphore releases; consolidated cold initialization | 0.1.0.10 builds, signs and loads in native ARM64 WinPE | 0.1.0.8 failed Stage 304/E6; 0.1.0.10 awaits one consolidated test |
 | Allocations | Real-WDK create/destroy/open/close DDIs; opaque storage ABI; VidMm system-memory backing | ARM64 build; WinPE batch rollback/shared-reference/destruction tests pass | Live VidMm allocation and UMD mapping pending |
 | Page tables and paging | Bounded table segment/root; initial alias validation; ordered PTE/TLB records | ARM64 build; native WinPE controlled tests pass | Live VidMm residency and GPU access pending |
 | Contexts and command memory | WDK process/device/context/root DDIs; private RAMIN; reserved privileged GPU VA | ARM64 build; mapping/lifetime/packet tests pass | Hardware privilege enforcement pending |
@@ -66,12 +66,12 @@ The WDDM library now includes allocation lifecycle callbacks and an ordered work
 
 ## Installed state and next action
 
-The card remains on **TegraGpuProbe 0.1.0.8**, the ABI 4 performance tool, working **SwitchFan 1.0.0.10**, and the existing BL33. No SD, BCD or partition changes were made for the source-only queue/allocation work.
+The card now has **TegraGpuProbe 0.1.0.10** and the **ABI 5** performance tool. Windows signature/catalog checks, offline DISM installation, runtime/UI copies and volume dismount all passed; the Mac writer flushed and the SD was safely ejected. SwitchFan **1.0.0.10**, BL33, BCD and partitions were not updated. The newer WDDM queue/allocation library remains source-only.
 BL33 SHA-256: `91b2acbccd925a3a4253226680692d524cba2ac60a8b89e62b3e3cd956f8364b`.
-Candidate **0.1.0.10 / ABI 5 (196 bytes)** separately passed ARM64 driver/UI compilation, native WinPE DriverEntry loading and SYS/catalog signature checks. It remains local; later WDDM-library changes do not imply a rebuilt or installed diagnostic package.
+Candidate **0.1.0.10 / ABI 5 (196 bytes)** separately passed ARM64 driver/UI compilation, native WinPE DriverEntry loading and SYS/catalog signature checks. The package is now installed; later WDDM-library changes are not part of this diagnostic binary.
 Driver images use the working resident kernel-section profile and a CA:FALSE code-signing leaf under the existing development root. PnPUtil import alone does not prove valid signature/device binding.
 The tool overwrites fixed `LastResult`, `LastResultTime` and successful `SelectedKhz` registry values; it creates no per-sample files. Staging copies listed payload bytes only, excluding `.DS_Store`, `._*` and `__MACOSX`.
-Next local work is complete adapter dispatch and command/residency validation, then IRQ/preemption/TDR integration and the NVK Windows backend. Keep the consolidated diagnostic available for the next justified physical handoff; do not repeat the installed failure or ship each isolated correction.
+Next local work is complete adapter dispatch and command/residency validation, then IRQ/preemption/TDR integration and the NVK Windows backend. The owner handoff is one default 729.6 MHz test using the installed ABI 5 tool: inspect both GPU-produced words and initialization/fault evidence. Await that result while continuing independent backend work; do not request repeated presses of the same failing probe.
 
 ## Pinned references
 
