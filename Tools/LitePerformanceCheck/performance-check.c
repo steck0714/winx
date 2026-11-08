@@ -159,6 +159,12 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   wsprintfW(text,L"Samples %lu   CPU target %lu MHz",runs,requested/1000);line(dc,322,text);
   wsprintfW(text,L"Boot status %lu   CPU error 0x%08lX",hand,error);line(dc,366,text);
   if(!present || !live || stale>=6)line(dc,420,L"Waiting for fresh fan readings");
+  else if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
+   wsprintfW(text,L"PB: %08lX -> %08lX",gpu.pbdma_enable_before,gpu.pbdma_enable_after);line(dc,420,text);
+   if(gpu.stage>=304)wsprintfW(text,L"GET %lu PUT %lu  PB %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_status);
+   else wsprintfW(text,L"PB runlist map %08lX",gpu.pbdma_runlist_map);
+   line(dc,448,text);
+  }
   line(dc,478,L"Runtime readings; not a stability test.");
   if(backlightAvailable)wsprintfW(text,L"Brightness   %lu%%",(backlight.brightness*100+127)/255);
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
