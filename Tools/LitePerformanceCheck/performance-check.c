@@ -166,9 +166,9 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
    wsprintfW(text,L"Sched %08lX -> %08lX  err %08lX",gpu.scheduler_before,gpu.scheduler_after,gpu.scheduler_error);line(dc,400,text);
    wsprintfW(text,L"Bind %08lX  Chsw %08lX",gpu.bind_error,gpu.chsw_error);line(dc,426,text);
    wsprintfW(text,L"List %08lX / %08lX  PB %08lX",gpu.runlist_base,gpu.runlist_status,gpu.pbdma_status);line(dc,452,text);
-   if(tg_gpu_pbdma_owns_channel(gpu.pbdma_status,0))
+   if(tg_gpu_pbdma_owns_slot(gpu.pbdma_status))
     wsprintfW(text,L"HW base %08lX fetch %lu G%lu P%lu",gpu.pbdma_gp_base,gpu.pbdma_gp_fetch,gpu.pbdma_gp_get,gpu.pbdma_gp_put);
-   else wsprintfW(text,L"PBDMA has no valid channel 0");
+   else wsprintfW(text,L"PBDMA has no valid channel/TSG 0");
    line(dc,478,text);
    wsprintfW(text,L"USERD G%lu P%lu  PB1 %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_interrupt_1);line(dc,504,text);
    wsprintfW(text,L"Engine %08lX / %08lX",gpu.engine_status[0],gpu.engine_status[1]);line(dc,530,text);
@@ -177,7 +177,7 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
   line(dc,556,text);
   if(backlightSetError){wsprintfW(text,L"Brightness change failed: 0x%08lX",backlightSetError);line(dc,644,text);}
-  gpu_line(dc,26,L"GPU - experimental (ABI 7)");
+  gpu_line(dc,26,L"GPU - experimental (ABI 8)");
   gpu_line(dc,68,L"Choose a GPU clock profile");
   if(gpuBusy)wsprintfW(text,L"Running clock and FIFO readback...");
   else if(gpuTestError || gpuError)wsprintfW(text,L"GPU unavailable/error: 0x%08lX",gpuTestError?gpuTestError:gpuError);
