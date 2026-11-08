@@ -157,25 +157,27 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   wsprintfW(text,L"Fan PWM     %lu%%",duty*100/236);line(dc,218,text);
   line(dc,262,L"Renderer: CPU software");
   wsprintfW(text,L"Samples %lu   CPU target %lu MHz",runs,requested/1000);line(dc,322,text);
-  wsprintfW(text,L"Boot status %lu   CPU error 0x%08lX",hand,error);line(dc,366,text);
-  if(!present || !live || stale>=6)line(dc,400,L"Waiting for fresh fan readings");
+  wsprintfW(text,L"Boot status %lu   CPU error 0x%08lX",hand,error);line(dc,348,text);
+  if(!present || !live || stale>=6)line(dc,374,L"Waiting for fresh fan readings");
   else if(gpu.tested && !gpuBusy && !gpuError){
-   wsprintfW(text,L"Init %lu / %lu   LTC %lu   FB flush %lu",gpu.frontend.stage,gpu.frontend.result,gpu.frontend.ltc_count,gpu.frontend.fb_flushes);line(dc,400,text);
+   wsprintfW(text,L"Init %lu / %lu   LTC %lu   FB flush %lu",gpu.frontend.stage,gpu.frontend.result,gpu.frontend.ltc_count,gpu.frontend.fb_flushes);line(dc,374,text);
   }
   if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
-   wsprintfW(text,L"Sched %08lX -> %08lX  err %08lX",gpu.scheduler_before,gpu.scheduler_after,gpu.scheduler_error);line(dc,430,text);
-   wsprintfW(text,L"List %08lX / %08lX  PB %08lX",gpu.runlist_base,gpu.runlist_status,gpu.pbdma_status);line(dc,456,text);
+   wsprintfW(text,L"Sched %08lX -> %08lX  err %08lX",gpu.scheduler_before,gpu.scheduler_after,gpu.scheduler_error);line(dc,400,text);
+   wsprintfW(text,L"Bind %08lX  Chsw %08lX",gpu.bind_error,gpu.chsw_error);line(dc,426,text);
+   wsprintfW(text,L"List %08lX / %08lX  PB %08lX",gpu.runlist_base,gpu.runlist_status,gpu.pbdma_status);line(dc,452,text);
    if(tg_gpu_pbdma_owns_channel(gpu.pbdma_status,0))
     wsprintfW(text,L"HW base %08lX fetch %lu G%lu P%lu",gpu.pbdma_gp_base,gpu.pbdma_gp_fetch,gpu.pbdma_gp_get,gpu.pbdma_gp_put);
    else wsprintfW(text,L"PBDMA has no valid channel 0");
-   line(dc,482,text);
-   wsprintfW(text,L"USERD G%lu P%lu  PB1 %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_interrupt_1);line(dc,508,text);
+   line(dc,478,text);
+   wsprintfW(text,L"USERD G%lu P%lu  PB1 %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_interrupt_1);line(dc,504,text);
+   wsprintfW(text,L"Engine %08lX / %08lX",gpu.engine_status[0],gpu.engine_status[1]);line(dc,530,text);
   }else line(dc,478,L"Runtime readings; not a stability test.");
   if(backlightAvailable)wsprintfW(text,L"Brightness   %lu%%",(backlight.brightness*100+127)/255);
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
-  line(dc,546,text);
+  line(dc,556,text);
   if(backlightSetError){wsprintfW(text,L"Brightness change failed: 0x%08lX",backlightSetError);line(dc,644,text);}
-  gpu_line(dc,26,L"GPU - experimental (ABI 5)");
+  gpu_line(dc,26,L"GPU - experimental (ABI 6)");
   gpu_line(dc,68,L"Choose a GPU clock profile");
   if(gpuBusy)wsprintfW(text,L"Running clock and FIFO readback...");
   else if(gpuTestError || gpuError)wsprintfW(text,L"GPU unavailable/error: 0x%08lX",gpuTestError?gpuTestError:gpuError);
