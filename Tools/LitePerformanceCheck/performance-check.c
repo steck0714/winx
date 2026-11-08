@@ -67,7 +67,8 @@ static BOOL has_switch(LPCWSTR wanted) {
 static BOOL gpu_pass(const struct tg_gpu_status *s) {
  return s->tested && !s->power_result && !s->clock_result && !s->execution_result &&
         !s->frontend.result && !s->gr.result && s->gr.stage==8 &&
-        !s->acr_firmware_result && !s->acr.result && (!s->gr.priv_security || s->acr.stage==9) &&
+        !s->acr_firmware_result && !s->acr.result && !s->pmu.result &&
+        (!s->gr.priv_security || (s->acr.stage==9 && s->pmu.stage==6 && !s->pmu.reply_code)) &&
         !s->firmware_status && !s->restore_result && !s->resources_owned &&
         s->expected[0]==s->observed[0] && s->expected[1]==s->observed[1];
 }
@@ -132,6 +133,11 @@ static DWORD gpu_json(void) {
   HEX(acr.hwcfg);NUMBER(acr.imem_size);NUMBER(acr.dmem_size);HEX(acr.mc_enable);
   HEX(acr.mailbox0);HEX(acr.mailbox1);HEX(acr.cpuctl);HEX(acr.sctl);
   HEX(acr.last_register);HEX(acr.last_value);NUMBER(acr.reset_confirmed);HEX(acr.scp_status);
+  NUMBER(pmu.stage);NUMBER(pmu.result);HEX(pmu.cpuctl);HEX(pmu.irqstat);
+  HEX(pmu.msg_head);HEX(pmu.msg_tail);HEX(pmu.init_header);HEX(pmu.hpq_base);
+  NUMBER(pmu.hpq_size);NUMBER(pmu.hpq_index);HEX(pmu.msg_base);NUMBER(pmu.msg_size);
+  HEX(pmu.last_header);HEX(pmu.reply_code);NUMBER(pmu.messages);
+  HEX(pmu.last_register);HEX(pmu.last_value);HEX(pmu.cmd_head);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",
@@ -283,10 +289,12 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
    if(gpu.firmware_status){
     wsprintfW(text,L"Firmware files: 0x%08lX",gpu.firmware_status);TextOutW(dc,660,440,text,lstrlenW(text));
     wsprintfW(text,L"GPU bootstrap not started");
-   }else if(gpu.stage==309 || gpu.stage==310){
+   }else if(gpu.stage==310){
+    wsprintfW(text,L"PMU %lu/%lu  reply %08lX",gpu.pmu.stage,gpu.pmu.result,gpu.pmu.reply_code);TextOutW(dc,660,440,text,lstrlenW(text));
+    wsprintfW(text,L"Msg head %lX tail %lX",gpu.pmu.msg_head,gpu.pmu.msg_tail);
+   }else if(gpu.stage==309){
     wsprintfW(text,L"ACR %lu/%lu  pack %lu",gpu.acr.stage,gpu.acr.result,gpu.acr_firmware_result);TextOutW(dc,660,440,text,lstrlenW(text));
-    if(gpu.stage==310)wsprintfW(text,L"ACR authenticated; PMU RTOS pending");
-    else wsprintfW(text,L"Reg %08lX = %08lX",gpu.acr.last_register,gpu.acr.last_value);
+    wsprintfW(text,L"Reg %08lX = %08lX",gpu.acr.last_register,gpu.acr.last_value);
    }else if(gpu.stage==308){
     wsprintfW(text,L"GR bootstrap %lu/%lu sec %lX",gpu.gr.stage,gpu.gr.result,gpu.gr.priv_security);TextOutW(dc,660,440,text,lstrlenW(text));
     wsprintfW(text,L"Reg %08lX = %08lX",gpu.gr.last_register,gpu.gr.last_value);
