@@ -12,6 +12,7 @@ python3 - <<'PY'
 import os, subprocess
 from pathlib import Path
 libs={
+ 'msvcrt':'memcpy',
  'kernel32':'CompareStringOrdinal ExitProcess GetModuleHandleW lstrlenW lstrcmpW CreateFileW DeviceIoControl CloseHandle GetLastError CreateThread GetModuleFileNameW GetCommandLineW GetStdHandle WriteFile LocalFree MulDiv',
  'user32':'wsprintfA wsprintfW GetClientRect ScreenToClient GetPointerInfo InvalidateRect BeginPaint FillRect EndPaint DrawTextW DefWindowProcW KillTimer PostQuitMessage LoadCursorW RegisterClassW GetSystemMetrics CreateWindowExW SetTimer UpdateWindow GetMessageW TranslateMessage DispatchMessageW SendMessageW EnableWindow PostMessageW DestroyWindow MoveWindow',
  'gdi32':'TextOutW GetStockObject SetBkMode SelectObject SetTextColor SetDCBrushColor Ellipse CreateFontW DeleteObject SetMapMode SetWindowExtEx SetViewportExtEx',

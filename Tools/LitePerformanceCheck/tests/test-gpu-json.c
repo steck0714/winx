@@ -43,6 +43,7 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  s.frontend.fb_flushes=2;s.frontend.l2_flushes=2;s.frontend.l2_invalidations=2;
  s.frontend.gr_enable=0xd8013120;s.frontend.gr_fifo_access=0x10001;
  s.frontend.gr_gate_ctrl[0]=0xaaaa0010;s.frontend.gr_gate_ctrl[1]=0xbbbb0010;
+ s.gr.stage=8;s.gr.fecs_mailbox=1;s.gr.last_register=0x409800;s.gr.last_value=1;
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;
 }

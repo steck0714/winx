@@ -66,7 +66,8 @@ static BOOL has_switch(LPCWSTR wanted) {
 }
 static BOOL gpu_pass(const struct tg_gpu_status *s) {
  return s->tested && !s->power_result && !s->clock_result && !s->execution_result &&
-        !s->frontend.result && !s->restore_result && !s->resources_owned &&
+        !s->frontend.result && !s->gr.result && s->gr.stage==8 &&
+        !s->firmware_status && !s->restore_result && !s->resources_owned &&
         s->expected[0]==s->observed[0] && s->expected[1]==s->observed[1];
 }
 static BOOL json_text(HANDLE out,const char *text) {
@@ -124,6 +125,8 @@ static DWORD gpu_json(void) {
   HEX(frontend.gr_enable);HEX(frontend.gr_fifo_access);HEX(frontend.gr_gate_ctrl[0]);HEX(frontend.gr_gate_ctrl[1]);
   HEX(bind_error);HEX(chsw_error);HEX(engine_status[0]);HEX(engine_status[1]);
   NUMBER(bar1_phase);HEX(bar1_expected);HEX(bar1_read);HEX(bar1_cpu);
+  NUMBER(gr.stage);NUMBER(gr.result);HEX(gr.priv_security);HEX(gr.last_register);HEX(gr.last_value);
+  HEX(gr.fecs_hwcfg);HEX(gr.gpccs_hwcfg);HEX(gr.fecs_mailbox);HEX(gr.gr_interrupt);HEX(firmware_status);
 #undef NUMBER
 #undef HEX
  }
@@ -243,7 +246,9 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
    else wsprintfW(text,L"PBDMA has no valid channel/TSG 0");
    line(dc,478,text);
    wsprintfW(text,L"USERD G%lu P%lu  PB1 %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_interrupt_1);line(dc,504,text);
-   wsprintfW(text,L"Engine %08lX / %08lX",gpu.engine_status[0],gpu.engine_status[1]);line(dc,530,text);
+   if(gpu.gr.stage)wsprintfW(text,L"GR %lu/%lu  mailbox %08lX",gpu.gr.stage,gpu.gr.result,gpu.gr.fecs_mailbox);
+   else wsprintfW(text,L"Engine %08lX / %08lX",gpu.engine_status[0],gpu.engine_status[1]);
+   line(dc,530,text);
   }else line(dc,478,L"Runtime readings; not a stability test.");
   if(backlightAvailable)wsprintfW(text,L"Brightness   %lu%%",(backlight.brightness*100+127)/255);
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
@@ -263,7 +268,13 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
    LPCWSTR result=pass?L"GPU FIFO READBACK PASS":L"GPU check did not pass";
    TextOutW(dc,660,352,result,lstrlenW(result));SetTextColor(dc,RGB(20,30,45));
    wsprintfW(text,L"Stage %lu  P:%lu C:%lu E:%lu",gpu.stage,gpu.power_result,gpu.clock_result,gpu.execution_result);TextOutW(dc,660,396,text,lstrlenW(text));
-   if(gpu.stage==307){
+   if(gpu.firmware_status){
+    wsprintfW(text,L"Firmware files: 0x%08lX",gpu.firmware_status);TextOutW(dc,660,440,text,lstrlenW(text));
+    wsprintfW(text,L"GPU bootstrap not started");
+   }else if(gpu.stage==308){
+    wsprintfW(text,L"GR bootstrap %lu/%lu sec %lX",gpu.gr.stage,gpu.gr.result,gpu.gr.priv_security);TextOutW(dc,660,440,text,lstrlenW(text));
+    wsprintfW(text,L"Reg %08lX = %08lX",gpu.gr.last_register,gpu.gr.last_value);
+   }else if(gpu.stage==307){
     wsprintfW(text,L"GR enable %08lX access %08lX",gpu.frontend.gr_enable,gpu.frontend.gr_fifo_access);TextOutW(dc,660,440,text,lstrlenW(text));
     wsprintfW(text,L"GR clocks %08lX / %08lX",gpu.frontend.gr_gate_ctrl[0],gpu.frontend.gr_gate_ctrl[1]);
    }else if(gpu.stage==302 && gpu.bar1_phase){

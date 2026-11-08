@@ -9,6 +9,7 @@ FILES = (
     "switchfan/switchfan.inf", "switchfan/switchfan.sys", "switchfan/switchfan.cat",
     "tegragpuprobe/tegragpuprobe.inf", "tegragpuprobe/tegragpuprobe.sys",
     "tegragpuprobe/tegragpuprobe.cat", "LitePerformanceCheck.exe",
+    "tegragpuprobe/NETB_img.bin", "tegragpuprobe/fecs.bin", "tegragpuprobe/gpccs.bin",
     "Install-GpuTest.ps1", "Install-GpuTest.cmd", "GpuTest-CodeSigning.cer",
 )
 
