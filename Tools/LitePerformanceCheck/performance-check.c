@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
+// --gpu-json queries live status; add --gpu-729 or --gpu-1228 for one run.
+// JSON goes to inherited stdout (SSH/pipe/redirection), without a GUI or UAC.
+// Query success exits 0 even for an earlier failed test; inspect fifo_pass.
+// RUN exits 0 only on FIFO readback success, 31 on a test failure, or a Win32
+// error for I/O/argument failures. FIFO success is not Vulkan rendering.
 #define UNICODE
 #define _UNICODE
 #define WINVER 0x0a00
@@ -25,6 +30,8 @@ static BOOL gpuAvailable;
 static DWORD gpuError,gpuWorkerError,gpuTestError;
 static volatile LONG gpuBusy;
 static DWORD gpuRequested=TG_GPU_CONTROL_DEFAULT_KHZ;
+static int argumentCount;
+static LPWSTR *arguments;
 #define WM_GPU_DONE (WM_APP+1)
 #define WM_GPU_RUN (WM_APP+2)
 static BOOL gpu_io(DWORD code, DWORD target, struct tg_gpu_status *out, DWORD *error) {
@@ -54,9 +61,73 @@ static void start_gpu(HWND w) {
  InvalidateRect(w,NULL,TRUE);
 }
 static BOOL has_switch(LPCWSTR wanted) {
- LPCWSTR cmd=GetCommandLineW();
- for(;*cmd;++cmd){LPCWSTR a=cmd,b=wanted;while(*b && *a==*b){++a;++b;}if(!*b && (!*a || *a==L' '))return TRUE;}
+ for(int i=1;i<argumentCount;++i)if(!lstrcmpW(arguments[i],wanted))return TRUE;
  return FALSE;
+}
+static BOOL gpu_pass(const struct tg_gpu_status *s) {
+ return s->tested && !s->power_result && !s->clock_result && !s->execution_result &&
+        !s->frontend.result && !s->restore_result && !s->resources_owned &&
+        s->expected[0]==s->observed[0] && s->expected[1]==s->observed[1];
+}
+static BOOL json_text(HANDLE out,const char *text) {
+ DWORD length=0,written;
+ while(text[length])++length;
+ while(length){
+  if(!WriteFile(out,text,length,&written,NULL) || !written)return FALSE;
+  text+=written;length-=written;
+ }
+ return TRUE;
+}
+static BOOL json_number(HANDLE out,const char *name,DWORD value,BOOL hex) {
+ char text[128]; /* All field names below are fixed short literals. */
+ wsprintfA(text,hex?",\"%s\":\"0x%08lX\"":",\"%s\":%lu",name,value);
+ return json_text(out,text);
+}
+static DWORD gpu_json(void) {
+ struct tg_gpu_status s={0};
+ DWORD ioError=0;
+ BOOL run729=has_switch(L"--gpu-729"),run1228=has_switch(L"--gpu-1228");
+ BOOL run=run729||run1228;
+ HANDLE out=GetStdHandle(STD_OUTPUT_HANDLE);
+ if(!out || out==INVALID_HANDLE_VALUE)return ERROR_INVALID_HANDLE;
+ for(int i=1;i<argumentCount;++i)
+  if(lstrcmpW(arguments[i],L"--gpu-json") && lstrcmpW(arguments[i],L"--gpu-729") &&
+     lstrcmpW(arguments[i],L"--gpu-1228"))ioError=ERROR_INVALID_PARAMETER;
+ if(run729 && run1228)ioError=ERROR_INVALID_PARAMETER;
+ /* A status query never powers up the GPU. RUN requires an already elevated
+  * caller: no UAC window, hidden GUI, retry loop or file is created over SSH.
+  */
+ if(!ioError)gpu_io(run?TG_GPU_IOCTL_RUN:TG_GPU_IOCTL_STATUS,
+                   run1228?TG_GPU_CONTROL_OC_KHZ:TG_GPU_CONTROL_DEFAULT_KHZ,&s,&ioError);
+ if(!json_text(out,run?"{\"operation\":\"run\"":"{\"operation\":\"status\"") ||
+    !json_number(out,"tool_abi",TG_GPU_CONTROL_VERSION,FALSE) ||
+    !json_number(out,"win32_error",ioError,FALSE) ||
+    !json_text(out,!ioError&&gpu_pass(&s)?",\"fifo_pass\":true":",\"fifo_pass\":false"))
+  return ERROR_WRITE_FAULT;
+ if(!ioError){
+#define NUMBER(field) if(!json_number(out,#field,s.field,FALSE))return ERROR_WRITE_FAULT
+#define HEX(field) if(!json_number(out,#field,s.field,TRUE))return ERROR_WRITE_FAULT
+  NUMBER(version);NUMBER(tested);NUMBER(target_khz);NUMBER(measured_khz);NUMBER(rail_uv);
+  HEX(boot0);NUMBER(stage);NUMBER(power_result);NUMBER(clock_result);NUMBER(execution_result);
+  HEX(restore_result);NUMBER(resources_owned);
+  HEX(expected[0]);HEX(expected[1]);HEX(observed[0]);HEX(observed[1]);
+  HEX(fifo_interrupt);HEX(mmu_fault);HEX(pbdma_interrupt);HEX(channel_status);
+  HEX(mc_enable_before);HEX(channel_instance_before);HEX(mc_enable_after);HEX(channel_instance_after);
+  HEX(pbdma_enable_before);HEX(pbdma_enable_after);HEX(pbdma_runlist_map);HEX(pbdma_status);
+  NUMBER(userd_gp_get);NUMBER(userd_gp_put);HEX(scheduler_before);HEX(scheduler_after);HEX(scheduler_error);
+  HEX(runlist_base);HEX(runlist_status);HEX(pbdma_gp_base);HEX(pbdma_gp_fetch);
+  HEX(pbdma_gp_get);HEX(pbdma_gp_put);HEX(pbdma_interrupt_1);
+  NUMBER(frontend.stage);NUMBER(frontend.result);NUMBER(frontend.ltc_count);NUMBER(frontend.fb_flushes);
+  HEX(frontend.bus_interrupt);HEX(frontend.pri_status0);HEX(frontend.pri_status1);
+  HEX(frontend.pri_error_address);HEX(frontend.pri_error_code);
+  NUMBER(frontend.l2_flushes);NUMBER(frontend.l2_invalidations);
+  HEX(bind_error);HEX(chsw_error);HEX(engine_status[0]);HEX(engine_status[1]);
+  NUMBER(bar1_phase);HEX(bar1_expected);HEX(bar1_read);HEX(bar1_cpu);
+#undef NUMBER
+#undef HEX
+ }
+ if(!json_text(out,"}\r\n"))return ERROR_WRITE_FAULT;
+ return ioError?ioError:run&&!gpu_pass(&s)?ERROR_GEN_FAILURE:ERROR_SUCCESS;
 }
 static BOOL backlight_io(DWORD code,void *in,DWORD inSize,void *out,DWORD outSize) {
  DWORD bytes=0;
@@ -186,7 +257,7 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   TextOutW(dc,660,264,text,lstrlenW(text));
   if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
    wsprintfW(text,L"GPU rail: %lu mV  BOOT0: %08lX",gpu.rail_uv/1000,gpu.boot0);TextOutW(dc,660,308,text,lstrlenW(text));
-   BOOL pass=!gpu.power_result && !gpu.clock_result && !gpu.execution_result && !gpu.frontend.result && !gpu.restore_result && !gpu.resources_owned && gpu.expected[0]==gpu.observed[0] && gpu.expected[1]==gpu.observed[1];
+   BOOL pass=gpu_pass(&gpu);
    SetTextColor(dc,pass?RGB(0,125,50):RGB(160,85,0));
    LPCWSTR result=pass?L"GPU FIFO READBACK PASS":L"GPU check did not pass";
    TextOutW(dc,660,352,result,lstrlenW(result));SetTextColor(dc,RGB(20,30,45));
@@ -221,11 +292,14 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
  return DefWindowProcW(w,msg,a,b);
 }
 void start(void) {
+ arguments=CommandLineToArgvW(GetCommandLineW(),&argumentCount);
+ if(!arguments)ExitProcess(ERROR_NOT_ENOUGH_MEMORY);
+ if(has_switch(L"--gpu-json")){DWORD code=gpu_json();LocalFree(arguments);ExitProcess(code);}
  HINSTANCE h=GetModuleHandleW(NULL);WNDCLASSW c={0};MSG m;
  c.lpfnWndProc=proc;c.hInstance=h;c.hCursor=LoadCursorW(NULL,IDC_ARROW);c.lpszClassName=L"LitePerformanceCheck";
  RegisterClassW(&c);
  font=CreateFontW(24,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
  HWND w=CreateWindowExW(0,c.lpszClassName,L"Switch Lite - Performance and brightness",WS_OVERLAPPEDWINDOW|WS_VISIBLE,0,0,GetSystemMetrics(SM_CXSCREEN),GetSystemMetrics(SM_CYSCREEN),NULL,NULL,h,NULL);
  UpdateWindow(w);while(GetMessageW(&m,NULL,0,0)>0){TranslateMessage(&m);DispatchMessageW(&m);}
- if(controlFont)DeleteObject(controlFont);DeleteObject(font);ExitProcess(0);
+ if(controlFont)DeleteObject(controlFont);DeleteObject(font);LocalFree(arguments);ExitProcess(0);
 }
