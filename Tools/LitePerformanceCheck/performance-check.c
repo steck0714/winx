@@ -66,7 +66,8 @@ static BOOL has_switch(LPCWSTR wanted) {
 }
 static BOOL gpu_pass(const struct tg_gpu_status *s) {
  return s->tested && !s->power_result && !s->clock_result && !s->execution_result &&
-        !s->frontend.result && !s->gr.result && s->gr.stage==8 &&
+        !s->frontend.result && !s->gr.result && s->gr.stage==13 &&
+        s->gr.context_bytes && s->gr.zcull_bytes && s->gr.pm_bytes &&
         !s->acr_firmware_result && !s->acr.result && !s->pmu.result &&
         (!s->gr.priv_security || (s->acr.stage==9 && s->pmu.stage==6 && !s->pmu.reply_code)) &&
         !s->firmware_status && !s->restore_result && !s->resources_owned &&
@@ -128,6 +129,7 @@ static DWORD gpu_json(void) {
   HEX(bind_error);HEX(chsw_error);HEX(engine_status[0]);HEX(engine_status[1]);
   NUMBER(bar1_phase);HEX(bar1_expected);HEX(bar1_read);HEX(bar1_cpu);
   NUMBER(gr.stage);NUMBER(gr.result);HEX(gr.priv_security);HEX(gr.last_register);HEX(gr.last_value);
+  HEX(gr.current_context);NUMBER(gr.context_bytes);NUMBER(gr.zcull_bytes);NUMBER(gr.pm_bytes);
   HEX(gr.fecs_hwcfg);HEX(gr.gpccs_hwcfg);HEX(gr.fecs_mailbox);HEX(gr.gr_interrupt);HEX(firmware_status);
   NUMBER(acr_firmware_result);NUMBER(acr.stage);NUMBER(acr.result);HEX(acr.security);
   HEX(acr.hwcfg);NUMBER(acr.imem_size);NUMBER(acr.dmem_size);HEX(acr.mc_enable);

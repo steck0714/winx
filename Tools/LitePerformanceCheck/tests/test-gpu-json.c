@@ -43,7 +43,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  s.frontend.fb_flushes=2;s.frontend.l2_flushes=2;s.frontend.l2_invalidations=2;
  s.frontend.gr_enable=0xd8013120;s.frontend.gr_fifo_access=0x10001;
  s.frontend.gr_gate_ctrl[0]=0xaaaa0010;s.frontend.gr_gate_ctrl[1]=0xbbbb0010;
- s.gr.stage=8;s.gr.fecs_mailbox=1;s.gr.last_register=0x409800;s.gr.last_value=1;
+ s.gr.stage=13;s.gr.fecs_mailbox=0x9000;s.gr.last_register=0x409800;s.gr.last_value=0x9000;
+ s.gr.context_bytes=0x17000;s.gr.zcull_bytes=0x4000;s.gr.pm_bytes=0x9000;
  if(fixture>=6){
   s.gr.priv_security=1;s.acr.stage=9;s.acr.security=1;s.acr.wpr_base=0xffc00000;s.acr.wpr_size=0x200000;
   s.stage=310;s.execution_result=14; /* Authentication alone cannot pass FIFO. */
@@ -52,6 +53,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
    s.pmu.stage=6;
    if(fixture==7)s.acr_firmware_result=2; /* A format failure cannot be hidden by later fields. */
    if(fixture==8){s.pmu.stage=5;s.pmu.result=10;s.pmu.reply_code=1;}
+   if(fixture==10)s.gr.stage=8; /* Ready alone is not context-state initialization. */
+   if(fixture==11)s.gr.context_bytes=0;
   }
  }
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
@@ -74,9 +77,10 @@ void start(void) {
  LPWSTR conflict[]={L"fixture.exe",L"--gpu-json",L"--gpu-729",L"--gpu-1228"};
  const DWORD results[]={0,0,ERROR_GEN_FAILURE,0,ERROR_ACCESS_DENIED,
                          ERROR_REVISION_MISMATCH,ERROR_REVISION_MISMATCH,ERROR_INVALID_PARAMETER,
-                         ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,0};
- const unsigned fixtures[]={0,1,1,2,3,4,5,2,6,7,8,9};
- for(unsigned i=0;i<12;++i){
+                         ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,0,
+                         ERROR_GEN_FAILURE,ERROR_GEN_FAILURE};
+ const unsigned fixtures[]={0,1,1,2,3,4,5,2,6,7,8,9,10,11};
+ for(unsigned i=0;i<14;++i){
   DWORD result;fixture=fixtures[i];opened=0;
   arguments=i<2?query:i==7?conflict:run;argumentCount=i<2?2:i==7?4:3;
   wantedCode=i<2?TG_GPU_IOCTL_STATUS:TG_GPU_IOCTL_RUN;
