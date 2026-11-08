@@ -39,8 +39,10 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  if(fixture==2){s.observed[0]=s.expected[0];s.observed[1]=s.expected[1];}
  s.pbdma_enable_before=0;s.pbdma_enable_after=1;s.pbdma_runlist_map=1;
  s.channel_instance_after=0x800fde33;s.runlist_status=2;s.pbdma_status=0x10000004;
- s.pbdma_gp_fetch=0xffffffff;s.frontend.stage=9;s.frontend.ltc_count=2;
+ s.pbdma_gp_fetch=0xffffffff;s.frontend.stage=11;s.frontend.ltc_count=2;
  s.frontend.fb_flushes=2;s.frontend.l2_flushes=2;s.frontend.l2_invalidations=2;
+ s.frontend.gr_enable=0xd8013120;s.frontend.gr_fifo_access=0x10001;
+ s.frontend.gr_gate_ctrl[0]=0xaaaa0010;s.frontend.gr_gate_ctrl[1]=0xbbbb0010;
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;
 }

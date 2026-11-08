@@ -121,6 +121,7 @@ static DWORD gpu_json(void) {
   HEX(frontend.bus_interrupt);HEX(frontend.pri_status0);HEX(frontend.pri_status1);
   HEX(frontend.pri_error_address);HEX(frontend.pri_error_code);
   NUMBER(frontend.l2_flushes);NUMBER(frontend.l2_invalidations);
+  HEX(frontend.gr_enable);HEX(frontend.gr_fifo_access);HEX(frontend.gr_gate_ctrl[0]);HEX(frontend.gr_gate_ctrl[1]);
   HEX(bind_error);HEX(chsw_error);HEX(engine_status[0]);HEX(engine_status[1]);
   NUMBER(bar1_phase);HEX(bar1_expected);HEX(bar1_read);HEX(bar1_cpu);
 #undef NUMBER
@@ -262,7 +263,10 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
    LPCWSTR result=pass?L"GPU FIFO READBACK PASS":L"GPU check did not pass";
    TextOutW(dc,660,352,result,lstrlenW(result));SetTextColor(dc,RGB(20,30,45));
    wsprintfW(text,L"Stage %lu  P:%lu C:%lu E:%lu",gpu.stage,gpu.power_result,gpu.clock_result,gpu.execution_result);TextOutW(dc,660,396,text,lstrlenW(text));
-   if(gpu.stage==302 && gpu.bar1_phase){
+   if(gpu.stage==307){
+    wsprintfW(text,L"GR enable %08lX access %08lX",gpu.frontend.gr_enable,gpu.frontend.gr_fifo_access);TextOutW(dc,660,440,text,lstrlenW(text));
+    wsprintfW(text,L"GR clocks %08lX / %08lX",gpu.frontend.gr_gate_ctrl[0],gpu.frontend.gr_gate_ctrl[1]);
+   }else if(gpu.stage==302 && gpu.bar1_phase){
     wsprintfW(text,L"BAR1 step %lu expect %08lX",gpu.bar1_phase,gpu.bar1_expected);TextOutW(dc,660,440,text,lstrlenW(text));
     wsprintfW(text,L"GPU %08lX CPU %08lX",gpu.bar1_read,gpu.bar1_cpu);
    }else if(gpu.frontend.result){
