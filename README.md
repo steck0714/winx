@@ -18,6 +18,7 @@ Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
 | Power button / S0 screen-off and wake | **switchpwrbtn 1.0.0.4** passed repeated power-button screen-off/wake on the Lite; the owner confirmed normal display and input after wake. SC7 deep sleep and S4 hibernation remain unsupported. [Tested driver source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) |
 | Shutdown and restart | The owner confirmed complete power-off from normal Windows shutdown and successful native restart. SwitchBattery 1.0.0.8 fixes battery request ownership; the current R6 firmware uses PMC reset and disables diagnostic fan pulses. [Power status](docs/hdh001-home/power-performance.md) |
+| Charge termination | SwitchBattery **1.0.0.11** enables BQ24193 automatic termination and an eight-hour safety timer while preserving existing charging limits. Live configuration readback passed; a full-charge/recharge cycle remains unverified. [Charging policy](docs/hdh001-home/power-performance.md#charge-termination) |
 
 USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
 
