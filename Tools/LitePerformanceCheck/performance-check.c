@@ -138,6 +138,9 @@ static DWORD gpu_json(void) {
   NUMBER(pmu.hpq_size);NUMBER(pmu.hpq_index);HEX(pmu.msg_base);NUMBER(pmu.msg_size);
   HEX(pmu.last_header);HEX(pmu.reply_code);NUMBER(pmu.messages);
   HEX(pmu.last_register);HEX(pmu.last_value);HEX(pmu.cmd_head);
+  HEX(pbdma_context.intr_enable);HEX(pbdma_context.intr_stall);HEX(pbdma_context.fifo_pending);
+  HEX(pbdma_context.target);HEX(pbdma_context.signature);HEX(pbdma_context.method0);HEX(pbdma_context.data0);
+  HEX(pbdma_context.pb_header);HEX(pbdma_context.header_shadow);HEX(pbdma_context.subdevice);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",
