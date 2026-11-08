@@ -10,7 +10,7 @@ static UINT_PTR image_cookie = 0x00002b992ddfa232ULL;
 const IMAGE_LOAD_CONFIG_DIRECTORY64 _load_config_used = {
  .Size = sizeof(IMAGE_LOAD_CONFIG_DIRECTORY64), .SecurityCookie = (ULONG_PTR)&image_cookie
 };
-static HFONT font;
+static HFONT font,controlFont;
 static DWORD cpu,ram,requested,hand,error,soc,board,duty,runs,failures,throttled;
 static DWORD lastRuns,stale;
 static BOOL present,live;
@@ -87,6 +87,20 @@ static void read_status(void) {
 }
 static void line(HDC dc,int y,LPCWSTR text) { TextOutW(dc,24,y,text,lstrlenW(text)); }
 static void gpu_line(HDC dc,int y,LPCWSTR text) { TextOutW(dc,660,y,text,lstrlenW(text)); }
+static void layout_controls(HWND w) {
+ RECT r;GetClientRect(w,&r);
+ int width=r.right>0?r.right:1,height=r.bottom>0?r.bottom:1;
+ HWND controls[]={darker,lighter,gpuChoice,gpuRun};
+ const int rects[][4]={{24,580,180,56},{222,580,180,56},{660,110,420,160},{660,178,420,56}};
+ int sizeX=MulDiv(24,width,1200),sizeY=MulDiv(24,height,680),size=sizeX<sizeY?sizeX:sizeY;
+ if(size<12)size=12;
+ HFONT next=CreateFontW(size,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
+ for(unsigned i=0;i<4;++i)if(controls[i]){
+  MoveWindow(controls[i],MulDiv(rects[i][0],width,1200),MulDiv(rects[i][1],height,680),MulDiv(rects[i][2],width,1200),MulDiv(rects[i][3],height,680),TRUE);
+  if(next)SendMessageW(controls[i],WM_SETFONT,(WPARAM)next,TRUE);
+ }
+ if(next){if(controlFont)DeleteObject(controlFont);controlFont=next;}
+}
 static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
  if(msg==WM_CREATE){
   darker=CreateWindowExW(0,L"BUTTON",L"Darker",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,24,580,180,56,w,(HMENU)10,GetModuleHandleW(NULL),NULL);
@@ -98,7 +112,7 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   SendMessageW(gpuChoice,CB_SETCURSEL,has_switch(L"--gpu-1228")?1:0,0);
   gpuRun=CreateWindowExW(0,L"BUTTON",L"Apply and test GPU",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,660,178,330,56,w,(HMENU)21,GetModuleHandleW(NULL),NULL);
   SendMessageW(gpuChoice,WM_SETFONT,(WPARAM)font,TRUE);SendMessageW(gpuRun,WM_SETFONT,(WPARAM)font,TRUE);
-  read_status();
+  layout_controls(w);read_status();
   if(!has_switch(L"--gpu-729") && !has_switch(L"--gpu-1228"))SendMessageW(gpuChoice,CB_SETCURSEL,gpu.target_khz==TG_GPU_CONTROL_OC_KHZ?1:0,0);
   SetTimer(w,1,1000,NULL);
   if(has_switch(L"--gpu-729") || has_switch(L"--gpu-1228"))PostMessageW(w,WM_GPU_RUN,0,0);
@@ -127,9 +141,12 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
  }
  if(msg==WM_TIMER){if(!gpuBusy)read_status();InvalidateRect(w,NULL,TRUE);return 0;}
  if(msg==WM_CLOSE && gpuBusy)return 0;
+ if(msg==WM_SIZE){layout_controls(w);InvalidateRect(w,NULL,TRUE);return 0;}
  if(msg==WM_PAINT){
   PAINTSTRUCT p;RECT r;WCHAR text[192];HDC dc=BeginPaint(w,&p);GetClientRect(w,&r);
-  FillRect(dc,&r,(HBRUSH)GetStockObject(WHITE_BRUSH));SelectObject(dc,font);SetBkMode(dc,TRANSPARENT);
+  FillRect(dc,&r,(HBRUSH)GetStockObject(WHITE_BRUSH));
+  SetMapMode(dc,MM_ANISOTROPIC);SetWindowExtEx(dc,1200,680,NULL);SetViewportExtEx(dc,r.right,r.bottom,NULL);
+  SelectObject(dc,font);SetBkMode(dc,TRANSPARENT);
   BOOL ready=present && live && stale<6 && failures==0 && hand==1 && error==0 && cpu==1996800 && ram==2100000;
   SetTextColor(dc,ready?RGB(0,125,50):RGB(160,85,0));
   line(dc,26,ready?L"CPU / RAM targets reached":throttled?L"Thermal throttling":L"Current performance");
@@ -179,5 +196,5 @@ void start(void) {
  font=CreateFontW(24,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
  HWND w=CreateWindowExW(0,c.lpszClassName,L"Switch Lite - Performance and brightness",WS_OVERLAPPEDWINDOW|WS_VISIBLE,0,0,GetSystemMetrics(SM_CXSCREEN),GetSystemMetrics(SM_CYSCREEN),NULL,NULL,h,NULL);
  UpdateWindow(w);while(GetMessageW(&m,NULL,0,0)>0){TranslateMessage(&m);DispatchMessageW(&m);}
- DeleteObject(font);ExitProcess(0);
+ if(controlFont)DeleteObject(controlFont);DeleteObject(font);ExitProcess(0);
 }
