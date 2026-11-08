@@ -66,7 +66,7 @@ static BOOL has_switch(LPCWSTR wanted) {
 }
 static BOOL gpu_pass(const struct tg_gpu_status *s) {
  return s->tested && !s->power_result && !s->clock_result && !s->execution_result &&
-        !s->frontend.result && !s->gr.result && s->gr.stage==13 &&
+        !s->frontend.result && !s->gr.result && s->gr.stage==15 &&
         s->gr.context_bytes && s->gr.zcull_bytes && s->gr.pm_bytes &&
         !s->acr_firmware_result && !s->acr.result && !s->pmu.result &&
         (!s->gr.priv_security || (s->acr.stage==9 && s->pmu.stage==6 && !s->pmu.reply_code)) &&
