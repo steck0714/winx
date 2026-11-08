@@ -4,7 +4,10 @@
 //
 // bl33.bin = this 4 KiB stub + TEGRA210_EFI.fd (see Tools/make-bl33.py).
 // hekate loads bl33.bin at 0xAA000000 (BL33_LOAD_BASE in bootloader/l4t/l4t.c); BL31 then
-// enters it with pc = 0xAA000000 and spsr = SPSR_EL2T (EL2, SP_EL0, D/A/I/F all clear).
+// enters it with pc = 0xAA000000. Hekate supplies SPSR_EL2T (EL2, SP_EL0, DAIF
+// clear); the Lite ATF entry patch masks DAIF before ERET. Keep the local mask
+// below for compatibility with older BL31 builds; it cannot close the ERET
+// boundary window by itself.
 //
 // hekate contract, read from l4t.c (master 45cd81e) - NOT run on hardware:
 //   * For every L4T launch (even with uart_port=0) hekate evaluates
@@ -13,7 +16,7 @@
 //     dereferences a wild pointer before it ever launches. The word it points to must not be
 //     the FDT magic (we are not a DTB; hekate would patch UART strings into it).
 //
-// What the stub does: mask D/A/I/F (the entry SPSR leaves them unmasked and no vectors are
+// What the stub does: mask D/A/I/F (older BL31 leaves them unmasked and no vectors are
 // installed yet), select SP_ELx, and branch to the FD at stub + 0x1000. The FD's first
 // instruction is a PC-relative branch into PrePi's _ModuleEntryPoint, which sets up its own
 // stack (ArmPlatformPeiBootAction does `msr SPSel, #1` as well; both are harmless).

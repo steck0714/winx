@@ -261,7 +261,7 @@ The boot chain is **Hekate → BL31 → BL33 → Windows Boot Manager → Window
 
 | File | Source and role |
 |---|---|
-| `bl31.bin` | LineageOS Nintendo ARM Trusted Firmware at `85081cab2050051ea6e93206ef0f80bc0676e613`, with this repository's four ATF patches. Runs at EL3 and provides PSCI, including Lite shutdown and native restart. |
+| `bl31.bin` | LineageOS Nintendo ARM Trusted Firmware at `85081cab2050051ea6e93206ef0f80bc0676e613`, with this repository's five ATF patches. Runs at EL3 and provides PSCI, including Lite shutdown and native restart. |
 | `bl33.bin` | This WinX branch built with EDK2 `edk2-stable202402`, prefixed with a 4 KiB Hekate entry stub. Provides UEFI, ACPI, display and the card-specific WINARM boot view. |
 
 Use the workspace created in step 1. The build steps add these directories:
@@ -324,7 +324,7 @@ git -C atf checkout 85081cab2050051ea6e93206ef0f80bc0676e613
   atf out/firmware --cross-prefix "$GCC5_AARCH64_PREFIX"
 ```
 
-The builder applies patches `0001` through `0004` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check. Experimental sleep patches are maintained only on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test).
+The builder applies patches `0001` through `0005` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. On T210B01, patch `0005` also masks asynchronous exceptions before entering BL33; the exception level and stack selection remain unchanged. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check. Experimental sleep patches are maintained only on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test).
 
 For later rebuilds, reuse the patched `atf` checkout and rerun the Python command. The builder recognizes its already-applied patches. The [ATF reference](../../patches/atf/README.md) explains the NX build parameters and optional diagnostic flags.
 
