@@ -34,7 +34,7 @@ The unmodified reset-to-BL31 entrypoint obtains Hekate's parameters through the 
 
 Patch `0005` masks asynchronous exceptions in the saved BL33 SPSR before the EL3 return on T210B01. Hekate supplies `SPSR_EL2T` with DAIF clear; the UEFI stub cannot mask an exception taken at that return boundary before PrePi installs vectors. The patch preserves the requested exception level, stack selection and other SPSR bits. It does not change GPU initialization or the PSCI shutdown/restart handlers.
 
-The `lite-entry-r7` build and binary inspection pass: the B01 branch ORs `0x3c0` into the saved SPSR (`0x8` becomes `0x3c8`). The existing PMIC host tests also pass. This closes an entry-state gap; whether it resolves the owner’s intermittent black screen before UEFI text remains unverified.
+The `lite-entry-r7` build and binary inspection pass: the B01 branch ORs `0x3c0` into the saved SPSR (`0x8` becomes `0x3c8`). The existing PMIC host tests also pass. On 2026-11-08, the owner reported that startup now appears stable after this update, with no new occurrence of the early black screen reported. This is an observed improvement during normal use; no repeated-boot stress count was collected.
 
 ## Validation and deployment state
 
