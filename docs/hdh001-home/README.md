@@ -210,7 +210,7 @@ At the desktop:
 
 ### Repeated sleep and wake
 
-On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake. This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/vulkan-test/drivers/SwitchPowerButton) is on `vulkan-test`; this result does not imply that an older default-branch driver package contains the fix.
+On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake. This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
 
 For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
@@ -261,7 +261,7 @@ The boot chain is **Hekate → BL31 → BL33 → Windows Boot Manager → Window
 
 | File | Source and role |
 |---|---|
-| `bl31.bin` | LineageOS Nintendo ARM Trusted Firmware at `85081cab2050051ea6e93206ef0f80bc0676e613`, with this repository's four ATF patches. Runs at EL3 and provides PSCI, including Lite shutdown and native restart. |
+| `bl31.bin` | LineageOS Nintendo ARM Trusted Firmware at `85081cab2050051ea6e93206ef0f80bc0676e613`, with this repository's five ATF patches. Runs at EL3 and provides PSCI, including Lite shutdown and native restart. |
 | `bl33.bin` | This WinX branch built with EDK2 `edk2-stable202402`, prefixed with a 4 KiB Hekate entry stub. Provides UEFI, ACPI, display and the card-specific WINARM boot view. |
 
 Use the workspace created in step 1. The build steps add these directories:

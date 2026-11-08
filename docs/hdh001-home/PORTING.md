@@ -47,7 +47,7 @@ its ACPI object, storage path, setup and header probe remain removed.
 
 On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake.
 This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test.
-The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/vulkan-test/drivers/SwitchPowerButton) is on `vulkan-test`; this result does not imply that an older default-branch driver package contains the fix.
+The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
