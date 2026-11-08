@@ -162,7 +162,10 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
    wsprintfW(text,L"Sched %08lX -> %08lX  err %08lX",gpu.scheduler_before,gpu.scheduler_after,gpu.scheduler_error);line(dc,430,text);
    wsprintfW(text,L"List %08lX / %08lX  PB %08lX",gpu.runlist_base,gpu.runlist_status,gpu.pbdma_status);line(dc,456,text);
-   wsprintfW(text,L"HW base %08lX fetch %lu G%lu P%lu",gpu.pbdma_gp_base,gpu.pbdma_gp_fetch,gpu.pbdma_gp_get,gpu.pbdma_gp_put);line(dc,482,text);
+   if(tg_gpu_pbdma_owns_channel(gpu.pbdma_status,0))
+    wsprintfW(text,L"HW base %08lX fetch %lu G%lu P%lu",gpu.pbdma_gp_base,gpu.pbdma_gp_fetch,gpu.pbdma_gp_get,gpu.pbdma_gp_put);
+   else wsprintfW(text,L"PBDMA has no valid channel 0");
+   line(dc,482,text);
    wsprintfW(text,L"USERD G%lu P%lu  PB1 %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_interrupt_1);line(dc,508,text);
   }else line(dc,478,L"Runtime readings; not a stability test.");
   if(backlightAvailable)wsprintfW(text,L"Brightness   %lu%%",(backlight.brightness*100+127)/255);
