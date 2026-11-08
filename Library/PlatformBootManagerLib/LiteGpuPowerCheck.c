@@ -54,7 +54,7 @@ VOID LiteGpuPowerCheck (VOID)
   UINT32 Boot0, Boot0Again;
 
   ZeroMem (&State, sizeof (State));
-  Print (L"T214 GPU POWER CHECK / NO DMA\r\n");
+  Print (L"T214 GPU POWER CHECK R2 / NO DMA\r\n");
   Print (L"Windows does not start during this check.\r\n");
   Print (L"HIDREV %08x  RESET_X %08x  CLAMP %08x\r\n",
          MmioRead32 (0x70000804), MmioRead32 (0x6000628C), MmioRead32 (0x7000E6D4));
@@ -66,6 +66,8 @@ VOID LiteGpuPowerCheck (VOID)
   Print (L"PMIC %02x  power result %u  stage %u\r\n", Pmic, Result, State.stage);
   Print (L"Saved M1 VOUT %02x  EN_CTRL %02x  PLLP_OUT5 %08x\r\n",
          State.original_voltage, State.original_enable, State.original_pllp_out5);
+  Print (L"Current PLLP_OUT5 %08x  CLOCK_X %08x\r\n",
+         MmioRead32 (0x6000667C), MmioRead32 (0x60006280));
   if (Result == TG_GPU_POWER_OK) {
     Boot0 = MmioRead32 (0x57000000);
     gBS->Stall (10);
