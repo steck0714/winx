@@ -158,19 +158,18 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   line(dc,262,L"Renderer: CPU software");
   wsprintfW(text,L"Samples %lu   CPU target %lu MHz",runs,requested/1000);line(dc,322,text);
   wsprintfW(text,L"Boot status %lu   CPU error 0x%08lX",hand,error);line(dc,366,text);
-  if(!present || !live || stale>=6)line(dc,420,L"Waiting for fresh fan readings");
-  else if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
-   wsprintfW(text,L"PB: %08lX -> %08lX",gpu.pbdma_enable_before,gpu.pbdma_enable_after);line(dc,420,text);
-   if(gpu.stage>=304)wsprintfW(text,L"GET %lu PUT %lu  PB %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_status);
-   else wsprintfW(text,L"PB runlist map %08lX",gpu.pbdma_runlist_map);
-   line(dc,448,text);
-  }
-  line(dc,478,L"Runtime readings; not a stability test.");
+  if(!present || !live || stale>=6)line(dc,400,L"Waiting for fresh fan readings");
+  if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
+   wsprintfW(text,L"Sched %08lX -> %08lX  err %08lX",gpu.scheduler_before,gpu.scheduler_after,gpu.scheduler_error);line(dc,430,text);
+   wsprintfW(text,L"List %08lX / %08lX  PB %08lX",gpu.runlist_base,gpu.runlist_status,gpu.pbdma_status);line(dc,456,text);
+   wsprintfW(text,L"HW base %08lX fetch %lu G%lu P%lu",gpu.pbdma_gp_base,gpu.pbdma_gp_fetch,gpu.pbdma_gp_get,gpu.pbdma_gp_put);line(dc,482,text);
+   wsprintfW(text,L"USERD G%lu P%lu  PB1 %08lX",gpu.userd_gp_get,gpu.userd_gp_put,gpu.pbdma_interrupt_1);line(dc,508,text);
+  }else line(dc,478,L"Runtime readings; not a stability test.");
   if(backlightAvailable)wsprintfW(text,L"Brightness   %lu%%",(backlight.brightness*100+127)/255);
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
-  line(dc,530,text);
+  line(dc,546,text);
   if(backlightSetError){wsprintfW(text,L"Brightness change failed: 0x%08lX",backlightSetError);line(dc,644,text);}
-  gpu_line(dc,26,L"GPU - experimental");
+  gpu_line(dc,26,L"GPU - experimental (ABI 4)");
   gpu_line(dc,68,L"Choose a GPU clock profile");
   if(gpuBusy)wsprintfW(text,L"Running clock and FIFO readback...");
   else if(gpuTestError || gpuError)wsprintfW(text,L"GPU unavailable/error: 0x%08lX",gpuTestError?gpuTestError:gpuError);
