@@ -488,11 +488,18 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             Name (_HID, T214_GPU_ACPI_ID)
             Name (_UID, Zero)
             Name (_CLS, Package () { 0x03, 0x02, Zero })
+            Name (_DEP, Package () { \_SB.FAN0 })
             Name (_CRS, ResourceTemplate ()
             {
                 Memory32Fixed (ReadWrite, T214_GPU_REG_BASE, T214_GPU_REG_SIZE)
                 Memory32Fixed (ReadWrite, T214_GPU_BAR1_BASE, T214_GPU_BAR1_SIZE)
                 Memory32Fixed (ReadWrite, T214_GPU_AUX_BASE, T214_GPU_AUX_SIZE)
+#define GPU_POWER_ASL(Base, Size) Memory32Fixed (ReadWrite, Base, Size)
+                T214_GPU_POWER_RESOURCES(GPU_POWER_ASL)
+#undef GPU_POWER_ASL
+#define GPU_ID_ASL(Base, Size) Memory32Fixed (ReadOnly, Base, Size)
+                T214_GPU_ID_RESOURCES(GPU_ID_ASL)
+#undef GPU_ID_ASL
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_STALL_GSI }
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_NONSTALL_GSI }
             })

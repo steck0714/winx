@@ -46,6 +46,9 @@
   !ifndef SWITCH_LITE_PERFORMANCE
     !error "SWITCH_LITE_GPU requires the reserved BL33 environment"
   !endif
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_GPU requires the Lite fan/PMIC owner"
+  !endif
   !ifndef SWITCH_LITE_BOOT_SD
     !error "SWITCH_LITE_GPU requires the bounded Windows boot profile"
   !endif

@@ -6,14 +6,15 @@ cc=${CLANG:-clang}
 link=${LLD_LINK:-lld-link}
 export LLVM_DLLTOOL=${LLVM_DLLTOOL:-llvm-dlltool}
 mkdir -p ui
-"$cc" --target=aarch64-w64-windows-gnu --sysroot="$root" -ffreestanding -fasynchronous-unwind-tables -fno-stack-protector -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers -c "$src/performance-check.c" -o ui/performance-check.obj
+"$cc" --target=aarch64-w64-windows-gnu --sysroot="$root" -ffreestanding -fasynchronous-unwind-tables -fno-stack-protector -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers -I "$src/../../WindowsDrivers/drivers" -c "$src/performance-check.c" -o ui/performance-check.obj
 python3 - <<'PY'
 import os, subprocess
 from pathlib import Path
 libs={
- 'kernel32':'CompareStringOrdinal ExitProcess GetModuleHandleW lstrlenW CreateFileW DeviceIoControl CloseHandle GetLastError',
- 'user32':'wsprintfW GetClientRect ScreenToClient GetPointerInfo InvalidateRect BeginPaint FillRect EndPaint DrawTextW DefWindowProcW KillTimer PostQuitMessage LoadCursorW RegisterClassW GetSystemMetrics CreateWindowExW SetTimer UpdateWindow GetMessageW TranslateMessage DispatchMessageW SendMessageW EnableWindow',
+ 'kernel32':'CompareStringOrdinal ExitProcess GetModuleHandleW lstrlenW CreateFileW DeviceIoControl CloseHandle GetLastError CreateThread GetModuleFileNameW GetCommandLineW',
+ 'user32':'wsprintfW GetClientRect ScreenToClient GetPointerInfo InvalidateRect BeginPaint FillRect EndPaint DrawTextW DefWindowProcW KillTimer PostQuitMessage LoadCursorW RegisterClassW GetSystemMetrics CreateWindowExW SetTimer UpdateWindow GetMessageW TranslateMessage DispatchMessageW SendMessageW EnableWindow PostMessageW DestroyWindow',
  'gdi32':'TextOutW GetStockObject SetBkMode SelectObject SetTextColor SetDCBrushColor Ellipse CreateFontW DeleteObject',
+ 'shell32':'ShellExecuteW',
  'advapi32':'RegOpenKeyExW RegQueryValueExW RegCloseKey',
  'setupapi':'SetupDiGetClassDevsW SetupDiEnumDeviceInfo SetupDiGetDeviceInstanceIdW SetupDiDestroyDeviceInfoList',
  'cfgmgr32':'CM_Get_DevNode_Status'}
