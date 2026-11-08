@@ -159,6 +159,9 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   wsprintfW(text,L"Samples %lu   CPU target %lu MHz",runs,requested/1000);line(dc,322,text);
   wsprintfW(text,L"Boot status %lu   CPU error 0x%08lX",hand,error);line(dc,366,text);
   if(!present || !live || stale>=6)line(dc,400,L"Waiting for fresh fan readings");
+  else if(gpu.tested && !gpuBusy && !gpuError){
+   wsprintfW(text,L"Init %lu / %lu   LTC %lu   FB flush %lu",gpu.frontend.stage,gpu.frontend.result,gpu.frontend.ltc_count,gpu.frontend.fb_flushes);line(dc,400,text);
+  }
   if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
    wsprintfW(text,L"Sched %08lX -> %08lX  err %08lX",gpu.scheduler_before,gpu.scheduler_after,gpu.scheduler_error);line(dc,430,text);
    wsprintfW(text,L"List %08lX / %08lX  PB %08lX",gpu.runlist_base,gpu.runlist_status,gpu.pbdma_status);line(dc,456,text);
@@ -172,7 +175,7 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   else wsprintfW(text,L"Brightness unavailable (0x%08lX)",backlightError);
   line(dc,546,text);
   if(backlightSetError){wsprintfW(text,L"Brightness change failed: 0x%08lX",backlightSetError);line(dc,644,text);}
-  gpu_line(dc,26,L"GPU - experimental (ABI 4)");
+  gpu_line(dc,26,L"GPU - experimental (ABI 5)");
   gpu_line(dc,68,L"Choose a GPU clock profile");
   if(gpuBusy)wsprintfW(text,L"Running clock and FIFO readback...");
   else if(gpuTestError || gpuError)wsprintfW(text,L"GPU unavailable/error: 0x%08lX",gpuTestError?gpuTestError:gpuError);
@@ -181,12 +184,15 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
   TextOutW(dc,660,264,text,lstrlenW(text));
   if(gpu.tested && !gpuBusy && !gpuTestError && !gpuError){
    wsprintfW(text,L"GPU rail: %lu mV  BOOT0: %08lX",gpu.rail_uv/1000,gpu.boot0);TextOutW(dc,660,308,text,lstrlenW(text));
-   BOOL pass=!gpu.power_result && !gpu.clock_result && !gpu.execution_result && !gpu.restore_result && !gpu.resources_owned && gpu.expected[0]==gpu.observed[0] && gpu.expected[1]==gpu.observed[1];
+   BOOL pass=!gpu.power_result && !gpu.clock_result && !gpu.execution_result && !gpu.frontend.result && !gpu.restore_result && !gpu.resources_owned && gpu.expected[0]==gpu.observed[0] && gpu.expected[1]==gpu.observed[1];
    SetTextColor(dc,pass?RGB(0,125,50):RGB(160,85,0));
    LPCWSTR result=pass?L"GPU FIFO READBACK PASS":L"GPU check did not pass";
    TextOutW(dc,660,352,result,lstrlenW(result));SetTextColor(dc,RGB(20,30,45));
    wsprintfW(text,L"Stage %lu  P:%lu C:%lu E:%lu",gpu.stage,gpu.power_result,gpu.clock_result,gpu.execution_result);TextOutW(dc,660,396,text,lstrlenW(text));
-   if(gpu.stage>=301 && gpu.stage<304){
+   if(gpu.frontend.result){
+    wsprintfW(text,L"BUS %08lX PRI %08lX/%08lX",gpu.frontend.bus_interrupt,gpu.frontend.pri_status0,gpu.frontend.pri_status1);TextOutW(dc,660,440,text,lstrlenW(text));
+    wsprintfW(text,L"Addr %08lX Code %08lX",gpu.frontend.pri_error_address,gpu.frontend.pri_error_code);
+   }else if(gpu.stage>=301 && gpu.stage<304){
     wsprintfW(text,L"MC: %08lX -> %08lX",gpu.mc_enable_before,gpu.mc_enable_after);TextOutW(dc,660,440,text,lstrlenW(text));
     if(gpu.mc_enable_before&0x100)wsprintfW(text,L"INST: %08lX -> %08lX",gpu.channel_instance_before,gpu.channel_instance_after);
     else wsprintfW(text,L"INST: reset -> %08lX",gpu.channel_instance_after);
