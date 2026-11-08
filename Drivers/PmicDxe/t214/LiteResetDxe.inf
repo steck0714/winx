@@ -1,0 +1,25 @@
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = LiteResetDxe
+  FILE_GUID = 35E8B1C6-BD71-4989-9214-138A2A1B42FB
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT = LiteResetInitialize
+
+[Sources]
+  LiteResetDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  IoLib
+  DebugLib
+
+[Protocols]
+  gPmicProtocolGuid
+
+[Depex]
+  gPmicProtocolGuid

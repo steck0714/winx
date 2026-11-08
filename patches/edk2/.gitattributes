@@ -1,0 +1,2 @@
+# Preserve EDK2 CRLF context when storing and applying patches.
+*.patch -text whitespace=cr-at-eol

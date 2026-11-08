@@ -1,0 +1,49 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = WifiPrepare
+  FILE_GUID      = 2700b6bd-46a1-49b5-8dda-137e4477de11
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = WifiPrepareMain
+
+[Sources]
+  WifiBt.c
+  WifiPrepare.h
+  WifiPcie.h
+  WifiPexStages.h
+  WifiPciLayout.h
+  WifiNvram.h
+  WifiErom.h
+  WifiMsgbuf.h
+  WifiScan.h
+  t214/uphy.h
+  t214/power.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  ArmPkg/ArmPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PrintLib
+  IoLib
+  DebugLib
+  ShellLib
+  FileHandleLib
+  I2cLib
+  TimerLib
+  DmaLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+  gEfiShellParametersProtocolGuid
+  gEfiShellDynamicCommandProtocolGuid

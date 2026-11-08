@@ -139,6 +139,13 @@ def main():
                             expect_silent=True, expect_status=3))
     results.append(scenario(hbin, fbin, "duty=0 -> no writes", ["--duty=0"], hek_args=["--duty=76"],
                             expect_silent=True, expect_status=0))
+    if len(sys.argv) > 3:
+        lbin = sys.argv[3]
+        for duty in (51, 76, 153):
+            results.append(scenario(hbin, lbin, f"Lite PWM1 duty={duty}",
+                                    [f"--duty={duty}", "--hidrev=0x00012120", "--gpio-rand=1"]))
+        results.append(scenario(hbin, lbin, "Lite profile rejects Erista",
+                                ["--duty=76"], expect_silent=True, expect_status=3))
     n_ok = sum(results)
     print(f"\n{n_ok}/{len(results)} scenarios passed")
     sys.exit(0 if n_ok == len(results) else 1)

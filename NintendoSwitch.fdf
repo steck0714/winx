@@ -95,6 +95,13 @@ READ_LOCK_STATUS   = TRUE
   INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
+!ifdef SWITCH_LITE_SYSTEM
+  # Read-only NTFS-3G UEFI 1.9 for the dedicated WINARM boot volume.
+  FILE DRIVER = E607DA2C-5D59-43C3-894B-533847989930 {
+    SECTION PE32 = NintendoSwitchPkg/LiteSdTest/ntfs_aa64_ro.efi
+  }
+!endif
+
   # Display
   INF NintendoSwitchPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
 
@@ -126,22 +133,64 @@ READ_LOCK_STATUS   = TRUE
   INF RuleOverride = ACPITABLE NintendoSwitchPkg/AcpiTables/AcpiTables.inf
 
   # Drivers
+!ifndef SWITCH_WOA
+!ifndef SWITCH_LITE_TOUCH
   INF NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
+!endif
+!endif
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_BLUETOOTH
+  INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteBluetooth.inf
+!endif
+!ifdef SWITCH_LITE_AUDIO
+  INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteAudio.inf
+!endif
+!ifdef SWITCH_LITE_PERFORMANCE
+  INF NintendoSwitchPkg/Drivers/ClockManagementDxe/t214/LitePerformanceDxe.inf
+!endif
+!ifdef SWITCH_LITE_RESET
+  INF NintendoSwitchPkg/Drivers/PmicDxe/t214/LiteResetDxe.inf
+!endif
+!ifdef SWITCH_LITE_TOUCH
+  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
+!endif
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
+!ifndef SWITCH_WOA
+!ifndef SWITCH_LITE_TOUCH
   INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
   INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+!endif
 !ifdef SWITCH_FAN_DUTY
+!ifdef SWITCH_LITE_FAN
+  INF NintendoSwitchPkg/Drivers/FanDxe/LiteFanPower.inf
+!else
   INF NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
 !endif
+!endif
+!endif
+!ifndef SWITCH_WOA
 !ifdef SWITCH_USB
   # USB host (Tegra210 UTMIP / EHCI) is opt-in: build with -D SWITCH_USB=1. Not needed to boot Windows
   # from microSD. Uses the hekate-derived PHY bring-up in PciEmulation and EhciDxeTegra (EhciDxe plus
   # a host-mode restore after HC reset).
   INF NintendoSwitchPkg/Drivers/EhciPciEmulationDxe/PciEmulation.inf
 !endif
+!endif
   INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+!ifdef SWITCH_WOA
+  # hayato41200/Windows-for-Switch: board bring-up + stock xHCI. The XUSB firmware is embedded and
+  # found by UsbPowerAuditDxe through GetSectionFromAnyFv (see Firmware/README.md).
+  INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/UsbPowerAudit.inf
+  # R392 (hayato41200): embed NVIDIA's firmware only with -D EMBED_XUSB_FIRMWARE=TRUE (private builds);
+  # otherwise UsbPowerAuditDxe reads \tegra21x_xusb_firmware from the ESP (FAT volume).
+!if $(EMBED_XUSB_FIRMWARE) == TRUE
+  FILE FREEFORM = 5A0F6A3E-2D4C-4C1B-9E51-7B3F168A0C42 {
+    SECTION RAW = NintendoSwitchPkg/Firmware/tegra21x_xusb_firmware
+  }
+!endif
+  INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
+!else
 !ifdef SWITCH_USB
 !ifdef SWITCH_USB_STDEHCI
   # A/B test: the stock EDK2 EhciDxe on top of PciEmulation's PHY/VBUS bring-up. Its HC reset drops the
@@ -152,6 +201,7 @@ READ_LOCK_STATUS   = TRUE
 !endif
 !else
   INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
+!endif
 !endif
   INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
@@ -172,6 +222,9 @@ READ_LOCK_STATUS   = TRUE
 !endif
 !ifdef SWITCH_WINSPY
   INF NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
+!endif
+!ifdef SWITCH_ACPI_SD_AUTO
+  INF NintendoSwitchPkg/Drivers/SdAutoDxe/SdAutoDxe.inf
 !endif
 !ifdef SWITCH_NET
   INF MdeModulePkg/Bus/Usb/UsbNetwork/NetworkCommon/NetworkCommon.inf

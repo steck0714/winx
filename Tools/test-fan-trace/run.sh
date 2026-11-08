@@ -22,4 +22,9 @@ $CXX -I "$HERE/shim/edk2" -I "$HERE/shim/common" -I "$PKG/Include" \
      "$PKG/Drivers/FanDxe/FanDxe.c" "$PKG/Library/GpioLib/GpioLib.c" \
      -o "$OUT/trace_fan"
 
-exec python3 "$HERE/compare.py" "$OUT/trace_hekate" "$OUT/trace_fan"
+$CXX -DSWITCH_LITE_FAN=1 -I "$HERE/shim/edk2" -I "$HERE/shim/common" -I "$PKG/Include" \
+     "$HERE/main_fan.cpp" "$HERE/regmodel.cpp" \
+     "$PKG/Drivers/FanDxe/FanDxe.c" "$PKG/Library/GpioLib/GpioLib.c" \
+     -o "$OUT/trace_lite_fan"
+
+exec python3 "$HERE/compare.py" "$OUT/trace_hekate" "$OUT/trace_fan" "$OUT/trace_lite_fan"

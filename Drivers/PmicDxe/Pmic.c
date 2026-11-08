@@ -92,7 +92,6 @@ PmicDxeInitialize
 {
     EFI_STATUS Status;
     EFI_HANDLE ProtoHandle = NULL;
-    UINT8 bVal;
 
     Status = gBS->LocateProtocol(
         &gTegra210ClockManagementProtocolGuid,
@@ -101,32 +100,10 @@ PmicDxeInitialize
     );
     if (EFI_ERROR(Status)) goto exit;
 
-    // Clock init
-    Status = mClockProtocol->EnableI2c(I2C_1);
-    if (EFI_ERROR(Status)) goto exit;
-
+    // The Lite SD slot uses LDO2 over I2C5. SdPowerOn sequences the rail.
     Status = mClockProtocol->EnableI2c(I2C_5);
     if (EFI_ERROR(Status)) goto exit;
-
-    // I2C init
-    i2c_init(I2C_1);
     i2c_init(I2C_5);
-
-	// Start up the SDMMC1 IO voltage regulator @ 3.3V
-    max77620_send_byte(MAX77620_REG_LDO2_CFG, 0xF2);
-
-    // Disable LDO4 discharge
-    bVal = max77620_recv_byte(MAX77620_REG_LDO4_CFG);
-    bVal &= ~BIT(1);
-    max77620_send_byte(MAX77620_REG_LDO4_CFG, bVal);
-
-    // Set MBLPD
-    bVal = max77620_recv_byte(MAX77620_REG_CNFGGLBL1);
-    bVal |= BIT(6);
-    max77620_send_byte(MAX77620_REG_CNFGGLBL1, bVal);
-
-    // Start up the PCIe power
-    max77620_send_byte(MAX77620_REG_LDO1_CFG, 0xCA);
 
     // Install protocol
     Status = gBS->InstallMultipleProtocolInterfaces(

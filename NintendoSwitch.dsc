@@ -20,6 +20,8 @@
 #
 ################################################################################
 [Defines]
+  # R392 (hayato41200): embed NVIDIA's XUSB firmware in the image (private builds only; see Firmware/README.md)
+  DEFINE EMBED_XUSB_FIRMWARE     = FALSE
   PLATFORM_NAME                  = NintendoSwitch
   PLATFORM_GUID                  = f5e5d453-b715-4e01-8c50-fb298a273fd7
   PLATFORM_VERSION               = 0.1
@@ -29,6 +31,133 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = NintendoSwitchPkg/NintendoSwitch.fdf
+  DEFINE LITE_BLUETOOTH_FLAGS   =
+  DEFINE LITE_BACKLIGHT_FLAGS  =
+  DEFINE LITE_BOOT_SD_FLAGS    =
+  DEFINE LITE_XUSB_FLAGS        =
+!ifdef SWITCH_LITE_XUSB
+  !ifndef SWITCH_WIFI_RUNTIME
+    !error "SWITCH_LITE_XUSB requires the B01 shared PCIe/UPHY preparation"
+  !endif
+  !ifndef SWITCH_LITE_SYSTEM
+    !error "SWITCH_LITE_XUSB requires the Lite battery and I2C1"
+  !endif
+  !ifdef SWITCH_ACPI_EHCI
+    !error "Only XUSB owns the Lite USB-C port"
+  !endif
+  DEFINE SWITCH_ACPI_XHCI = 1
+  DEFINE LITE_XUSB_FLAGS = -DSWITCH_LITE_XUSB=1
+!endif
+  DEFINE LITE_SIO_FLAGS         =
+!ifdef SWITCH_LITE_SIO
+  DEFINE LITE_SIO_FLAGS         = -DSWITCH_LITE_SIO=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_SIO requires the HDH-001 GPIO profile"
+  !endif
+!endif
+  DEFINE WIFI_RUNTIME_FLAGS   =
+!ifdef SWITCH_WIFI_RUNTIME
+  DEFINE WIFI_RUNTIME_FLAGS   = -DSWITCH_WIFI_RUNTIME=1
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_WIFI_RUNTIME requires the Hekate Home boot chain"
+  !endif
+  !ifndef SWITCH_LITE_BOOT_SD
+    !error "SWITCH_WIFI_RUNTIME requires the bounded Home boot profile"
+  !endif
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_WIFI_RUNTIME requires the I2C5 power profile"
+  !endif
+!endif
+!ifdef SWITCH_LITE_BOOT_SD
+  DEFINE LITE_BOOT_SD_FLAGS    = -DSWITCH_LITE_BOOT_SD=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_BOOT_SD requires the HDH-001 profile"
+  !endif
+  !ifndef SWITCH_ACPI_SD_NVTSDHC
+    !error "SWITCH_LITE_BOOT_SD requires the bounded nvtsdhc Home boot path"
+  !endif
+!endif
+!ifdef SWITCH_LITE_BACKLIGHT
+  DEFINE LITE_BACKLIGHT_FLAGS  = -DSWITCH_LITE_BACKLIGHT=1
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_BACKLIGHT requires the shared Lite fan profile"
+  !endif
+!endif
+!ifdef SWITCH_LITE_BLUETOOTH
+  DEFINE LITE_BLUETOOTH_FLAGS   = -DSWITCH_LITE_BLUETOOTH=1
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_LITE_BLUETOOTH requires the I2C5 power profile"
+  !endif
+!endif
+  DEFINE LITE_AUDIO_FLAGS       =
+!ifdef SWITCH_LITE_AUDIO
+  DEFINE LITE_AUDIO_FLAGS       = -DSWITCH_LITE_AUDIO=1
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_AUDIO requires the I2C1 fan profile"
+  !endif
+!endif
+  DEFINE LITE_DISPLAY_FLAGS     =
+!ifdef SWITCH_LITE_DISPLAY
+  DEFINE LITE_DISPLAY_FLAGS     = -DSWITCH_LITE_DISPLAY=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_DISPLAY requires the HDH-001 framebuffer/touch profile"
+  !endif
+!endif
+  DEFINE LITE_SYSTEM_FLAGS      =
+!ifdef SWITCH_LITE_SYSTEM
+  DEFINE LITE_SYSTEM_FLAGS      = -DSWITCH_LITE_SYSTEM=1
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_SYSTEM requires the I2C1 fan profile"
+  !endif
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_LITE_SYSTEM requires the I2C5 power profile"
+  !endif
+!endif
+  DEFINE LITE_PERFORMANCE_FLAGS =
+!ifdef SWITCH_LITE_PERFORMANCE
+  DEFINE LITE_PERFORMANCE_FLAGS = -DSWITCH_LITE_PERFORMANCE=1
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_PERFORMANCE requires Lite fan control"
+  !endif
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_LITE_PERFORMANCE requires the I2C5 power profile"
+  !endif
+!endif
+!ifdef SWITCH_LITE_RESET
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_RESET requires the HDH-001 profile"
+  !endif
+!endif
+  DEFINE LITE_FAN_FLAGS          =
+!ifdef SWITCH_LITE_FAN
+  DEFINE LITE_FAN_FLAGS          = -DSWITCH_LITE_FAN=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_FAN requires the HDH-001 touch profile"
+  !endif
+  !ifndef SWITCH_FAN_DUTY
+    !error "SWITCH_LITE_FAN requires an initial SWITCH_FAN_DUTY (normally 76)"
+  !endif
+!endif
+  DEFINE LITE_POWER_FLAGS        =
+!ifdef SWITCH_LITE_POWER
+  DEFINE LITE_POWER_FLAGS        = -DSWITCH_LITE_POWER=1
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_POWER requires the HDH-001 touch profile"
+  !endif
+!endif
+  DEFINE LITE_TOUCH_FLAGS        =
+!ifdef SWITCH_LITE_TOUCH
+  DEFINE LITE_TOUCH_FLAGS        = -DSWITCH_LITE_TOUCH=1
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_LITE_TOUCH requires the Hekate handoff"
+  !endif
+  !ifdef SWITCH_WOA
+    !error "Select the Lite profile without Erista WOA bring-up"
+  !endif
+  !ifdef SWITCH_ACPI_SWOA
+    !error "The Lite touch firmware provides its own minimal ACPI devices"
+  !endif
+!endif
   DEFINE EXCFB_FLAGS             =
 !ifdef SWITCH_EXCFB
  !ifdef SWITCH_FB_ROTATE
@@ -42,11 +171,16 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
   # ACPI feature switches (preprocessor flags for the ASL). Both off by default.
+!ifdef SWITCH_WOA
+  # Windows-for-Switch stack (hayato41200): XUSB xHCI + SWOA devices instead of the EHCI stack.
+  DEFINE SWITCH_ACPI_XHCI = 1
+  DEFINE SWITCH_ACPI_SWOA = 1
+!endif
 !ifdef SWITCH_ACPI_EMMC
   # Expose the internal eMMC (SDMMC4) to Windows via ACPI: see Dsdt.asl.
   DEFINE ACPI_ASL_EMMC           = -DSWITCH_ACPI_EMMC_ENABLE
@@ -71,7 +205,24 @@
 !else
   DEFINE ACPI_ASL_EHCI_TXFILL    =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+!ifdef SWITCH_ACPI_SD_AUTO
+  # SDM1 picks nvtsdhc (Windows 11) or sdbus (Windows 10) at run time with _OSI: see Dsdt.asl.
+  DEFINE ACPI_ASL_SDNV           = -DSWITCH_ACPI_SD_AUTO
+!else
+!ifdef SWITCH_ACPI_SD_NVTSDHC
+  # SDM1 is described for the Windows-for-Switch nvtsdhc driver (Windows 11): see Dsdt.asl.
+  DEFINE ACPI_ASL_SDNV           = -DSWITCH_ACPI_SD_NVTSDHC
+!else
+  DEFINE ACPI_ASL_SDNV           =
+!endif
+!endif
+!ifdef SWITCH_ACPI_SWOA
+  # Windows-for-Switch SWOA0101..0801 devices (GPIO/I2C/battery/fan/touch/power/CPU/RTC): see Dsdt.asl.
+  DEFINE ACPI_ASL_SWOA           = -DSWITCH_ACPI_SWOA_ENABLE
+!else
+  DEFINE ACPI_ASL_SWOA           =
+!endif
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -403,6 +554,7 @@
   # gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterAccessWidth|8
 
 [Components.common]
+  NintendoSwitchPkg/LiteSdTest/LiteSdTest.inf
   # PEI/SEC
   ArmPlatformPkg/PrePi/PeiUniCore.inf
 
@@ -470,6 +622,24 @@
   NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
   NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
+!ifdef SWITCH_LITE_BLUETOOTH
+  NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteBluetooth.inf
+!endif
+!ifdef SWITCH_LITE_XUSB
+  NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteUsbPrepare.inf
+!endif
+!ifdef SWITCH_LITE_AUDIO
+  NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/LiteAudio.inf
+!endif
+!ifdef SWITCH_LITE_PERFORMANCE
+  NintendoSwitchPkg/Drivers/ClockManagementDxe/t214/LitePerformanceDxe.inf
+!endif
+!ifdef SWITCH_LITE_RESET
+  NintendoSwitchPkg/Drivers/PmicDxe/t214/LiteResetDxe.inf
+!endif
+!ifdef SWITCH_LITE_TOUCH
+  NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
+!endif
 !ifdef SWITCH_SD_FAST
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf {
     <BuildOptions>
@@ -479,11 +649,17 @@
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
 !endif
   NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
+!ifndef SWITCH_WOA
   NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !ifdef SWITCH_FAN_DUTY
+!ifdef SWITCH_LITE_FAN
+  NintendoSwitchPkg/Drivers/FanDxe/LiteFanPower.inf
+!else
   NintendoSwitchPkg/Drivers/FanDxe/FanDxe.inf
 !endif
+!endif
   NintendoSwitchPkg/Drivers/EhciPciEmulationDxe/PciEmulation.inf
+!endif
   MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf {
     <LibraryClasses>
       # BaseMemoryLibOptDxe's ZeroMem/SetMem use DC ZVA, which raises an alignment fault on the
@@ -494,6 +670,17 @@
       # (ESR 0x96000061). Stop GCC from merging/inlining stores into unaligned 8/16-byte accesses.
       GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align
   }
+!ifdef SWITCH_WOA
+  # hayato41200/Windows-for-Switch: board bring-up (XUSB, USB-C PD, charging, CPU clock, fan,
+  # backlight, touch power) + the stock xHCI driver (needs patches/edk2/0001-...).
+  NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/UsbPowerAudit.inf
+  MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf {
+    <LibraryClasses>
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align
+  }
+!else
   MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf {
     <LibraryClasses>
       # BaseMemoryLibOptDxe's ZeroMem/SetMem use DC ZVA, which raises an alignment fault on the
@@ -514,6 +701,7 @@
       # (ESR 0x96000061). Stop GCC from merging/inlining stores into unaligned 8/16-byte accesses.
       GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align
   }
+!endif
   MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf {
     <LibraryClasses>
       # Same reason as EhciDxe: avoid DC ZVA (BaseMemoryLibOptDxe) near non-cacheable USB buffers.
@@ -539,6 +727,9 @@
 !endif
 !ifdef SWITCH_WINSPY
   NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
+!endif
+!ifdef SWITCH_ACPI_SD_AUTO
+  NintendoSwitchPkg/Drivers/SdAutoDxe/SdAutoDxe.inf
 !endif
 !ifdef SWITCH_FSDRV
   # Read-only non-FAT file systems (pbatard/EfiFs v1.12 + GRUB 2.14, GPLv3): NTFS/exFAT (Windows),
@@ -612,6 +803,7 @@
   # DRAFT: BCM4356 Bluetooth (UART-D HCI) + Wi-Fi (PCIe x1, brcmfmac-style firmware boot) bring-up, built-in shell command `wifibt`.
   NintendoSwitchPkg/Drivers/WifiBtApp/WifiBtCmd.inf {
     <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
       ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
       FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
       SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
@@ -620,8 +812,45 @@
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
     <PcdsFixedAtBuild>
       gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
     <BuildOptions>
       GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align
+  }
+!endif
+!ifdef SWITCH_WIFI_PROBE
+  # Standalone automatic PCIe/firmware/passive-scan diagnostic, loaded from WINARM.
+  NintendoSwitchPkg/Drivers/WifiBtApp/WifiProbe.inf {
+    <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1
+  }
+!endif
+!ifdef SWITCH_WIFI_RUNTIME
+  # Board preparation only. Windows owns firmware download and runtime DMA.
+  NintendoSwitchPkg/Drivers/WifiBtApp/WifiPrepare.inf {
+    <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1 -DWIFI_PREPARE=1
   }
 !endif
 !ifdef SWITCH_PERF

@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-2.0-only
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = LiteFanPowerDxe
+  FILE_GUID = 4789A9FD-E424-4C17-B349-D027563C7617
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT = FanDxeInitialize
+
+[Sources]
+  FanDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  PcdLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  GpioLib
+  ClockLib
+  I2cLib
+
+[FixedPcd]
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSwitchFanDuty
+
+[Protocols]
+  gPmicProtocolGuid
+
+[Depex]
+  gPmicProtocolGuid

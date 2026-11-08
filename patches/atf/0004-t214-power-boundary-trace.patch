@@ -1,0 +1,98 @@
+From: ruje0504-2
+Subject: [LOCAL DIAGNOSTIC] t214: signal the final PSCI power boundary
+
+Apply after 0003. Disabled unless SWITCH_LITE_POWER_TRACE=1.
+
+--- a/plat/nvidia/tegra/soc/t210/platform_t210.mk
++++ b/plat/nvidia/tegra/soc/t210/platform_t210.mk
+@@ -4,6 +4,12 @@
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
++
++SWITCH_LITE_POWER_TRACE ?= 0
++$(eval $(call add_define,SWITCH_LITE_POWER_TRACE))
++ifeq (${SWITCH_LITE_POWER_TRACE},1)
++BL31_SOURCES += ${SOC_DIR}/t214/power_trace.c
++endif
+ 
+ SWITCH_LITE_PMIC_RESET ?= 0
+ $(eval $(call add_define,SWITCH_LITE_PMIC_RESET))
+--- a/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
++++ b/plat/nvidia/tegra/soc/t210/plat_psci_handlers.c
+@@ -45,6 +45,9 @@
+ #if SWITCH_LITE_PMIC_RESET
+ extern int tegra_lite_prepare_reset(void);
+ extern int tegra_lite_pmic_off(void);
++#if SWITCH_LITE_POWER_TRACE
++extern void tegra_lite_power_trace(void);
++#endif
+ #endif
+ 
+ int32_t tegra_soc_validate_power_state(unsigned int power_state,
+@@ -670,6 +673,9 @@
+ {
+ #if SWITCH_LITE_PMIC_RESET
+ 	if (tegra_chipid_is_t210_b01()) {
++#if SWITCH_LITE_POWER_TRACE
++		tegra_lite_power_trace();
++#endif
+ 		tegra_stabilize_power_clock();
+ 		int error = tegra_lite_pmic_off();
+ 		ERROR("Lite PMIC power-off returned %d\n", error);
+--- /dev/null
++++ b/plat/nvidia/tegra/soc/t210/t214/power_trace.c
+@@ -0,0 +1,53 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Diagnostic only. Fan PWM encoding follows Hekate bdk/thermal/fan.c.
++ * Called at the final Lite PSCI power-off boundary, before changing SCLK.
++ * PWM1 is the already-running fan; PWM0/backlight and disk I/O are untouched.
++ */
++#include <stdbool.h>
++#include <stdint.h>
++#include <lib/mmio.h>
++
++#define TRACE_FAN_PWM 0x7000a010U
++#define TRACE_TIMERUS 0x60005010U
++#define TRACE_FAN_ENABLE 0x80000000U
++#define TRACE_FAN_OFF 0x81000000U
++
++static bool trace_wait_us(uint32_t duration)
++{
++    uint32_t start = mmio_read_32(TRACE_TIMERUS);
++    uint32_t last = start, stalled = 0;
++    for (;;) {
++        uint32_t now = mmio_read_32(TRACE_TIMERUS);
++        if ((uint32_t)(now - start) >= duration)
++            return true;
++        if (now == last) {
++            /* A diagnostic must not hang shutdown if this timer stopped. */
++            if (++stalled == 100000U)
++                return false;
++        } else {
++            stalled = 0;
++        }
++        last = now;
++    }
++}
++
++void tegra_lite_power_trace(void)
++{
++    uint32_t saved = mmio_read_32(TRACE_FAN_PWM);
++    unsigned int i;
++    if (!(saved & TRACE_FAN_ENABLE))
++        return;
++    for (i = 0; i < 2; ++i) {
++        mmio_write_32(TRACE_FAN_PWM, TRACE_FAN_OFF);
++        (void)mmio_read_32(TRACE_FAN_PWM);
++        if (!trace_wait_us(1500000U))
++            break;
++        mmio_write_32(TRACE_FAN_PWM, TRACE_FAN_ENABLE);
++        (void)mmio_read_32(TRACE_FAN_PWM);
++        if (!trace_wait_us(1500000U))
++            break;
++    }
++    /* A failed PMIC operation must not leave the fan artificially stopped. */
++    mmio_write_32(TRACE_FAN_PWM, saved);
++    (void)mmio_read_32(TRACE_FAN_PWM);
++}

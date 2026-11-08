@@ -19,6 +19,7 @@ typedef struct {
     EFI_BLOCK_IO_PROTOCOL                 BlockIo;
     EFI_BLOCK_IO_MEDIA                    BlockMedia;
     MMCHS_DEVICE_PATH                     DevicePath;
+    UINT8                                 WindowsMbr[512];
 } BIO_INSTANCE;
 
 #define BIO_INSTANCE_SIGNATURE SIGNATURE_32('e', 'm', 'm', 'c')
@@ -60,6 +61,9 @@ EFIAPI
 MMCHSFlushBlocks(
     IN EFI_BLOCK_IO_PROTOCOL  *This
 );
+
+EFI_STATUS
+LitePrepareWindowsDisk (BIO_INSTANCE *Instance);
 
 EFI_STATUS
 BioInstanceContructor(

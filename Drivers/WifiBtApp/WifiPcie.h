@@ -8,7 +8,9 @@
   drivers/clk/tegra/{clk-pll.c,clk-tegra210.c} (PLLE + HW sequencer), drivers/soc/tegra/pmc.c (power gate, IO pad DPD) and
   drivers/net/wireless/broadcom/brcm80211/brcmfmac/{pcie.c,chip.c,firmware.c}.
 
-  DRAFT, UNTESTED.  ALL accesses are naturally aligned 32-bit MMIO.  This file is #included by WifiBt.c (single translation unit) after Log/Rd/Wr/Us/Ms.
+  The B01 PCIe/firmware/passive-scan path passed the physical R6 probe. Windows
+  runtime handoff remains under development. All accesses here are naturally
+  aligned 32-bit MMIO. Included by WifiBt.c after Log/Rd/Wr/Us/Ms.
 **/
 
 // ---------------------------------------------------------------------------------------------
@@ -143,6 +145,11 @@ STATIC UINT32   mPexRstRun = 1;       // level of WIFI_RST (PH1) that means "chi
 STATIC UINT32   mPexGen2   = 0;       // retrain to Gen2 after link-up (default: stay Gen1)
 STATIC UINT32   mUphyLanes = BIT0;    // PEX lanes whose IDDQ is released (lane0 = Wi-Fi). USB3 will need lanes 5/6.
 
+STATIC BOOLEAN PexIsB01 (VOID)
+{
+  return (MmioRead32 (0x70000804UL) & 0xFFF0U) == 0x2120U;
+}
+
 STATIC
 VOID
 Rm (
@@ -257,6 +264,8 @@ PexIoPadsOn (
 // ---------------------------------------------------------------------------------------------
 // PLLE (software enable) + hardware sequencer  (clk_plle_tegra210_enable / tegra210_plle_hw_sequence_start)
 // ---------------------------------------------------------------------------------------------
+#include "t214/uphy.h"
+
 STATIC
 BOOLEAN
 PlleEnable (
@@ -290,7 +299,9 @@ PlleEnable (
   }
   V = Rd (CAR_BASE, PX_CAR_PLLE_SS);
   V &= ~(BIT14 | BIT15 | 0x1FF | (0xFFU << 16) | (0x3FU << 24));
-  V |= 0x21 | (1U << 16) | (0x23U << 24);
+  // Switchroot clk-tegra210b01.c supplies distinct PLLE spread coefficients.
+  V |= PexIsB01 () ? (0x25U | (1U << 16) | (0x20U << 24)) :
+                    (0x21U | (1U << 16) | (0x23U << 24));
   Wr (CAR_BASE, PX_CAR_PLLE_SS, V);
   V &= ~(BIT12 | BIT10);
   Wr (CAR_BASE, PX_CAR_PLLE_SS, V);
@@ -379,6 +390,10 @@ UphyEnable (
     Log (L"uphy: padctl not accessible");
     return FALSE;
   }
+  if (PexIsB01 () && !T214UphyManagementEnable ()) {
+    Log (L"uphy: B01 management clock did not enable");
+    return FALSE;
+  }
   Log (L"uphy: PLL_P0 CTL1=%08x CTL2=%08x CTL4=%08x CTL5=%08x CTL8=%08x PAD_MUX=%08x XUSBIO=%08x",
        Rd (PX_PADCTL, PAD_UPHY_PLL_P0_1), Rd (PX_PADCTL, PAD_UPHY_PLL_P0_2), Rd (PX_PADCTL, PAD_UPHY_PLL_P0_4),
        Rd (PX_PADCTL, PAD_UPHY_PLL_P0_5), Rd (PX_PADCTL, PAD_UPHY_PLL_P0_8), Rd (PX_PADCTL, PAD_USB3_PAD_MUX), Rd (CAR_BASE, PX_CAR_XUSBIO_PLL));
@@ -388,8 +403,14 @@ UphyEnable (
   } else {
     Wr (CAR_BASE, PX_CAR_RST_Y_CLR, PX_Y_UPHY);                                  // release PEX_USB_UPHY reset (id 205)
     Us (10);
-    Rm (PX_PADCTL, PAD_UPHY_PLL_P0_2, 0xFFFFFFU << 4, 0x136U << 4);              // CAL_CTRL
-    Rm (PX_PADCTL, PAD_UPHY_PLL_P0_5, 0xFFU << 16, 0x2AU << 16);                 // DCO_CTRL
+    if (PexIsB01 ()) {
+      // Only lane 0 belongs to this Wi-Fi path; leave USB lane defaults alone.
+      T214PcieLaneDefaults (0);
+      T214UphyPllDefaults ();
+    } else {
+      Rm (PX_PADCTL, PAD_UPHY_PLL_P0_2, 0xFFFFFFU << 4, 0x136U << 4);            // CAL_CTRL
+      Rm (PX_PADCTL, PAD_UPHY_PLL_P0_5, 0xFFU << 16, 0x2AU << 16);               // DCO_CTRL
+    }
     Rm (PX_PADCTL, PAD_UPHY_PLL_P0_1, 0, BIT4);                                  // PWR_OVRD
     Rm (PX_PADCTL, PAD_UPHY_PLL_P0_2, 0, BIT2);                                  // CAL_OVRD
     Rm (PX_PADCTL, PAD_UPHY_PLL_P0_8, 0, BIT15);                                 // RCAL_OVRD
@@ -432,7 +453,7 @@ UphyEnable (
 
   // lane muxing: pcie-0 = function "pcie-x1" (0) in USB3_PAD_MUX[13:12]; release IDDQ for the lanes we use
   Rm (PX_PADCTL, PAD_USB3_PAD_MUX, 3U << 12, 0);
-  for (I = 0; I < 7; I++) {
+  for (I = 0; I < (PexIsB01 () ? 6U : 7U); I++) {
     if (mUphyLanes & (1U << I)) {
       Rm (PX_PADCTL, PAD_USB3_PAD_MUX, 0, 1U << (1 + I));
     }
@@ -572,17 +593,29 @@ PexCheckLink (
 // Backplane window over BAR0 (brcmf_pcie_buscore_*)
 // ---------------------------------------------------------------------------------------------
 STATIC
-VOID
+BOOLEAN
 BpSetWin (
   IN UINT32  Addr
   )
 {
   UINT32  Base = Addr & ~0xFFFU;
+  UINTN   Attempt;
 
   if (Base != mBpWin) {
-    PexCfgWr (1, 0, 0, BCM_BAR0_WINDOW, Base);
-    mBpWin = Base;
+    // brcmfmac retries a BAR0 window write once if configuration readback
+    // does not match. Do not cache an address that the endpoint rejected.
+    for (Attempt = 0; Attempt < 2; Attempt++) {
+      PexCfgWr (1, 0, 0, BCM_BAR0_WINDOW, Base);
+      if (PexCfgRd (1, 0, 0, BCM_BAR0_WINDOW) == Base) {
+        mBpWin = Base;
+        return TRUE;
+      }
+    }
+    mBpWin = 0xFFFFFFFFU;
+    Log (L"backplane: BAR0 window %08x did not latch", Base);
+    return FALSE;
   }
+  return TRUE;
 }
 
 STATIC
@@ -592,7 +625,10 @@ BpRd32 (
   OUT UINT32  *V
   )
 {
-  BpSetWin (Addr);
+  if (!BpSetWin (Addr)) {
+    *V = 0xFFFFFFFFU;
+    return FALSE;
+  }
   *V = Rd (mBar0, Addr & 0xFFC);
   return TRUE;
 }
@@ -604,7 +640,7 @@ BpWr32 (
   IN UINT32  V
   )
 {
-  BpSetWin (Addr);
+  if (!BpSetWin (Addr)) return FALSE;
   Wr (mBar0, Addr & 0xFFC, V);
   return TRUE;
 }

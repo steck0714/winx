@@ -3,24 +3,33 @@
 
   Stages (each logs + flushes; the LAST log line names the step that failed):
     pex    : radio power, PMC/CAR/PLLE/UPHY, AFI, root port, link training, enumeration (BARs)     [PexUp + PexEnum]
-    pchip  : backplane window over BAR0, chip id, EROM dump, ARM CR4 halt, TCM size                [PexChip]
+    pchip  : backplane window over BAR0, chip id, EROM core discovery, ARM CR4 halt, TCM size                [PexChip]
     pfw    : firmware + NVRAM -> TCM, release CR4, wait for the shared-area pointer, dump it        [PexFw]
     pcon   : dump the firmware console ring (the firmware's own boot log)                          [PexConsole]
     poff   : everything down again                                                                 [PexOff]
 
-  What is NOT here: msgbuf rings / ioctl / scan / join / EFI_SIMPLE_NETWORK. Reaching "pfw: firmware is running" and a readable
-  firmware console is the Saturday milestone; everything beyond that needs the log from real hardware first.
+  WifiMsgbuf.h and WifiScan.h add control-ring queries and passive scanning.
+  Reaching "pfw: firmware is running" establishes chip boot only; association,
+  packet transport and Windows adapter integration remain separate stages.
 
   DRAFT, UNTESTED. All device accesses are naturally aligned 32-bit MMIO (see Rd/Wr/TcmRd32/TcmWr32).
 **/
 
+#include "WifiErom.h"
+#include "WifiPciLayout.h"
+
 STATIC UINT32  mChipId     = 0;
-STATIC UINT32  mArmBase    = 0x18002000;   // ARM CR4 core registers (BCM4350 family)
-STATIC UINT32  mArmWrap    = 0x18102000;   // its AI wrapper
-STATIC UINT32  mD11Wrap    = 0x18101000;   // 802.11 core AI wrapper
+STATIC UINT32  mArmBase    = 0;            // discovered from EROM
+STATIC UINT32  mArmWrap    = 0;
+STATIC UINT32  mD11Wrap    = 0;
+STATIC UINT32  mPcieCore   = 0;
+STATIC UINT32  mPcieRev    = 0;
+STATIC UINT32  mChipOverrides = 0;         // explicit arm/wrap/d11/size options
 STATIC UINT32  mRamBase    = BCM_RAMBASE_4356;
 STATIC UINT32  mRamSize    = 0;
+STATIC UINT32  mRamCapacity = 0;
 STATIC UINT32  mSharedAddr = 0;
+STATIC BOOLEAN mChipReady = FALSE;
 
 #define AFI_PLLE_CONTROL     0x160
 #define AFI_AXI_BAR1_SZ_X    0x04
@@ -69,10 +78,13 @@ PexUp (
   PexDumpCar (L"start");
   mPexUp   = FALSE;
   mPexEnum = FALSE;
+  mChipReady = FALSE;
+  mSharedAddr = 0;
   mBpWin   = 0xFFFFFFFF;
 
-  Log (L"pex[1] radio off (WIFI_EN/WIFI_RST low), pinmux, 32 kHz");
-  PinsRadio ();
+  Log (L"pex[1] hold Wi-Fi reset low, configure pins and 32 kHz");
+  // Wi-Fi bring-up must leave the already configured Bluetooth/UART pins alone.
+  PinsWifi ();
   Step32k (TRUE);
   GpioH (H0 | H1, 0, TRUE);
   Ms (10);
@@ -85,7 +97,10 @@ PexUp (
   if (!PexPgOn (PX_PG_PCIE)) {
     return FALSE;
   }
-  PexIoPadsOn ();
+  // Switchroot tegra210b01_pcie_data omits config_pex_io_dpd. Erista
+  // retains that sequence; B01 uses UPHY preparation without these pad writes.
+  if (!PexIsB01 () && !PexIoPadsOn ()) return FALSE;
+  Log (L"pex: SoC profile %s, crossbar x4+x1", PexIsB01 () ? L"T214/B01" : L"T210");
 
   Log (L"pex[4] clocks: afi, pex; PLLE + cml0");
   Wr (CAR_BASE, PX_CAR_ENB_U_SET, PX_U_AFI | PX_U_PEX);
@@ -143,8 +158,10 @@ PexUp (
   }
   Wr (PEX_PADS, PADS_REFCLK_CFG0, 0x90B890B8);
 
-  Log (L"pex[8] power the Wi-Fi chip: WIFI_EN high, then WIFI_RST -> run level %d", mPexRstRun);
-  GpioH (H0, 1, TRUE);
+  // Vali's boot-default-output-low identifies PH0 as RF_DISABLE, not an
+  // active-high power enable. PH1 is high in the running Linux profile.
+  Log (L"pex[8] Wi-Fi PH0=%d, PH1 reset -> run level %d", PexIsB01 () ? 0 : 1, mPexRstRun);
+  GpioH (H0, PexIsB01 () ? 0 : 1, TRUE);
   Ms (20);
   GpioH (H1, mPexRstRun, TRUE);
   GpioH (H2, 0, FALSE);
@@ -205,6 +222,7 @@ PexEnum (
   UINT32  A2;
   UINT32  Cmd;
   UINT32  Probe;
+  UINT32  BridgeWindow;
 
   if (!mPexUp) {
     Log (L"enum: run `pex` first");
@@ -212,9 +230,9 @@ PexEnum (
   }
   Id = PexCfgRd (0, PEX_PORT + 1, 0, 0);
   Log (L"enum: root port id=%08x class=%08x", Id, PexCfgRd (0, PEX_PORT + 1, 0, 8));
-  Log (L"enum: root port bus numbers pri0 sec1 sub1; memory window %08x..%08x", PEX_MEM_BASE, PEX_MEM_BASE + 0x3FFFFF);
+  Log (L"enum: root port bus numbers pri0 sec1 sub1; size BARs before opening memory window");
   PexCfgWr (0, PEX_PORT + 1, 0, 0x18, 0x00010100);
-  PexCfgWr (0, PEX_PORT + 1, 0, 0x20, 0x13301300);
+  PexCfgWr (0, PEX_PORT + 1, 0, 0x20, 0x0000FFF0);
   PexCfgWr (0, PEX_PORT + 1, 0, 0x24, 0x0000FFF0);               // prefetch window closed (base > limit)
   Cmd = PexCfgRd (0, PEX_PORT + 1, 0, 4) & 0xFFFF;
   PexCfgWr (0, PEX_PORT + 1, 0, 4, Cmd | 0x6);
@@ -238,6 +256,8 @@ PexEnum (
   }
   PexCfgDump (1, 0, 16);
 
+  Cmd = PexCfgRd (1, 0, 0, 4) & 0xFFFF;
+  PexCfgWr (1, 0, 0, 4, Cmd & ~6U);
   Sz0 = PexBarSize (0x10);
   Sz2 = PexBarSize (0x18);
   Log (L"enum: BAR0 sizing readback=%08x  BAR2 sizing readback=%08x (bit2:1 = 10b means 64-bit BAR)", Sz0, Sz2);
@@ -247,10 +267,10 @@ PexEnum (
     Log (L"enum: implausible BAR sizes %08x / %08x", S0, S2);
     return FALSE;
   }
-  A0 = PEX_MEM_BASE;
-  A2 = (A0 + S0 + S2 - 1) & ~(S2 - 1);
-  if (A2 < A0 + S0) {
-    A2 += S2;
+  if ((Sz0 & 1) || (Sz2 & 1) ||
+      !PexMemoryLayout (PEX_MEM_BASE, PEX_MEM_SIZE, S0, S2, &A0, &A2, &BridgeWindow)) {
+    Log (L"enum: BARs do not fit the outbound memory aperture");
+    return FALSE;
   }
   Log (L"enum: BAR0 size %08x -> %08x, BAR2 size %08x -> %08x", S0, A0, S2, A2);
   PexCfgWr (1, 0, 0, 0x10, A0 | (Sz0 & 0xF));
@@ -261,8 +281,22 @@ PexEnum (
   if ((Sz2 & 6) == 4) {
     PexCfgWr (1, 0, 0, 0x1C, 0);
   }
-  Cmd = PexCfgRd (1, 0, 0, 4) & 0xFFFF;
-  PexCfgWr (1, 0, 0, 4, Cmd | 0x6);                              // memory space + bus master
+  PexCfgWr (0, PEX_PORT + 1, 0, 0x20, BridgeWindow);
+  if ((PexCfgRd (1, 0, 0, 0x10) & ~0xFU) != A0 ||
+      (PexCfgRd (1, 0, 0, 0x18) & ~0xFU) != A2 ||
+      (PexCfgRd (0, PEX_PORT + 1, 0, 0x20) & 0xFFF0FFF0U) != BridgeWindow) {
+    Log (L"enum: BAR or bridge memory-window readback mismatch");
+    return FALSE;
+  }
+  // Enumeration only needs memory decoding. MsgInitialize or the Windows
+  // driver grants bus mastering after its own DMA addresses are published.
+  PexCfgWr (1, 0, 0, 4, (Cmd | 2U) & ~4U);
+  if ((PexCfgRd (1, 0, 0, 4) & 6U) != 2U) {
+    Log (L"enum: endpoint did not accept memory decoding with DMA stopped");
+    return FALSE;
+  }
+  Log (L"enum: bridge memory base/limit=%08x, covering BAR2 through %08x",
+       BridgeWindow, A2 + S2 - 1U);
   Log (L"enum: BAR0=%08x BAR2=%08x cmd=%08x", PexCfgRd (1, 0, 0, 0x10), PexCfgRd (1, 0, 0, 0x18), PexCfgRd (1, 0, 0, 4));
 
   mBar0     = A0;
@@ -285,143 +319,120 @@ PexChip (
   VOID
   )
 {
-  UINT32  V;
-  UINT32  Cap;
-  UINT32  Nab;
-  UINT32  Nbb;
-  UINT32  I;
-  UINT32  Info;
-  UINT32  Blk;
-  UINT32  Size = 0;
-  UINT32  Erom = 0;
+  UINT32    V;
+  UINT32    Cap;
+  UINT32    Banks;
+  UINT32    I;
+  UINT32    Info;
+  UINT32    Size = 0;
+  UINT32    Erom;
+  UINT32    *Words;
+  PEX_CORE  Cores[32];
+  UINTN     Count;
+  UINT32    Found = 0;
+  BOOLEAN   Parsed;
 
+  mChipReady = FALSE;
   if (!mPexEnum) {
     Log (L"chip: run `pex` first");
     return FALSE;
   }
   mPcieMode = TRUE;
-  mBpWin    = 0xFFFFFFFF;
-  Log (L"chip: BAR0_WINDOW cfg[80] = %08x", PexCfgRd (1, 0, 0, BCM_BAR0_WINDOW));
-  BpRd32 (BCM_CC_BASE, &V);
+  mBpWin = 0xFFFFFFFFU;
+  if (!BpRd32 (BCM_CC_BASE, &V)) return FALSE;
   mChipId = V;
-  Log (L"chip: chipcommon chipid reg = %08x -> chip %04x rev %d pkg %d (BCM4356 = 4356)", V, V & 0xFFFF, (V >> 16) & 0xF, (V >> 20) & 0xF);
+  Log (L"chip: chipid=%08x chip=%04x rev=%d pkg=%d", V, V & 0xFFFF, (V >> 16) & 0xF, (V >> 20) & 0xF);
   if ((V & 0xFFFF) != 0x4356) {
-    Log (L"chip: unexpected chip id. If this is garbage, BAR0 window / BAR mapping is wrong.");
-    if (V == 0xFFFFFFFF || V == 0) {
+    Log (L"chip: this firmware path requires the Switch BCM4356");
+    return FALSE;
+  }
+  if (!BpRd32 (BCM_CC_BASE + 0xFC, &Erom) || (Erom & 0xFFF) ||
+      Erom < 0x18000000U || Erom >= 0x19000000U) {
+    Log (L"chip: invalid EROM pointer");
+    return FALSE;
+  }
+  Words = AllocatePool (4096);
+  if (Words == NULL) return FALSE;
+  // One EROM page; the parser consumes extension words and the end marker.
+  for (I = 0; I < 1024; I++) {
+    if (!BpRd32 (Erom + I * 4, &Words[I])) {
+      FreePool (Words);
       return FALSE;
     }
   }
-  BpRd32 (BCM_CC_BASE + 0xFC, &Erom);
-  Log (L"chip: EROM pointer %08x; dump:", Erom);
-  for (I = 0; I < 96; I++) {
-    if (!BpRd32 (Erom + I * 4, &V)) {
-      break;
-    }
-    if (V == 0xF) {
-      break;
-    }
-    Log (L"  erom[%02d]=%08x", I, V);
-  }
-  Log (L"chip: assuming ARM CR4 core=%08x wrap=%08x d11 wrap=%08x (override: arm= wrap= d11=; check against the EROM dump)", mArmBase, mArmWrap, mD11Wrap);
-  BpRd32 (mArmWrap + 0x800, &V);
-  Log (L"chip: CR4 wrapper RESET_CTL=%08x", V);
-  BpRd32 (mArmWrap + 0x408, &V);
-  Log (L"chip: CR4 wrapper IOCTL=%08x", V);
-
-  Log (L"chip: disabling d11 core, halting ARM CR4 (brcmf_chip_cr4_set_passive)");
-  CoreDisable (mD11Wrap, 0x0C, 0x04);
-  CoreReset (mArmWrap, 0x20, 0x20, 0x20);
-  BpRd32 (mArmWrap + 0x408, &V);
-  Log (L"chip: CR4 IOCTL after halt=%08x (bit5 = CPUHALT, bit0 = clock)", V);
-
-  BpRd32 (mArmBase + 0x04, &Cap);
-  Nab = Cap & 0xF;
-  Nbb = (Cap >> 4) & 0xF;
-  Log (L"chip: CR4 CAP=%08x -> %d A-banks + %d B-banks", Cap, Nab, Nbb);
-  for (I = 0; I < Nab + Nbb && I < 16; I++) {
-    BpWr32 (mArmBase + 0x40, I);
-    BpRd32 (mArmBase + 0x44, &Info);
-    Blk = 8192;
-    if (Info & 0x200) {
-      Blk >>= 3;
-    }
-    Size += ((Info & 0x7F) + 1) * Blk;
-    Log (L"  bank %d info=%08x", I, Info);
-  }
-  Log (L"chip: TCM size from banks = %08x; rambase %08x", Size, mRamBase);
-  if (mRamSize == 0) {
-    mRamSize = Size;
-  }
-  if (mRamSize == 0) {
-    Log (L"chip: could not determine RAM size (pass size=0x...). BCM4356 is believed to be 0xC0000..0xE0000");
+  Parsed = PexEromParse (Words, 1024, Cores, ARRAY_SIZE (Cores), &Count);
+  FreePool (Words);
+  if (!Parsed) {
+    Log (L"chip: invalid or truncated EROM table at %08x", Erom);
     return FALSE;
   }
-  Log (L"chip: using ramsize %08x. Next: pfw brcmfmac4356-pcie.bin brcmfmac4356-pcie.txt", mRamSize);
+  for (I = 0; I < Count; I++) {
+    Log (L"chip: core %03x rev=%d base=%08x wrapper=%08x", Cores[I].Id,
+         Cores[I].Revision, Cores[I].Base, Cores[I].Wrapper);
+    if (Cores[I].Id == 0x83E && Cores[I].Wrapper != 0 && !(Found & BIT0)) {
+      if (!(mChipOverrides & BIT0)) mArmBase = Cores[I].Base;
+      if (!(mChipOverrides & BIT1)) mArmWrap = Cores[I].Wrapper;
+      Found |= BIT0;
+    } else if (Cores[I].Id == 0x812 && Cores[I].Wrapper != 0 && !(Found & BIT1)) {
+      if (!(mChipOverrides & BIT2)) mD11Wrap = Cores[I].Wrapper;
+      Found |= BIT1;
+    } else if (Cores[I].Id == 0x83C && !(Found & BIT2)) {
+      mPcieCore = Cores[I].Base;
+      mPcieRev = Cores[I].Revision;
+      Found |= BIT2;
+    }
+  }
+  if (Found != (BIT0 | BIT1 | BIT2) || !mArmBase || !mArmWrap || !mD11Wrap ||
+      ((mArmBase | mArmWrap | mD11Wrap) & 0xFFF)) {
+    Log (L"chip: missing CR4/D11/PCIe core or invalid explicit override");
+    return FALSE;
+  }
+  Log (L"chip: CR4=%08x wrapper=%08x D11 wrapper=%08x PCIe=%08x rev=%d overrides=%x",
+       mArmBase, mArmWrap, mD11Wrap, mPcieCore, mPcieRev, mChipOverrides);
+  mSharedAddr = 0;
+  if (!CoreDisable (mD11Wrap, 0x0C, 0x04) || !CoreReset (mArmWrap, 0x20, 0x20, 0x20)) {
+    Log (L"chip: could not halt D11/CR4");
+    return FALSE;
+  }
+  if (!BpRd32 (mArmBase + 0x04, &Cap) || Cap == 0xFFFFFFFFU) return FALSE;
+  Banks = (Cap & 0xF) + ((Cap >> 4) & 0xF);
+  if (Banks == 0) {
+    Log (L"chip: CR4 reports no TCM banks");
+    return FALSE;
+  }
+  for (I = 0; I < Banks; I++) {
+    if (!BpWr32 (mArmBase + 0x40, I) || !BpRd32 (mArmBase + 0x44, &Info) ||
+        Info == 0xFFFFFFFFU) return FALSE;
+    // BCM4356 CR4 BANKINFO: six-bit size in 8 KiB units (brcmfmac/chip.c).
+    Size += ((Info & 0x3FU) + 1) * 8192;
+  }
+  if (!(mChipOverrides & BIT3)) mRamSize = Size;
+  if (!mRamSize || mRamSize > Size || mRamBase > mBar2Size ||
+      mRamSize > mBar2Size - mRamBase) {
+    Log (L"chip: TCM size %08x / requested %08x does not fit BAR2 %08x", Size, mRamSize, mBar2Size);
+    return FALSE;
+  }
+  Log (L"chip: %d TCM banks, size=%08x, using %08x bytes at %08x", Banks, Size, mRamSize, mRamBase);
+  mRamCapacity = mRamSize;
+  mChipReady = TRUE;
   return TRUE;
 }
 
 // ---------------------------------------------------------------------------------------------
 // pfw: firmware download + boot
 // ---------------------------------------------------------------------------------------------
+#include "WifiNvram.h"
+
 STATIC
 BOOLEAN
-PexNvramBuild (
-  IN  CONST UINT8  *Nv,
-  IN  UINTN        NvSz,
-  OUT UINT8        **Out,
-  OUT UINT32       *OutLen        // includes the 4-byte length token
+PexTcmContains (
+  IN UINT32  Address,
+  IN UINT32  Length
   )
 {
-  UINT8    *Clean;
-  UINTN    I;
-  UINTN    O = 0;
-  UINT8    C;
-  BOOLEAN  Comment = FALSE;
-  BOOLEAN  Start   = TRUE;
-  UINT32   Tok;
-
-  Clean = AllocateZeroPool (NvSz + 16);
-  if (Clean == NULL) {
-    return FALSE;
-  }
-  for (I = 0; I < NvSz; I++) {
-    C = Nv[I];
-    if (C == '\r') {
-      continue;
-    }
-    if (Start && C == '#') {
-      Comment = TRUE;
-    }
-    if (C == '\n') {
-      if (!Comment && !Start) {
-        Clean[O++] = 0;
-      }
-      Comment = FALSE;
-      Start   = TRUE;
-      continue;
-    }
-    if (Start && (C == ' ' || C == '\t')) {
-      continue;
-    }
-    Start = FALSE;
-    if (!Comment) {
-      Clean[O++] = C;
-    }
-  }
-  if (!Start && !Comment) {
-    Clean[O++] = 0;                    // last line without newline
-  }
-  Clean[O++] = 0;                      // extra terminator (Linux: roundup(len + 1, 4))
-  O = (O + 3) & ~(UINTN)3;
-  Tok = (UINT32)(O / 4);
-  Tok = ((~Tok & 0xFFFF) << 16) | (Tok & 0xFFFF);
-  Clean[O + 0] = (UINT8)(Tok);
-  Clean[O + 1] = (UINT8)(Tok >> 8);
-  Clean[O + 2] = (UINT8)(Tok >> 16);
-  Clean[O + 3] = (UINT8)(Tok >> 24);
-  *Out    = Clean;
-  *OutLen = (UINT32)O + 4;
-  return TRUE;
+  return Address >= mRamBase && Length <= mRamSize &&
+         Address - mRamBase <= mRamSize - Length &&
+         Address <= mBar2Size && Length <= mBar2Size - Address;
 }
 
 STATIC
@@ -443,49 +454,68 @@ PexFw (
   UINT32   I;
   UINT32   V;
 
-  if (!mPexEnum || mRamSize == 0) {
-    Log (L"pfw: run `pex` and `pchip` first (same boot)");
+  UINT32   FirmwareRamSize;
+
+  if (!mPexEnum || !mChipReady || mRamSize < 4 || (mRamBase & 3) || (mRamSize & 3) ||
+      !PexTcmContains (mRamBase, mRamSize)) {
+    Log (L"pfw: run `pex` and `pchip` first; RAM must fit the BAR2 aperture");
     return FALSE;
   }
-  if (EFI_ERROR (ReadFile (FwName, &Fw, &FwSz)) || FwSz < 4) {
-    return FALSE;
+  if (EFI_ERROR (ReadFile (FwName, &Fw, &FwSz)) ||
+      !PexFirmwareRamSize (Fw, FwSz, mRamCapacity, &FirmwareRamSize)) {
+    Log (L"pfw: invalid firmware file or RAM size");
+    goto Failed;
   }
-  if (FwSz > mRamSize) {
-    Log (L"pfw: firmware (%d) larger than RAM (%08x)", FwSz, mRamSize);
-    return FALSE;
+  if (NvName == NULL || EFI_ERROR (ReadFile (NvName, &Nv, &NvSz)) ||
+      !PexNvramBuild (Nv, NvSz, &NvB, &NvLen)) {
+    Log (L"pfw: a valid single-board Switch NVRAM file is required");
+    goto Failed;
+  }
+  FreePool (Nv);
+  Nv = NULL;
+  if (NvLen > FirmwareRamSize || ((FwSz + 3) & ~(UINTN)3) > FirmwareRamSize - NvLen) {
+    Log (L"pfw: firmware (%d) overlaps NVRAM (%d) in RAM (%08x)", FwSz, NvLen, FirmwareRamSize);
+    goto Failed;
   }
   Rst = Le32 (Fw);
   Log (L"pfw: firmware %d bytes, first word (reset vector) %08x", FwSz, Rst);
   Log (L"pfw: halting CR4");
-  CoreReset (mArmWrap, 0x20, 0x20, 0x20);
+  mSharedAddr = 0;
+  if (!CoreReset (mArmWrap, 0x20, 0x20, 0x20)) goto Failed;
+  mRamSize = FirmwareRamSize;
+  Log (L"pfw: firmware RAM size=%08x, discovered capacity=%08x", mRamSize, mRamCapacity);
 
   Log (L"pfw: writing firmware to TCM offset %08x (32-bit stores)", mRamBase);
   TcmWriteBuf (mRamBase, Fw, FwSz);
   V = TcmRd32 (mRamBase);
-  Log (L"pfw: readback word0 = %08x (%s)", V, V == Rst ? L"ok" : L"MISMATCH - BAR2/TCM write path broken");
+  if (V != Rst) {
+    Log (L"pfw: firmware word0 mismatch %08x != %08x; CR4 remains halted", V, Rst);
+    goto Failed;
+  }
   V = TcmRd32 (mRamBase + (UINT32)(FwSz & ~3U) - 4);
-  Log (L"pfw: readback last word = %08x (fw %08x)", V, Le32 (Fw + (FwSz & ~3U) - 4));
+  if (V != Le32 (Fw + (FwSz & ~3U) - 4)) {
+    Log (L"pfw: final firmware word mismatch; CR4 remains halted");
+    goto Failed;
+  }
   FreePool (Fw);
+  Fw = NULL;
 
   TcmWr32 (mRamBase + mRamSize - 4, 0);
-  if (NvName != NULL && !EFI_ERROR (ReadFile (NvName, &Nv, &NvSz))) {
-    if (!PexNvramBuild (Nv, NvSz, &NvB, &NvLen)) {
-      Log (L"pfw: nvram build failed");
-      return FALSE;
-    }
-    Log (L"pfw: nvram %d bytes -> %d (incl. token) at TCM %08x", NvSz, NvLen, mRamBase + mRamSize - NvLen);
-    TcmWriteBuf (mRamBase + mRamSize - NvLen, NvB, NvLen);
-    FreePool (NvB);
-    FreePool (Nv);
-  } else {
-    Log (L"pfw: NO NVRAM - the firmware will probably not start (needs board nvram text)");
+  Log (L"pfw: nvram %d bytes -> %d (incl. token) at TCM %08x", NvSz, NvLen, mRamBase + mRamSize - NvLen);
+  TcmWriteBuf (mRamBase + mRamSize - NvLen, NvB, NvLen);
+  V = TcmRd32 (mRamBase + mRamSize - 4);
+  if (V != Le32 (NvB + NvLen - 4)) {
+    Log (L"pfw: NVRAM token readback mismatch; CR4 remains halted");
+    goto Failed;
   }
+  FreePool (NvB);
+  NvB = NULL;
 
   Mark = TcmRd32 (mRamBase + mRamSize - 4);
   Log (L"pfw: marker at RAM end = %08x (firmware overwrites it with the shared-area pointer)", Mark);
   Log (L"pfw: write reset vector to TCM[0], release CR4");
   TcmWr32 (0, Rst);
-  CoreReset (mArmWrap, 0x20, 0, 0);
+  if (!CoreReset (mArmWrap, 0x20, 0, 0)) goto Failed;
   BpRd32 (mArmWrap + 0x408, &V);
   Log (L"pfw: CR4 IOCTL=%08x RESET_CTL follows", V);
   BpRd32 (mArmWrap + 0x800, &V);
@@ -501,7 +531,7 @@ PexFw (
     Log (L"pfw: try: other nvram file, `ram=`/`size=`, check chip halted state, then `pcon` anyway");
     return FALSE;
   }
-  if (Cur < mRamBase || Cur >= mRamBase + mRamSize) {
+  if ((Cur & 3) || !PexTcmContains (Cur, 80)) {
     Log (L"pfw: marker changed to %08x but is outside RAM [%08x,%08x)", Cur, mRamBase, mRamBase + mRamSize);
     return FALSE;
   }
@@ -512,6 +542,11 @@ PexFw (
        TcmRd32 (Cur + 32), TcmRd32 (Cur + 36), TcmRd32 (Cur + BRCMF_SHARED_HTOD_MB_OFFSET),
        TcmRd32 (Cur + BRCMF_SHARED_DTOH_MB_OFFSET), TcmRd32 (Cur + BRCMF_SHARED_RING_INFO_OFFSET));
   return TRUE;
+Failed:
+  if (Fw != NULL) FreePool (Fw);
+  if (Nv != NULL) FreePool (Nv);
+  if (NvB != NULL) FreePool (NvB);
+  return FALSE;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -533,21 +568,21 @@ PexConsole (
   UINTN   L = 0;
   UINT8   C;
 
-  if (!mPexEnum) {
-    Log (L"pcon: run `pex` first");
+  if (!mPexEnum || !mChipReady || mRamSize < 4 || !PexTcmContains (mRamBase, mRamSize)) {
+    Log (L"pcon: run `pex` and `pchip` first");
     return;
   }
   if (mSharedAddr == 0) {
     Log (L"pcon: shared area unknown (pfw did not see the firmware start); trying to locate it at RAM end");
     mSharedAddr = TcmRd32 (mRamBase + mRamSize - 4);
-    if (mSharedAddr < mRamBase || mSharedAddr >= mRamBase + mRamSize) {
+    if ((mSharedAddr & 3) || !PexTcmContains (mSharedAddr, 24)) {
       Log (L"pcon: RAM end word=%08x is not a pointer, firmware console not available", mSharedAddr);
       mSharedAddr = 0;
       return;
     }
   }
   Con = TcmRd32 (mSharedAddr + BRCMF_SHARED_CONSOLE_ADDR_OFFSET);
-  if (Con < mRamBase || Con >= mRamBase + mRamSize) {
+  if ((Con & 3) || !PexTcmContains (Con, 20)) {
     Log (L"pcon: bad console address %08x", Con);
     return;
   }
@@ -555,7 +590,8 @@ PexConsole (
   Size = TcmRd32 (Con + 12);
   Widx = TcmRd32 (Con + 16);
   Log (L"pcon: console struct %08x buf=%08x size=%08x widx=%08x", Con, Buf, Size, Widx);
-  if (Buf < mRamBase || Size == 0 || Size > 0x10000) {
+  if ((Buf & 3) || Size == 0 || Size > 0x10000 ||
+      !PexTcmContains (Buf, (Size + 3) & ~3U)) {
     return;
   }
   if (Widx > Size) {
@@ -592,7 +628,7 @@ PexOff (
   )
 {
   Log (L"poff: halt CR4 if reachable, hold PCIe in reset, radio off");
-  if (mPexEnum && mPcieMode) {
+  if (mPexEnum && mPcieMode && mChipReady) {
     CoreReset (mArmWrap, 0x20, 0x20, 0x20);
   }
   GpioH (H0 | H1, 0, TRUE);
@@ -603,5 +639,6 @@ PexOff (
   mPexUp      = FALSE;
   mPexEnum    = FALSE;
   mPcieMode   = FALSE;
+  mChipReady  = FALSE;
   mSharedAddr = 0;
 }

@@ -1,0 +1,402 @@
+diff --git a/AcpiTables/Dsdt/Dsdt.asl b/AcpiTables/Dsdt/Dsdt.asl
+index 0b2090f..1e7bef0 100644
+--- a/AcpiTables/Dsdt/Dsdt.asl
++++ b/AcpiTables/Dsdt/Dsdt.asl
+@@ -181,6 +181,15 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
+         }
+ 
+ 
++#if defined(SWITCH_ACPI_XHCI_ENABLE) && defined(SWITCH_ACPI_EHCI_ENABLE)
++        // Both controllers are described but they share the one physical USB-C port, so only one may be
++        // visible to the OS. The firmware picks it at ExitBootServices by patching this byte in the loaded
++        // DSDT (AML encoding 08 'U' 'B' 'S' 'L' 00 -> 01): 0 = EHC0 (default), 1 = XHC0 (xusb firmware is
++        // running, see Drivers/XusbInitApp `xusbinit acpi`).
++        Name (UBSL, Zero)
++#define SWITCH_ACPI_USB_SELECT 1
++#endif
++
+ #ifdef SWITCH_ACPI_XHCI_ENABLE
+         // XUSB xHCI (usb@70090000, 32 KiB; SPI 39 = INTID 71, level high; values from
+         // tegra210.dtsi). Only valid AFTER the firmware has loaded xusb.bin and the host
+@@ -198,7 +207,16 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
+ 
+             Method (_STA, 0, NotSerialized)
+             {
++#ifdef SWITCH_ACPI_USB_SELECT
++                If ((UBSL == One))
++                {
++                    Return (0x0F)
++                }
++
++                Return (Zero)
++#else
+                 Return (0x0F)
++#endif
+             }
+         }
+ #endif
+@@ -228,20 +246,77 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
+                 USMD,   32
+             }
+ 
++            // USB_SUSP_CTRL (abs 0x400, op + 0x2D0). Bit 7 = USB_PHY_CLK_VALID. Linux keeps this register
++            // readable on its own while the AHB clock of the controller is gated (ci_hdrc_tegra.c).
++            OperationRegion (USPC, SystemMemory, 0x7D000400, 0x04)
++            Field (USPC, DWordAcc, NoLock, Preserve)
++            {
++                SCTL,   32
++            }
++
++#ifdef SWITCH_ACPI_EHCI_TXFILL
++            // TXFILLTUNING (abs 0x154, op + 0x24). Linux (ci_hdrc_tegra.c, CI_HDRC_CONTROLLER_RESET_EVENT)
++            // rewrites it after every controller reset with txfifothresh << 16 (16 for the Tegra30 class).
++            // The right value for Tegra210 is NOT confirmed, so this is opt-in (-D SWITCH_ACPI_EHCI_TXFILL=1).
++            OperationRegion (UTXF, SystemMemory, 0x7D000154, 0x04)
++            Field (UTXF, DWordAcc, NoLock, Preserve)
++            {
++                TXFT,   32
++            }
++#endif
++
++            // Windows USB _DSM (UUID ce2ee385-00e6-48cb-9f05-2edb927c4899, Arg1 = 0).
++            //   function 0: query. function 1: post-reset for dual-role controllers, called after every
++            //   controller reset (Microsoft: bringup/usb-device-specific-method---dsm-).
++            //   function 6: "register access type" (Windows 11 / Server 2022 and later): 1 = 32-bit only.
++            // ChipIdea clears USBMODE.CM on every HCRESET and the write only sticks once the PHY clock is
++            // valid again, so wait for it (bounded, 100 ms) and verify the mode afterwards (bounded).
+             Method (_DSM, 4, Serialized)
+             {
+                 If ((Arg0 == ToUUID ("ce2ee385-00e6-48cb-9f05-2edb927c4899")))
+                 {
+                     If ((Arg2 == Zero))
+                     {
+-                        Return (Buffer (One) { 0x03 })   // functions 0 and 1
++                        Return (Buffer (One) { 0x43 })   // functions 0, 1 and 6
+                     }
+ 
+                     If ((Arg2 == One))
+                     {
++                        Local0 = 1000
++                        While (Local0)
++                        {
++                            If ((SCTL & 0x80))
++                            {
++                                Break
++                            }
++
++                            Stall (100)
++                            Local0--
++                        }
++
+                         USMD = ((USMD & 0xFFFFFFFC) | 0x03)   // CM = host
++                        Local0 = 1000
++                        While (Local0)
++                        {
++                            If (((USMD & 0x03) == 0x03))
++                            {
++                                Break
++                            }
++
++                            Stall (100)
++                            Local0--
++                        }
++
++#ifdef SWITCH_ACPI_EHCI_TXFILL
++                        TXFT = 0x00100000                     // 16 << 16
++#endif
+                         Return (Zero)
+                     }
++
++                    If ((Arg2 == 6))
++                    {
++                        Return (One)                          // must use 32-bit register access
++                    }
+                 }
+ 
+                 Return (Buffer (One) { 0x00 })
+@@ -249,7 +324,16 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
+ 
+             Method (_STA, 0, NotSerialized)
+             {
++#ifdef SWITCH_ACPI_USB_SELECT
++                If ((UBSL == Zero))
++                {
++                    Return (0x0F)
++                }
++
++                Return (Zero)
++#else
+                 Return (0x0F)
++#endif
+             }
+         }
+ #endif
+diff --git a/Drivers/XusbInitApp/XusbInit.c b/Drivers/XusbInitApp/XusbInit.c
+index 11a41a9..718a348 100644
+--- a/Drivers/XusbInitApp/XusbInit.c
++++ b/Drivers/XusbInitApp/XusbInit.c
+@@ -882,6 +882,185 @@ StepDLog (
+   }
+ }
+ 
++// ---------------------------------------------------------------------------------------------
++// ACPI USB controller selection. With -D SWITCH_ACPI_XHCI=1 -D SWITCH_ACPI_EHCI=1 the DSDT describes both
++// EHC0 (inbox usbehci, USB1) and XHC0 (usbxhci, XUSB) but only one may be visible: they drive the same
++// USB-C port. The DSDT holds `Name (UBSL, Zero)`; _STA of EHC0 is "UBSL == 0", of XHC0 "UBSL == 1".
++// The AML for that name is 08 'U' 'B' 'S' 'L' 00, so selecting XHC0 = patching the last byte to 01
++// (OneOp) and fixing the table checksum. Builds with only one of the flags have no UBSL: nothing to do.
++// `xusbinit acpi [xhci|ehci]` shows / forces the choice. Without a forced choice the firmware picks XHC0
++// at ExitBootServices when the xHCI host is up (xusbinit up/boot/daemon ran), else EHC0.
++// ---------------------------------------------------------------------------------------------
++#define ACPI_SEL_NOTFOUND  (-1)
++
++STATIC INTN     mAcpiForced = -1;           // -1 = automatic, 0 = EHC0, 1 = XHC0
++#ifdef XUSB_DYNAMIC
++STATIC EFI_EVENT mAcpiSelEvent = NULL;
++#endif
++
++STATIC
++UINT32
++AcpiRd32 (
++  IN CONST UINT8  *P
++  )
++{
++  return (UINT32)P[0] | ((UINT32)P[1] << 8) | ((UINT32)P[2] << 16) | ((UINT32)P[3] << 24);
++}
++
++STATIC
++UINT64
++AcpiRd64 (
++  IN CONST UINT8  *P
++  )
++{
++  return (UINT64)AcpiRd32 (P) | ((UINT64)AcpiRd32 (P + 4) << 32);
++}
++
++// Find the loaded DSDT, locate UBSL and return a pointer to its value byte (NULL if not there).
++STATIC
++UINT8 *
++AcpiFindUbsl (
++  OUT UINT8   **DsdtOut,
++  OUT UINT32  *DsdtLen
++  )
++{
++  VOID    *Rsdp;
++  UINT8   *R;
++  UINT8   *X;
++  UINT8   *F;
++  UINT8   *D;
++  UINT32  N;
++  UINT32  I;
++  UINT32  L;
++  UINT64  Addr;
++
++  if (EFI_ERROR (EfiGetSystemConfigurationTable (&gEfiAcpi20TableGuid, &Rsdp)) || Rsdp == NULL) {
++    return NULL;
++  }
++  R = (UINT8 *)Rsdp;
++  if (CompareMem (R, "RSD PTR ", 8) != 0 || R[15] < 2) {
++    return NULL;
++  }
++  X = (UINT8 *)(UINTN)AcpiRd64 (R + 24);
++  if (X == NULL || CompareMem (X, "XSDT", 4) != 0) {
++    return NULL;
++  }
++  N = (AcpiRd32 (X + 4) - 36) / 8;
++  for (I = 0; I < N; I++) {
++    F = (UINT8 *)(UINTN)AcpiRd64 (X + 36 + 8 * I);
++    if (F == NULL || CompareMem (F, "FACP", 4) != 0) {
++      continue;
++    }
++    L    = AcpiRd32 (F + 4);
++    Addr = (L >= 148) ? AcpiRd64 (F + 140) : 0;          // X_DSDT (offset 140: not 8-byte aligned, read bytewise)
++    if (Addr == 0) {
++      Addr = AcpiRd32 (F + 40);                          // DSDT
++    }
++    D = (UINT8 *)(UINTN)Addr;
++    if (D == NULL || CompareMem (D, "DSDT", 4) != 0) {
++      return NULL;
++    }
++    L = AcpiRd32 (D + 4);
++    for (I = 36; I + 6 <= L; I++) {
++      if (D[I] == 0x08 && D[I + 1] == 'U' && D[I + 2] == 'B' && D[I + 3] == 'S' && D[I + 4] == 'L' &&
++          (D[I + 5] == 0x00 || D[I + 5] == 0x01)) {
++        *DsdtOut = D;
++        *DsdtLen = L;
++        return &D[I + 5];
++      }
++    }
++    return NULL;
++  }
++  return NULL;
++}
++
++// Set UBSL (0 = EHC0, 1 = XHC0), fix the checksum. Returns the value now in the table or ACPI_SEL_NOTFOUND.
++STATIC
++INTN
++AcpiSelect (
++  IN INTN  Value                                         // -1: only read
++  )
++{
++  UINT8   *D;
++  UINT8   *V;
++  UINT32  L;
++  UINT32  I;
++  UINT8   Sum;
++
++  V = AcpiFindUbsl (&D, &L);
++  if (V == NULL) {
++    return ACPI_SEL_NOTFOUND;
++  }
++  if (Value >= 0 && *V != (UINT8)Value) {
++    *V = (UINT8)Value;
++    D[9] = 0;
++    for (Sum = 0, I = 0; I < L; I++) {
++      Sum = (UINT8)(Sum + D[I]);
++    }
++    D[9] = (UINT8)(0 - Sum);
++  }
++  return *V;
++}
++
++#ifdef XUSB_DYNAMIC
++STATIC
++VOID
++EFIAPI
++AcpiSelectOnExitBootServices (
++  IN EFI_EVENT  Event,
++  IN VOID       *Context
++  )
++{
++  if (mAcpiForced >= 0) {
++    AcpiSelect (mAcpiForced);
++  } else {
++    AcpiSelect (HostAlive () ? 1 : 0);
++  }
++}
++#endif
++
++STATIC
++VOID
++StepAcpi (
++  IN CONST CHAR16  *Arg
++  )
++{
++  INTN  R;
++
++  if (Arg != NULL && StrCmp (Arg, L"xhci") == 0) {
++    mAcpiForced = 1;
++  } else if (Arg != NULL && StrCmp (Arg, L"ehci") == 0) {
++    mAcpiForced = 0;
++  } else if (Arg != NULL && StrCmp (Arg, L"auto") == 0) {
++    mAcpiForced = -1;
++  }
++  R = AcpiSelect (mAcpiForced);                          // applies a forced choice now, else only reads
++  if (R == ACPI_SEL_NOTFOUND) {
++    Log (L"acpi: no UBSL in the DSDT (build with both -D SWITCH_ACPI_XHCI=1 and -D SWITCH_ACPI_EHCI=1)");
++  } else {
++    Log (L"acpi: DSDT selects %s (%s); xHCI host %s",
++         R == 1 ? L"XHC0 (xHCI)" : L"EHC0 (EHCI)",
++         mAcpiForced < 0 ? L"automatic: decided again at ExitBootServices" : L"forced",
++         HostAlive () ? L"up" : L"down");
++  }
++}
++
++// Registered once, from the resident (dynamic command) build only: an event handler in a shell
++// application image would outlive the image.
++STATIC
++VOID
++AcpiSelectArm (
++  VOID
++  )
++{
++#ifdef XUSB_DYNAMIC
++  if (mAcpiSelEvent == NULL) {
++    gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, AcpiSelectOnExitBootServices, NULL,
++                        &gEfiEventExitBootServicesGuid, &mAcpiSelEvent);
++  }
++#endif
++}
++
+ // ---------------------------------------------------------------------------------------------
+ STATIC
+ EFI_STATUS
+@@ -894,7 +1073,7 @@ RunXusb (
+   CONST CHAR16  *Arg;
+ 
+   if (Argc < 2) {
+-    Print (L"usage: xusbinit info|pmc|pg|clk|pad|ss|fw [file]|svc [sec]|ports|restore|all [file]|up [file]|daemon [stop]|dlog\n");
++    Print (L"usage: xusbinit info|pmc|pg|clk|pad|ss|fw [file]|svc [sec]|ports|restore|all [file]|up [file]|daemon [stop]|dlog|acpi [xhci|ehci|auto]\n");
+     return EFI_SUCCESS;
+   }
+   Cmd = Argv[1];
+@@ -933,6 +1112,8 @@ RunXusb (
+     StepDaemon (!(Arg != NULL && StrCmp (Arg, L"stop") == 0));
+   } else if (StrCmp (Cmd, L"dlog") == 0) {
+     StepDLog ();
++  } else if (StrCmp (Cmd, L"acpi") == 0) {
++    StepAcpi (Arg);
+   } else if (StrCmp (Cmd, L"up") == 0) {
+     // clk, pad, ss, firmware, then keep answering the firmware in the background
+     StepClk ();
+@@ -952,6 +1133,8 @@ RunXusb (
+     Log (L"unknown command %s", Cmd);
+   }
+ 
++  AcpiSelectArm ();                         // select XHC0/EHC0 in the DSDT at ExitBootServices
++
+   if (mLog != NULL) {
+     ShellCloseFile (&mLog);
+   }
+@@ -1005,7 +1188,7 @@ XusbCmdGetHelp (
+   )
+ {
+   STATIC CONST CHAR16  Help[] =
+-    L"xusbinit info|pmc|pg|clk|pad|fw [file]|svc [sec]|ports|restore|all [file]|up [file]|daemon [stop]|dlog  (Tegra210 XUSB bring-up, DRAFT; log: xusb.log)\r\n";
++    L"xusbinit info|pmc|pg|clk|pad|fw [file]|svc [sec]|ports|restore|all [file]|up [file]|daemon [stop]|dlog|acpi [xhci|ehci|auto]  (Tegra210 XUSB bring-up, DRAFT; log: xusb.log)\r\n";
+ 
+   return AllocateCopyPool (sizeof (Help), Help);
+ }
+diff --git a/Drivers/XusbInitApp/XusbInit.inf b/Drivers/XusbInitApp/XusbInit.inf
+index 3ea8f84..d99a421 100644
+--- a/Drivers/XusbInitApp/XusbInit.inf
++++ b/Drivers/XusbInitApp/XusbInit.inf
+@@ -31,6 +31,7 @@
+ 
+ [Guids]
+   gEfiEventExitBootServicesGuid
++  gEfiAcpi20TableGuid
+ 
+ [Protocols]
+   gEfiShellParametersProtocolGuid
+diff --git a/Drivers/XusbInitApp/XusbInitCmd.inf b/Drivers/XusbInitApp/XusbInitCmd.inf
+index 7383ba8..6230dae 100644
+--- a/Drivers/XusbInitApp/XusbInitCmd.inf
++++ b/Drivers/XusbInitApp/XusbInitCmd.inf
+@@ -31,6 +31,7 @@
+ 
+ [Guids]
+   gEfiEventExitBootServicesGuid
++  gEfiAcpi20TableGuid
+ 
+ [Protocols]
+   gEfiShellParametersProtocolGuid
+diff --git a/NintendoSwitch.dsc b/NintendoSwitch.dsc
+index a571a28..e1ff414 100644
+--- a/NintendoSwitch.dsc
++++ b/NintendoSwitch.dsc
+@@ -65,7 +65,13 @@
+ !else
+   DEFINE ACPI_ASL_EHCI           =
+ !endif
+-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI)
++!ifdef SWITCH_ACPI_EHCI_TXFILL
++  # Rewrite TXFILLTUNING (16 << 16) in the EHC0 post-reset _DSM, as Linux does for Tegra30-class EHCI. Value for T210 unconfirmed.
++  DEFINE ACPI_ASL_EHCI_TXFILL    = -DSWITCH_ACPI_EHCI_TXFILL
++!else
++  DEFINE ACPI_ASL_EHCI_TXFILL    =
++!endif
++  GCC:*_*_AARCH64_ASLPP_FLAGS = $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+ 
+ ################################################################################
+ #

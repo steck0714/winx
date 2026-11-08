@@ -1,0 +1,87 @@
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+typedef uint8_t UCHAR, BOOLEAN, *PUCHAR;
+typedef uint16_t USHORT;
+typedef uint32_t ULONG;
+typedef int32_t LONG, NTSTATUS;
+typedef void VOID;
+#define TRUE 1
+#define FALSE 0
+#define STATUS_SUCCESS 0
+#define STATUS_DEVICE_CONFIGURATION_ERROR ((NTSTATUS)0xc0000182)
+#define STATUS_IO_TIMEOUT ((NTSTATUS)0xc00000b5)
+#define NT_SUCCESS(s) ((s) >= 0)
+#define RtlZeroMemory memset_zero
+static void memset_zero(void *p,size_t n) {memset(p,0,n);}
+static LONG InterlockedIncrement(LONG *p) {return ++*p;}
+/* DRIVER_TYPES */
+typedef struct {
+    TOUCH_CONTACT Contacts[TOUCH_MAX_CONTACTS];
+    TOUCH_REPORT Report;
+    USHORT LastLandscapeX, LastLandscapeY;
+    BOOLEAN ReportPending,VhfReady,Stopping;
+    ULONG InvertX,InvertY,IntReg;
+    LONG Reports,Errors,Held,Events;
+    void *Lock,*Interrupt,*Vhf;
+} SWTOUCH_DEVICE, *PSWTOUCH_DEVICE;
+typedef struct { UCHAR *reportBuffer; ULONG reportBufferLen; UCHAR reportId; } HID_XFER_PACKET;
+static void WdfWaitLockAcquire(void *lock,void *unused) {(void)lock;(void)unused;}
+static void WdfWaitLockRelease(void *lock) {(void)lock;}
+static ULONG phase, written, retries, fifo_pos, fifo_len, sent, fail_submissions, reset_ready=1, controller=0x3670;
+static UCHAR fifo[16][8]; static TOUCH_REPORT frames[32];
+static void SwTouchTrace(const wchar_t *name,ULONG val) {if (!wcscmp(name,L"ProbeStage")) phase=val;}
+static void SwTouchDelay(ULONG t) {(void)t;}
+static NTSTATUS VhfReadReportSubmit(void *vhf,HID_XFER_PACKET *p) {
+    assert(p->reportBufferLen==sizeof(TOUCH_REPORT) && p->reportId==1);
+    if(fail_submissions){--fail_submissions;return STATUS_IO_TIMEOUT;}
+    assert(sent<32);memcpy(&frames[sent++],p->reportBuffer,p->reportBufferLen);return STATUS_SUCCESS;
+}
+static NTSTATUS SwTouchXfer(PSWTOUCH_DEVICE dev,PUCHAR cmd,ULONG n,PUCHAR out,ULONG len) {
+    (void)dev;
+    if(len && cmd[0]==0xb6 && n==3 && cmd[2]==4) {
+        assert(len==7);memset(out,0,7);out[1]=controller>>8;out[2]=controller;return 0;
+    }
+    if(len && cmd[0]==0xb6 && n==3 && cmd[2]==0x23) {
+        assert(len==2);out[0]=0;out[1]=(UCHAR)((fifo_len-fifo_pos)*2);++retries;return 0;
+    }
+    if(len && cmd[0]==0x85) {
+        assert(n==1 && len==8 && fifo_pos<fifo_len);memcpy(out,fifo[fifo_pos++],8);return 0;
+    }
+    assert(!len); ++written;
+    if(n==4 && cmd[2]==0x28){
+        assert(cmd[0]==0xb6 && cmd[3]==0x80);
+        if(reset_ready){memset(fifo,0,sizeof(fifo));fifo[0][0]=0x10;fifo_pos=0;fifo_len=1;}
+    } else if(n==2) {assert(cmd[0]==0xc3 && cmd[1]==1);}
+    else if(n==1) {assert(cmd[0]==0x93 || cmd[0]==0xa1);}
+    else {assert(n==4 && cmd[0]==0xb6 && cmd[2]==0x2c && cmd[3]==0x41);}
+    return 0;
+}
+/* DRIVER_CODE */
+static void event(unsigned kind,unsigned id,unsigned x,unsigned y) {
+    assert(fifo_len<16); UCHAR *e=fifo[fifo_len++];memset(e,0,8);
+    e[0]=(UCHAR)(kind|(id<<4));e[1]=(UCHAR)(x>>4);e[2]=(UCHAR)(y>>4);
+    e[3]=(UCHAR)(((x&15)<<4)|(y&15));
+}
+int main(void) {
+    SWTOUCH_DEVICE dev={0}; dev.IntReg=0x2c;dev.Interrupt=&dev;dev.VhfReady=1;dev.InvertY=1;
+    controller=0x1111;assert(SwTouchStartPanel(&dev)==STATUS_DEVICE_CONFIGURATION_ERROR && written==0);
+    controller=0x3670;reset_ready=0;assert(SwTouchStartPanel(&dev)==STATUS_IO_TIMEOUT && written==1 && retries==25);
+    written=retries=0;reset_ready=1;assert(SwTouchStartPanel(&dev)==0 && written==5 && phase==4);
+    fifo_len=fifo_pos=0;event(EV_ENTER,1,15,15);event(EV_LEAVE,1,15,15);
+    SwTouchService(&dev);assert(sent==2 && frames[0].Contacts[0].Flags==3 && frames[1].Contacts[0].Flags==0);
+    assert(frames[0].Contacts[0].X==0 && frames[0].Contacts[0].Y==1279 && frames[1].Contacts[0].Id==1);
+    event(EV_ENTER,0,1264,704);event(EV_ENTER,2,200,300);event(EV_LEAVE,0,1264,704);event(EV_LEAVE,2,200,300);
+    SwTouchService(&dev);assert(sent==6 && frames[2].Contacts[0].X==719 && frames[2].Contacts[0].Y==0);
+    assert(frames[3].ContactCount==2 && frames[4].Contacts[0].Flags==0 && frames[4].Contacts[1].Flags==3);
+    assert(frames[5].ContactCount==1 && frames[5].Contacts[0].Id==2 && frames[5].Contacts[0].Flags==0);
+    fail_submissions=2;event(EV_ENTER,0,500,400);event(EV_LEAVE,0,500,400);
+    SwTouchService(&dev);assert(dev.ReportPending && fifo_pos+1==fifo_len);
+    SwTouchService(&dev);assert(dev.ReportPending && fifo_pos+1==fifo_len);
+    SwTouchService(&dev);assert(sent==8 && frames[6].Contacts[0].Flags==3 && frames[7].Contacts[0].Flags==0);
+    dev.Stopping=1;event(EV_ENTER,1,500,400);SwTouchService(&dev);assert(sent==8 && fifo_pos+1==fifo_len);
+    puts("FTM4 identity/reset/sense, bounded timeout, fast tap, two contacts, orientation, HID retry and suspend passed.");
+    return 0;
+}

@@ -1,0 +1,41 @@
+; ARM64 profile for the shared WinX/Microsoft KMDOD display-only sources.
+[Version]
+Signature = "$WINDOWS NT$"
+Class = Display
+ClassGUID = {4d36e968-e325-11ce-bfc1-08002be10318}
+Provider = %Provider%
+DriverVer = 11/05/2026,0.1.0.1
+CatalogFile = winxdisplay.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DisplayFiles = 12
+[SourceDisksNames]
+1 = %DiskName%
+[SourceDisksFiles]
+SampleDisplay.sys = 1
+
+[Manufacturer]
+%Provider% = Models,NTarm64
+[Models.NTarm64]
+%DeviceDesc% = DisplayInstall,ACPI\WINX0001
+%DeviceDesc% = DisplayInstall,ROOT\WINXDISP
+
+[DisplayInstall.NT]
+FeatureScore = F9
+CopyFiles = DisplayFiles
+[DisplayFiles]
+SampleDisplay.sys
+[DisplayInstall.NT.Services]
+AddService = WinxDisplay,0x00000002,DisplayService
+[DisplayService]
+DisplayName = %DeviceDesc%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\SampleDisplay.sys
+
+[Strings]
+Provider = "WinX"
+DiskName = "WinX ARM64 Display"
+DeviceDesc = "WinX Switch Display (display-only)"
