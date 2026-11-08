@@ -10,19 +10,17 @@ The normal build now disables those pulses and uses **native PMC reset for Resta
 
 ## Current sleep/wake work
 
-Retained-memory sleep and direct power-button wake without Hekate remain
-unimplemented as a complete, hardware-accepted path. Development is paused and isolated
-on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), paired with
-[WindowsDrivers `sc7-test`](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/sc7-test).
-The branch retains the Switchroot references, experimental PEP, PMIC wake,
-BL31 clock/pin context and input runtime-idle work. None of those additions
-is included in the default firmware or driver source. S4 remains removed.
+On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake.
 
-The default branch retains the verified R6 shutdown/native-reset code and
-pre-sleep GPIO, I2C, power-button, RTC, touch and SIO implementations.
-Fan 1.0.0.7's independent fix moves registry writes outside the display
-notification lock. One screen-off/on cycle passed on 1.0.0.6, but repeated
-lock-screen/black-screen stalls remain unresolved; cooling alone is not sleep.
+This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/vulkan-test/drivers/SwitchPowerButton) is on `vulkan-test`; this result does not imply that an older default-branch driver package contains the fix.
+
+The driver selects HID Wake Up when the display is off and Power Down while
+it is on. Holding a wake press across the display transition does not submit
+another power request. Polling lifecycle is drained/restarted without adding
+PMIC/GIC wake interrupts or a processor PEP. SC7 development remains paused on
+[`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with the matching
+driver branch; S4 remains removed. Normal shutdown and native restart retain
+their separate accepted results above.
 
 Bluetooth 1.0.0.19 retains bounded patch/reset recovery and UART-D host
 preparation. SD 0.5.0.3 retains DDR200 development and corrects clock ordering
