@@ -11,6 +11,7 @@
 
 // Compile the canonical backend source from the driver submodule, not a copy.
 #include "../../WindowsDrivers/drivers/TegraGpu/platform/t214_power.c"
+#include "../../WindowsDrivers/drivers/TegraGpu/core/identity.h"
 #include "LiteGpuI2c.h"
 
 STATIC uint32_t GpuRead32 (void *Context, uint32_t Address)
@@ -40,6 +41,7 @@ VOID LiteGpuPowerCheck (VOID)
   UINT8 Value, Pmic = 0;
   BOOLEAN Probe31, Probe33;
   UINT32 Boot0, Boot0Again;
+  struct tg_gpu_identity Identity;
 
   ZeroMem (&State, sizeof (State));
   Print (L"T214 GPU POWER CHECK R3 / NO DMA\r\n");
@@ -61,8 +63,9 @@ VOID LiteGpuPowerCheck (VOID)
     gBS->Stall (10);
     Boot0Again = MmioRead32 (0x57000000);
     Print (L"GPU BOOT0 %08x  repeat %08x\r\n", Boot0, Boot0Again);
-    if (Boot0 == Boot0Again && ((Boot0 >> 20) & 0x1FF) == 0x12B)
-      Print (L"GM20B IDENTIFIED; GPU execution has not been tested.\r\n");
+    if (Boot0 == Boot0Again && tg_gpu_identify (Boot0, &Identity) &&
+        Identity.chipset == TG_GPU_CHIP_GM20B_B)
+      Print (L"GM20B_B (T214) IDENTIFIED; GPU execution has not been tested.\r\n");
     else
       Print (L"GPU identity not confirmed.\r\n");
   }
