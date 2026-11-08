@@ -178,12 +178,24 @@ static LRESULT CALLBACK proc(HWND w,UINT msg,WPARAM a,LPARAM b) {
    LPCWSTR result=pass?L"GPU FIFO READBACK PASS":L"GPU check did not pass";
    TextOutW(dc,660,352,result,lstrlenW(result));SetTextColor(dc,RGB(20,30,45));
    wsprintfW(text,L"Stage %lu  P:%lu C:%lu E:%lu",gpu.stage,gpu.power_result,gpu.clock_result,gpu.execution_result);TextOutW(dc,660,396,text,lstrlenW(text));
-   wsprintfW(text,L"Read 1: %08lX / %08lX",gpu.observed[0],gpu.expected[0]);TextOutW(dc,660,440,text,lstrlenW(text));
-   wsprintfW(text,L"Read 2: %08lX / %08lX",gpu.observed[1],gpu.expected[1]);TextOutW(dc,660,484,text,lstrlenW(text));
+   if(gpu.stage>=301 && gpu.stage<304){
+    wsprintfW(text,L"MC: %08lX -> %08lX",gpu.mc_enable_before,gpu.mc_enable_after);TextOutW(dc,660,440,text,lstrlenW(text));
+    if(gpu.mc_enable_before&0x100)wsprintfW(text,L"INST: %08lX -> %08lX",gpu.channel_instance_before,gpu.channel_instance_after);
+    else wsprintfW(text,L"INST: reset -> %08lX",gpu.channel_instance_after);
+   }else{
+    wsprintfW(text,L"Read 1: %08lX / %08lX",gpu.observed[0],gpu.expected[0]);TextOutW(dc,660,440,text,lstrlenW(text));
+    wsprintfW(text,L"Read 2: %08lX / %08lX",gpu.observed[1],gpu.expected[1]);
+   }
+   TextOutW(dc,660,484,text,lstrlenW(text));
    wsprintfW(text,L"Restore %08lX  owned %lu",gpu.restore_result,gpu.resources_owned);TextOutW(dc,660,528,text,lstrlenW(text));
   }
-  gpu_line(dc,580,L"GPU powers down after this test.");
-  gpu_line(dc,624,L"FIFO pass is not Vulkan rendering.");
+  if(gpu.tested && gpu.execution_result && !gpuBusy && !gpuTestError && !gpuError){
+   wsprintfW(text,L"FIFO %08lX  MMU %08lX",gpu.fifo_interrupt,gpu.mmu_fault);gpu_line(dc,580,text);
+   wsprintfW(text,L"PBDMA %08lX  CH %08lX",gpu.pbdma_interrupt,gpu.channel_status);gpu_line(dc,624,text);
+  }else{
+   gpu_line(dc,580,L"GPU powers down after this test.");
+   gpu_line(dc,624,L"FIFO pass is not Vulkan rendering.");
+  }
   EndPaint(w,&p);return 0;
  }
  if(msg==WM_DESTROY){KillTimer(w,1);PostQuitMessage(0);return 0;}
