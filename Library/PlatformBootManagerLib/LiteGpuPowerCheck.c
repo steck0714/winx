@@ -11,6 +11,7 @@
 
 // Compile the canonical backend source from the driver submodule, not a copy.
 #include "../../WindowsDrivers/drivers/TegraGpu/platform/t214_power.c"
+#include "LiteGpuI2c.h"
 
 STATIC uint32_t GpuRead32 (void *Context, uint32_t Address)
 {
@@ -23,19 +24,6 @@ STATIC void GpuWrite32 (void *Context, uint32_t Address, uint32_t Value)
   (VOID)Context;
   MmioWrite32 (Address, Value);
   MemoryFence ();
-}
-
-STATIC bool GpuReadPmic (void *Context, uint8_t Address, uint8_t Reg, uint8_t *Value)
-{
-  (VOID)Context;
-  return i2c_xfer_packet (I2C_5, Address, &Reg, 1, Value, 1) != 0;
-}
-
-STATIC bool GpuWritePmic (void *Context, uint8_t Address, uint8_t Reg, uint8_t Value)
-{
-  UINT8 Bytes[2] = { Reg, Value };
-  (VOID)Context;
-  return i2c_xfer_packet (I2C_5, Address, Bytes, 2, NULL, 0) != 0;
 }
 
 STATIC void GpuDelay (void *Context, uint32_t Microseconds)
@@ -54,7 +42,7 @@ VOID LiteGpuPowerCheck (VOID)
   UINT32 Boot0, Boot0Again;
 
   ZeroMem (&State, sizeof (State));
-  Print (L"T214 GPU POWER CHECK R2 / NO DMA\r\n");
+  Print (L"T214 GPU POWER CHECK R3 / NO DMA\r\n");
   Print (L"Windows does not start during this check.\r\n");
   Print (L"HIDREV %08x  RESET_X %08x  CLAMP %08x\r\n",
          MmioRead32 (0x70000804), MmioRead32 (0x6000628C), MmioRead32 (0x7000E6D4));
