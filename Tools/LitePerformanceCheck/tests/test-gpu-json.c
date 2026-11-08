@@ -45,6 +45,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  s.frontend.gr_gate_ctrl[0]=0xaaaa0010;s.frontend.gr_gate_ctrl[1]=0xbbbb0010;
  s.gr.stage=15;s.gr.fecs_mailbox=0x9000;s.gr.last_register=0x4188ac;s.gr.last_value=2;
  s.gr.context_bytes=0x17000;s.gr.zcull_bytes=0x4000;s.gr.pm_bytes=0x9000;
+ s.gr.fecs_host_interrupt=0x10000;s.gr.fecs_ctxsw_status=0x1234;
+ s.gr.fecs_error_mailbox=0x18;s.gr.new_context=0x800c0040;
  if(fixture>=6){
   s.gr.priv_security=1;s.acr.stage=9;s.acr.security=1;s.acr.wpr_base=0xffc00000;s.acr.wpr_size=0x200000;
   s.stage=310;s.execution_result=14; /* Authentication alone cannot pass FIFO. */

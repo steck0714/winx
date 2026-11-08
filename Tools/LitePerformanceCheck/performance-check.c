@@ -11,6 +11,13 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <TegraGpu/windows/control.h>
+/* This tool links without the CRT. Larger status aggregates may lower to a
+ * memset call; volatile stores keep this implementation self-contained. */
+void *memset(void *destination,int value,size_t bytes) {
+ volatile unsigned char *out=destination;
+ for(size_t i=0;i<bytes;++i)out[i]=(unsigned char)value;
+ return destination;
+}
 static UINT_PTR image_cookie = 0x00002b992ddfa232ULL;
 const IMAGE_LOAD_CONFIG_DIRECTORY64 _load_config_used = {
  .Size = sizeof(IMAGE_LOAD_CONFIG_DIRECTORY64), .SecurityCookie = (ULONG_PTR)&image_cookie
@@ -130,6 +137,7 @@ static DWORD gpu_json(void) {
   NUMBER(bar1_phase);HEX(bar1_expected);HEX(bar1_read);HEX(bar1_cpu);
   NUMBER(gr.stage);NUMBER(gr.result);HEX(gr.priv_security);HEX(gr.last_register);HEX(gr.last_value);
   HEX(gr.current_context);NUMBER(gr.context_bytes);NUMBER(gr.zcull_bytes);NUMBER(gr.pm_bytes);
+  HEX(gr.fecs_host_interrupt);HEX(gr.fecs_ctxsw_status);HEX(gr.fecs_error_mailbox);HEX(gr.new_context);
   HEX(gr.fecs_hwcfg);HEX(gr.gpccs_hwcfg);HEX(gr.fecs_mailbox);HEX(gr.gr_interrupt);HEX(firmware_status);
   NUMBER(acr_firmware_result);NUMBER(acr.stage);NUMBER(acr.result);HEX(acr.security);
   HEX(acr.hwcfg);NUMBER(acr.imem_size);NUMBER(acr.dmem_size);HEX(acr.mc_enable);
