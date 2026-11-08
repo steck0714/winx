@@ -14,6 +14,8 @@ On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the di
 
 This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
 
+A later long screen-off session on battery became unresponsive and required a forced power-off. Windows recorded a Power Button standby exit after about 43 minutes, followed by an unexpected restart. The failing component is not identified; long-duration standby remains unresolved.
+
 The driver selects HID Wake Up when the display is off and Power Down while
 it is on. Holding a wake press across the display transition does not submit
 another power request. Polling lifecycle is drained/restarted without adding
@@ -34,6 +36,14 @@ The earlier Bluetooth 1.0.0.18 + DDR200 0.5.0.1 combination failed with
 INACCESSIBLE_BOOT_DEVICE. The owner supplied the stop-code photograph; no
 current crash dump or driver diagnostics survived on the returned card.
 The cause remains under investigation. [Current status](PORTING.md)
+
+## Charge termination
+
+SwitchBattery **1.0.0.11** enables BQ24193 hardware termination and an eight-hour charge safety timer independently of the optional USB-C PD connection. It preserves the existing voltage/current limits, temperature settings and charge/OTG mode. Normal termination uses the configured voltage/current thresholds; a voltage drop below the recharge threshold starts a new cycle without waiting eight hours. The driver does not repeatedly reset the safety timer or stop charging solely because the gauge displays 100%.
+
+On 2026-11-08, the ARM64 build, native SYS/catalog signatures and live installation passed. The running driver reported version 11, successful REG05 readback **0x02 → 0x8A**, and a started battery device charging at about 91%. A complete full-charge/recharge cycle has not yet been observed. Earlier full-percentage readings did not show voltage exceeding the configured 4.192 V limit. Fixed initialization results use the existing driver Parameters key; the temporary monitoring package was removed.
+
+[Implementation, tests and Switchroot comparison](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/docs/hdh001/README.md#charge-termination) · [TI BQ24193 charging behavior](https://www.ti.com/lit/ds/symlink/bq24193.pdf)
 
 ## Windows request ownership fix
 

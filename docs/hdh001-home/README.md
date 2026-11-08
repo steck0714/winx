@@ -212,11 +212,15 @@ At the desktop:
 
 On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake. This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
 
+Long-duration screen-off on battery has subsequently hung and required a forced power-off. This remains unresolved; the short-button test above does not establish reliable long-duration standby. [Current power results](power-performance.md#current-sleepwake-work)
+
 For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
 Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [porting status](PORTING.md). Normal Windows shutdown and native restart have owner-confirmed physical passes on the tested Lite. Use SwitchBattery **1.0.0.8** or later and the normal R6 firmware, which uses PMC reset for restart and disables diagnostic fan pulses. Wait for complete power removal before taking out the card. USB-C, headphone switching and other unaccepted functions remain listed in porting status. Keep extra test tones disabled.
 
 ## 6. Update an existing installation
+
+Include **SwitchBattery 1.0.0.11 or later** for BQ24193 automatic charge termination and the eight-hour safety timer. It preserves existing charging limits and works without the optional USB-C PD resource. Configuration readback passed on the Lite; full-charge/recharge acceptance remains pending. [Charging policy](power-performance.md#charge-termination)
 
 Back up the current boot files and Windows installation, then assemble the complete matching kit from step 2. Keep the same card-specific storage header and matching partition view in BL33 and the SD miniport. Driver updates do not require formatting, reapplying Windows or resetting OOBE.
 
