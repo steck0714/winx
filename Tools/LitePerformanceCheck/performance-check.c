@@ -2,6 +2,7 @@
 // --gpu-json queries live status; add --gpu-729 or --gpu-1228 for one FIFO run.
 // --gpu-gr-729 additionally initializes and reads back a golden GR context.
 // --gpu-3d-729 loads a channel image and reads back graphics-engine reports.
+// --gpu-clear-729 additionally verifies an off-screen ROP color-clear pattern.
 // --gpu-irq-729 requires two distinct hardware ISR/DPC notifications as well.
 // JSON goes to inherited stdout (SSH/pipe/redirection), without a GUI or UAC.
 // Query success exits 0 even for an earlier failed test; inspect fifo_pass.
@@ -47,7 +48,7 @@ static LPWSTR *arguments;
 static BOOL gpu_io(DWORD code, DWORD target, struct tg_gpu_status *out, DWORD *error) {
  DWORD bytes=0;
  BOOL run=code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN || code==TG_GPU_IOCTL_IRQ_RUN ||
-          code==TG_GPU_IOCTL_3D_RUN;
+          code==TG_GPU_IOCTL_3D_RUN || code==TG_GPU_IOCTL_CLEAR_RUN;
  struct tg_gpu_request in={TG_GPU_CONTROL_VERSION,target};
  HANDLE h=CreateFileW(L"\\\\.\\TegraGpuProbe",run?GENERIC_WRITE:GENERIC_READ,
                      FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
@@ -98,26 +99,29 @@ static DWORD gpu_json(void) {
  BOOL runGr=has_switch(L"--gpu-gr-729");
  BOOL runIrq=has_switch(L"--gpu-irq-729");
  BOOL run3d=has_switch(L"--gpu-3d-729");
- BOOL run=run729||run1228||runGr||runIrq||run3d;
+ BOOL runClear=has_switch(L"--gpu-clear-729");
+ BOOL run=run729||run1228||runGr||runIrq||run3d||runClear;
  HANDLE out=GetStdHandle(STD_OUTPUT_HANDLE);
  if(!out || out==INVALID_HANDLE_VALUE)return ERROR_INVALID_HANDLE;
  for(int i=1;i<argumentCount;++i)
   if(lstrcmpW(arguments[i],L"--gpu-json") && lstrcmpW(arguments[i],L"--gpu-729") &&
      lstrcmpW(arguments[i],L"--gpu-1228") && lstrcmpW(arguments[i],L"--gpu-gr-729") &&
-     lstrcmpW(arguments[i],L"--gpu-irq-729") && lstrcmpW(arguments[i],L"--gpu-3d-729"))ioError=ERROR_INVALID_PARAMETER;
- if(run729+run1228+runGr+runIrq+run3d>1)ioError=ERROR_INVALID_PARAMETER;
+     lstrcmpW(arguments[i],L"--gpu-irq-729") && lstrcmpW(arguments[i],L"--gpu-3d-729") &&
+     lstrcmpW(arguments[i],L"--gpu-clear-729"))ioError=ERROR_INVALID_PARAMETER;
+ if(run729+run1228+runGr+runIrq+run3d+runClear>1)ioError=ERROR_INVALID_PARAMETER;
  /* A status query never powers up the GPU. RUN requires an already elevated
   * caller: no UAC window, hidden GUI, retry loop or file is created over SSH.
   */
- if(!ioError)gpu_io(run3d?TG_GPU_IOCTL_3D_RUN:runIrq?TG_GPU_IOCTL_IRQ_RUN:runGr?TG_GPU_IOCTL_GR_RUN:run?TG_GPU_IOCTL_RUN:TG_GPU_IOCTL_STATUS,
+ if(!ioError)gpu_io(runClear?TG_GPU_IOCTL_CLEAR_RUN:run3d?TG_GPU_IOCTL_3D_RUN:runIrq?TG_GPU_IOCTL_IRQ_RUN:runGr?TG_GPU_IOCTL_GR_RUN:run?TG_GPU_IOCTL_RUN:TG_GPU_IOCTL_STATUS,
                    run1228?TG_GPU_CONTROL_OC_KHZ:TG_GPU_CONTROL_DEFAULT_KHZ,&s,&ioError);
- if(!json_text(out,run3d?"{\"operation\":\"gr-engine\"":runIrq?"{\"operation\":\"irq\"":runGr?"{\"operation\":\"gr-context\"":run?"{\"operation\":\"run\"":"{\"operation\":\"status\"") ||
+ if(!json_text(out,runClear?"{\"operation\":\"gr-clear\"":run3d?"{\"operation\":\"gr-engine\"":runIrq?"{\"operation\":\"irq\"":runGr?"{\"operation\":\"gr-context\"":run?"{\"operation\":\"run\"":"{\"operation\":\"status\"") ||
     !json_number(out,"tool_abi",TG_GPU_CONTROL_VERSION,FALSE) ||
     !json_number(out,"win32_error",ioError,FALSE) ||
     !json_text(out,!ioError&&gpu_pass(&s)?",\"fifo_pass\":true":",\"fifo_pass\":false") ||
     !json_text(out,!ioError&&gpu_gr_pass(&s)?",\"gr_context_pass\":true":",\"gr_context_pass\":false") ||
     !json_text(out,!ioError&&gpu_irq_pass(&s)?",\"irq_pass\":true":",\"irq_pass\":false") ||
-    !json_text(out,!ioError&&gpu_3d_pass(&s)?",\"gr_engine_pass\":true":",\"gr_engine_pass\":false"))
+    !json_text(out,!ioError&&gpu_3d_pass(&s)?",\"gr_engine_pass\":true":",\"gr_engine_pass\":false") ||
+    !json_text(out,!ioError&&gpu_pixel_pass(&s)?",\"pixel_pass\":true":",\"pixel_pass\":false"))
   return ERROR_WRITE_FAULT;
  if(!ioError){
 #define NUMBER(field) if(!json_number(out,#field,s.field,FALSE))return ERROR_WRITE_FAULT
@@ -165,6 +169,11 @@ static DWORD gpu_json(void) {
   NUMBER(irq_dpcs);NUMBER(irq_gsi);NUMBER(irq_expected);
   NUMBER(gr_channel.image_result);NUMBER(gr_channel.image_ready);HEX(gr_channel.class_id);
   HEX(gr_channel.current_context);NUMBER(gr_channel.save_ops);NUMBER(gr_channel.restore_ops);
+  NUMBER(clear.checked);NUMBER(clear.width);NUMBER(clear.height);NUMBER(clear.pitch);NUMBER(clear.format);
+  NUMBER(clear.pixels);NUMBER(clear.errors);NUMBER(clear.guard_errors);
+  HEX(clear.background);HEX(clear.foreground);HEX(clear.image_hash);
+  HEX(method_error.status);HEX(method_error.trapped_address);HEX(method_error.data_lo);HEX(method_error.data_hi);
+  HEX(method_error.exception);HEX(method_error.fe_esr);HEX(method_error.mme_esr);HEX(method_error.scc_esr);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",
@@ -176,7 +185,7 @@ static DWORD gpu_json(void) {
 #undef HEX
  }
  if(!json_text(out,"}\r\n"))return ERROR_WRITE_FAULT;
- return ioError?ioError:run && !(run3d?gpu_3d_pass(&s):runIrq?gpu_irq_pass(&s):runGr?gpu_gr_pass(&s):gpu_pass(&s))?ERROR_GEN_FAILURE:ERROR_SUCCESS;
+ return ioError?ioError:run && !(runClear?gpu_pixel_pass(&s):run3d?gpu_3d_pass(&s):runIrq?gpu_irq_pass(&s):runGr?gpu_gr_pass(&s):gpu_pass(&s))?ERROR_GEN_FAILURE:ERROR_SUCCESS;
 }
 static BOOL backlight_io(DWORD code,void *in,DWORD inSize,void *out,DWORD outSize) {
  DWORD bytes=0;

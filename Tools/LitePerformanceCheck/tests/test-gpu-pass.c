@@ -39,6 +39,18 @@ int main(void)
  }
  bad=good;bad.irq_expected=2;bad.irq_gsi=T214_GPU_NONSTALL_GSI;
  bad.interrupt.interrupts=bad.irq_dpcs=2;assert(gpu_irq_pass(&bad));
+ assert(!gpu_pixel_pass(&good));
+ good.clear=(struct tg_gpu_clear_status){.checked=1,.width=16,.height=16,.pitch=128,
+     .format=0xd5,.pixels=256,.background=0xffff0000,.foreground=0xff0000ff};
+ assert(gpu_pixel_pass(&good));
+ for(unsigned test=0;test<8;++test){
+  bad=good;
+  if(test==0)bad.clear.errors=1;if(test==1)bad.clear.guard_errors=1;
+  if(test==2)bad.clear.background=0xdeadbeef;if(test==3)bad.clear.foreground=0xdeadbeef;
+  if(test==4)bad.clear.checked=0;if(test==5)bad.clear.height=15;
+  if(test==6)bad.clear.format=0;if(test==7)bad.clear.pixels=255;
+  assert(gpu_3d_pass(&bad)&&!gpu_pixel_pass(&bad));
+ }
  puts("GPU diagnostic acceptance gates: PASS (status fixtures only)");
  return 0;
 }

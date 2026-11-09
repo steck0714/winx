@@ -32,4 +32,11 @@ static inline bool gpu_3d_pass(const struct tg_gpu_status *s) {
         s->gr_channel.class_id==TG_GPU_GR_ENGINE_CLASS &&
         !s->gr.gr_interrupt && !s->gr.fecs_error_mailbox && !s->gr.fecs_host_interrupt;
 }
+static inline bool gpu_pixel_pass(const struct tg_gpu_status *s) {
+ return gpu_3d_pass(s) && s->clear.checked==1 && s->clear.pixels==TG_GPU_CLEAR_WIDTH*TG_GPU_CLEAR_HEIGHT &&
+        s->clear.width==TG_GPU_CLEAR_WIDTH && s->clear.height==TG_GPU_CLEAR_HEIGHT &&
+        s->clear.pitch==TG_GPU_CLEAR_PITCH && s->clear.format==TG_GPU_CLEAR_FORMAT &&
+        !s->clear.errors && !s->clear.guard_errors &&
+        s->clear.background==TG_GPU_CLEAR_BACKGROUND && s->clear.foreground==TG_GPU_CLEAR_FOREGROUND;
+}
 #endif
