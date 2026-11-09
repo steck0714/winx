@@ -6,10 +6,11 @@
 
 Native Windows 11 ARM64 Vulkan on HDH-001/T214/GM20B: GPU execution/readback → off-screen Vulkan draw with known pixels → stable Win32 presentation. Desktop rendering remains software; **fixed NAK shaders now draw physically, but no native Windows NVK ICD or Vulkan API draw pass exists**.
 
-- KMD first; retain Mesa NVK's compiler, command generation and ICD. Microsoft's render-only sample supplies WDDM structure. Game compatibility is outside scope; `sc7-test` stays paused.
+- KMD first; retain Mesa NVK's compiler, command generation and ICD. Microsoft's render-only sample supplies WDDM structure. Game compatibility is outside the current triangle phase; `sc7-test` stays paused.
+- Immediate priority: **real Vulkan API triangle + known pixel readback**, then a visible windowed triangle. Tell the owner to prepare video recording **before starting the visible demonstration**. Future OpenGL compatibility should use **Mesa Zink → NVK → KMD**; no separate native OpenGL driver is planned.
 - Preserve landscape display, installed systems, files, partitions, BCD and BL31/BL33. Publish no proprietary firmware or signing keys.
 - Keep AC/DC display-off and sleep **0 / Never**, screensaver and power-button behavior. CPU diagnostic remains `CpuOverclockEnabled=0` / 998.4 MHz / 800 mV. Black-screen investigation belongs to the side chat.
-- UMA plan agreed with owner: **512 MiB normal GPU working set, up to 1 GiB for pressure tests**, allocated dynamically within Windows/VidMm budgets. No boot-time RAM carve-out. Current Windows-visible RAM is 3,787.5 MiB; these budgets are not implemented by the private diagnostic.
+- Owner-selected UMA budget: **512 MiB maximum GPU working set**, allocated dynamically within Windows/VidMm budgets; the earlier 1 GiB pressure-test target is withdrawn. No boot-time RAM carve-out. Current Windows-visible RAM is 3,787.5 MiB; this budget is not implemented by the private diagnostic.
 - Before a necessary restart: back up the actual Hekate configuration, temporarily auto-boot the existing Windows entry, then restore the exact configuration once Windows is online. Account for the [native restart's Hekate-menu request](../hdh001-home/power-performance.md). Recent GPU installs required no reboot.
 - Continue authorized work autonomously. Only Gemini 4 read-only collaboration is permitted; earlier review calls timed out and supply no validation evidence.
 
@@ -37,8 +38,10 @@ Local packet/image/failure models, sanitizers, real NETB and full ARM64 build pa
 
 ## Next work
 
-1. Connect the accepted NAK shader/image/render-target path to NVK command submission. A fixed private shader pass does not fulfill the Vulkan API gate.
-2. Complete the render-only WDDM adapter: real dispatch, VidMm residency/command validation, ISR/DPC completion, preemption and TDR, retaining the POST display. Existing callback modules need adapter integration and live validation.
+**WIP `236178e`, not installed:** `windows/adapter.c` now composes headless WDDM lifecycle/resource/table/context/queue ownership. `UMDRIVERPRIVATE` ABI 1 reports the OS LUID and **512 MiB ceiling**, validating versioned/aliased KMT buffers; native-submit stays unset. Full ARM64 build plus native controlled lifecycle/paging tests pass. No DriverEntry/INF or live WDDM registration exists. Evidence: `adapter42-build.log`, `adapter42-native-contract*.log`; `adapter42-device-status.json` retains installed .41's accepted shader pass.
+
+1. Run an actual **NVK Vulkan API triangle with known pixel readback**. Connect the accepted NAK shader/image/render-target path to NVK commands; the private shader diagnostic does not fulfill this gate.
+2. Wire the headless WDDM lifecycle to cold GPU/GR bootstrap, per-context graphics images, real paging/command dispatch, VidMm residency/validation, ISR/DPC completion, preemption and TDR, retaining the POST display. Publish DRIVERCAPS/DriverEntry only with the required paths connected, then validate live.
 3. Add Windows `nvkmd` discovery/allocation/mapping/submission/waits, build ARM64 ICD DLL/JSON and match the WDDM LUID. Require an actual Vulkan off-screen draw with known foreground/background pixel readback.
 4. Add stable landscape HWND presentation with resize/recreation checks, then separately evaluate DWM interop/shared surfaces/fences and compositor GPU work. A CPU-copy GDI route is not GPU-backed presentation.
 
