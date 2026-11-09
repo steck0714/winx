@@ -190,6 +190,8 @@ static DWORD gpu_json(void) {
   NUMBER(backend.fault_id);HEX(backend.fault_instance);HEX(backend.fault_address_lo);HEX(backend.fault_address_hi);HEX(backend.fault_info);
   HEX(backend.fence_observed);HEX(backend.fence_expected);NUMBER(backend.channel_stage);
   HEX(backend.fence_cpu);
+  NUMBER(backend.preemptions);NUMBER(backend.preemption_notifications);NUMBER(backend.preemption_completed);
+  HEX(backend.cancelled_report);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",

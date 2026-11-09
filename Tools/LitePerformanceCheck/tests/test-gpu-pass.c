@@ -51,12 +51,13 @@ int main(void)
  assert(!gpu_backend_pass(&drawn)); /* A legacy shader pass has no backend proof. */
  struct tg_gpu_status backend=drawn;
  backend.backend=(struct tg_gpu_backend_status){.requested=1,.stage=TG_GPU_BACKEND_COMPLETE_STAGE,
-     .worker_started=1,.submissions=2,.notifications=2,.userd_gp_get=2,.userd_gp_put=2,
-     .kernel_priv=1,.context_generation=1,.completion_fence=2,
-     .fence_observed=2,.fence_expected=2,.channel_stage=7,.fence_cpu=2};
+     .worker_started=1,.submissions=3,.notifications=2,.userd_gp_get=2,.userd_gp_put=2,
+     .kernel_priv=1,.context_generation=1,.completion_fence=3,
+     .fence_observed=2,.fence_expected=2,.channel_stage=7,.fence_cpu=2,
+     .preemptions=1,.preemption_notifications=1,.preemption_completed=1,.cancelled_report=TG_GPU_CLEAR_SENTINEL};
  backend.gr_channel.restore_ops=2;
  assert(gpu_backend_pass(&backend));
- for(unsigned test=0;test<24;++test){
+ for(unsigned test=0;test<28;++test){
   bad=backend;
   if(test==0)bad.backend.requested=0;if(test==1)bad.backend.stage=7;
   if(test==2)bad.backend.result=0xc0000001;if(test==3)bad.backend.worker_started=0;
@@ -71,6 +72,8 @@ int main(void)
   if(test==20)bad.backend.fence_observed=1;if(test==21)bad.backend.fence_expected=1;
   if(test==22)bad.backend.channel_stage=4;
   if(test==23)bad.backend.fence_cpu=1;
+  if(test==24)bad.backend.preemptions=0;if(test==25)bad.backend.preemption_notifications=0;
+  if(test==26)bad.backend.preemption_completed=2;if(test==27)bad.backend.cancelled_report=0;
   assert(!gpu_backend_pass(&bad));
  }
  for(unsigned test=0;test<12;++test){
