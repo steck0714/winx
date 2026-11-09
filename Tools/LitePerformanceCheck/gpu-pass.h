@@ -60,6 +60,8 @@ static inline bool gpu_backend_pass(const struct tg_gpu_status *s) {
         s->backend.preemption_completed==4 && s->backend.cancelled_report==TG_GPU_CLEAR_SENTINEL &&
         s->backend.resets==1 && s->backend.restarts==1 && s->backend.reset_isolated==1 &&
         s->backend.lost_context_rejected==1 &&
+        s->backend.snapshot_uploads==4 && s->backend.snapshot_bytes>0 &&
+        s->backend.snapshot_rejections==2 && s->backend.source_mutations==6 &&
         !(s->gr_channel.current_context&0x80000000u) &&
         !tg_gpu_fifo_has_error(s->fifo_interrupt) && !s->mmu_fault &&
         !s->pbdma_interrupt && !s->pbdma_interrupt_1;

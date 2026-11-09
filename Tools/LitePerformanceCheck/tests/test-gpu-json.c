@@ -143,7 +143,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
       .kernel_priv=1,.context_generation=2,.completion_fence=6,
       .fence_observed=4,.fence_expected=4,.channel_stage=7,.fence_cpu=4,
       .preemptions=2,.preemption_notifications=2,.preemption_completed=4,.cancelled_report=TG_GPU_CLEAR_SENTINEL,
-      .resets=1,.restarts=1,.reset_isolated=1,.lost_context_rejected=1};
+      .resets=1,.restarts=1,.reset_isolated=1,.lost_context_rejected=1,
+      .snapshot_uploads=4,.snapshot_bytes=1024,.snapshot_rejections=2,.source_mutations=6};
   s.gr_channel.restore_ops=2;s.gr_channel.current_context=0x000c0040;
   if(fixture==68)s.backend.requested=0;if(fixture==69)s.backend.stage=7;
   if(fixture==70)s.backend.result=0xc0000001;if(fixture==71)s.backend.worker_started=0;
@@ -162,6 +163,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
   if(fixture==94)s.backend.preemption_completed=2;if(fixture==95)s.backend.cancelled_report=0;
   if(fixture==96)s.backend.resets=0;if(fixture==97)s.backend.restarts=0;
   if(fixture==98)s.backend.reset_isolated=0;if(fixture==99)s.backend.lost_context_rejected=0;
+  if(fixture==100)s.backend.snapshot_uploads=0;if(fixture==101)s.backend.snapshot_bytes=0;
+  if(fixture==102)s.backend.snapshot_rejections=0;if(fixture==103)s.backend.source_mutations=0;
  }
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;
@@ -198,13 +201,13 @@ void start(void) {
                          ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,0,
                          ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,ERROR_GEN_FAILURE};
  const unsigned fixtures[]={0,1,1,2,3,4,5,2,6,7,8,9,10,11,12};
- for(unsigned i=0;i<34;++i){
-  fixture=i==33?67:67+i;opened=0;
-  arguments=i==33?conflictBackend:runBackend;argumentCount=i==33?4:3;
+ for(unsigned i=0;i<38;++i){
+  fixture=i==37?67:67+i;opened=0;
+  arguments=i==37?conflictBackend:runBackend;argumentCount=i==37?4:3;
   wantedCode=TG_GPU_IOCTL_BACKEND_RUN;
   DWORD result=gpu_json();
-  if(result!=(i==33?ERROR_INVALID_PARAMETER:i?ERROR_GEN_FAILURE:0) ||
-     opened!=(i==33?0u:1u))ExitProcess(260+i);
+  if(result!=(i==37?ERROR_INVALID_PARAMETER:i?ERROR_GEN_FAILURE:0) ||
+     opened!=(i==37?0u:1u))ExitProcess(260+i);
  }
  for(unsigned i=0;i<15;++i){
   DWORD result;fixture=fixtures[i];opened=0;
