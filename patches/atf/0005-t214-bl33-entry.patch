@@ -1,0 +1,21 @@
+diff --git a/plat/nvidia/tegra/common/tegra_bl31_setup.c b/plat/nvidia/tegra/common/tegra_bl31_setup.c
+--- a/plat/nvidia/tegra/common/tegra_bl31_setup.c
++++ b/plat/nvidia/tegra/common/tegra_bl31_setup.c
+@@ -115,6 +115,17 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 	assert(arg_from_bl2 != NULL);
+ 	assert(arg_from_bl2->bl33_ep_info != NULL);
+ 	bl33_image_ep_info = *arg_from_bl2->bl33_ep_info;
++#if SWITCH_LITE_PMIC_RESET
++	/* Hekate supplies SPSR_EL2T with DAIF clear. The Lite UEFI stub has no
++	 * exception vectors until PrePi initializes them; masking in the stub
++	 * is too late for an exception taken on the EL3 return boundary.
++	 * Preserve the requested EL/stack and all other state, masking only
++	 * asynchronous exceptions before entering the AArch64 BL33 image.
++	 */
++	if (tegra_chipid_is_t210_b01())
++		bl33_image_ep_info.spsr |=
++			DISABLE_ALL_EXCEPTIONS << SPSR_DAIF_SHIFT;
++#endif
+ 
+ 	if (arg_from_bl2->bl32_ep_info != NULL) {
+ 		bl32_image_ep_info = *arg_from_bl2->bl32_ep_info;

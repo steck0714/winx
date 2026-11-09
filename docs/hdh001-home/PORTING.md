@@ -35,7 +35,7 @@ FAT32 remains visible. The latest comparison found no clear responsiveness
 difference between views; both profiles remain available and performance
 investigation is deferred.
 
-Retained-memory sleep and direct power-button wake development is paused.
+SC7 retained-memory deep-sleep development is paused.
 Its experimental code is preserved **only on
 [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test)**, paired with the
 [driver branch](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/sc7-test).
@@ -45,10 +45,10 @@ remains in that branch's existing power notes. SC7 is not an ACPI "S7" state
 and has not passed a complete physical sleep/wake cycle. S4 stays cancelled;
 its ACPI object, storage path, setup and header probe remain removed.
 
-Fan 1.0.0.6 passed one screen-off/on cycle, but repeated cycles later stalled
-the lock screen or left only a moving cursor. The independent 1.0.0.7 callback
-fix remains in the default source; repeated display recovery remains unverified.
-Code completion, compilation/signing and hardware acceptance are separate.
+On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake.
+This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test.
+A later long screen-off session on battery hung and required a forced power-off. Events record a Power Button standby exit after about 43 minutes, followed by an unexpected restart; the failing component remains unidentified.
+The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
 
 | Area | Evidence / current gap | Acceptance |
 |---|---|---|
@@ -56,9 +56,10 @@ Code completion, compilation/signing and hardware acceptance are separate.
 | SD DDR200 | Signed visible 0.5.0.3 is installed and readback-verified. It retains automatic detection, eight-tap-minimum tuning, SDR104 fallback and corrected clock ordering; it restores the event masks lost during private fallback reset. | Desktop boot passed on the replacement. Actual DDR200 activation and physical fallback remain unverified; sustained throughput is unmeasured. |
 | GPIO / I2C / touch | Shared controllers loaded and Lite touch clicks work. The default branch retains the pre-sleep GPIO/I2C/touch implementations; experimental context restoration is isolated on sc7-test. | Touch press/release and three-point check without stuck contacts. |
 | CPU / fan / EMC | CPU 1996.8 MHz; fan turns; RAM 1866 MHz after BPMP rounding | Readback and thermal behavior; 2100 MHz remains a separate unmet target |
-| Backlight / wake | Brightness and one screen-off fan cycle passed. Repeated cycles can freeze the lock screen or leave a black screen with cursor. Fan 1.0.0.7 removes synchronous registry writes from the display notification lock. | Repeated display-off/on and unlock without stalls; pending physical test. |
+| Backlight / S0 wake | Brightness works. With switchpwrbtn **1.0.0.4**, the owner confirmed repeated power-button screen-off/wake with normal display and input; counters show 12 power and 12 wake reports. | Repeated short-button cycles passed. Long-duration idle and sleep-menu entry remain separate tests; SC7 is not implemented. |
 | Audio | Owner confirmed audible output after the pad/1.0.0.9 update; headphones and jack switching remain untested | Audible stereo speakers, headphones and jack switching; no added boot test tone |
 | Battery / RTC / buttons | Before the combined update, the Lite reported battery capacity, voltage and changing power state. The RTC read succeeded and restored system time from its saved offset. The power-button driver recorded a press and a submitted HID report. | Confirm volume-button input and observe charging transitions with the new Lite PD profile. |
+| Charge termination | SwitchBattery 1.0.0.11 is installed. ARM64 build, native signatures, live device start and REG05 0x02 → 0x8A readback passed. Automatic termination and an eight-hour safety timer are enabled without changing charging limits. | Observe a complete full-charge/recharge cycle. [Policy and evidence](power-performance.md#charge-termination) |
 | Bluetooth | Installed 1.0.0.19 retains the bounded PH4 reset/full-probe retry and prepares UART-D before HCI access. Host tests, signatures and readback pass; the owner confirmed Bluetooth working. | Bluetooth works in the observed boot; verify repeated startup and sleep/resume separately. |
 | USB-C host | ARM64 host firmware and signed mailbox/PD packages deployed to the card. Switchroot Ubuntu enumerated both root hubs on this Lite. Windows hardware test pending. | Enumerate a peripheral through USB-C in Windows. |
 | Built-in controls / motion | Windows enumerated the HID gamepad and mouse and received SIO input. Version 0.2.3 provides Capture, Plus, right-stick scrolling, middle click and D-pad keyboard arrows. The default branch retains 0.2.3; the display-driven 0.2.4 experiment is isolated on sc7-test. | Confirm desktop navigation, in-game controls and motion on the Lite. [Mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |

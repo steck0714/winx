@@ -10,19 +10,19 @@ The normal build now disables those pulses and uses **native PMC reset for Resta
 
 ## Current sleep/wake work
 
-Retained-memory sleep and direct power-button wake without Hekate remain
-unimplemented as a complete, hardware-accepted path. Development is paused and isolated
-on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), paired with
-[WindowsDrivers `sc7-test`](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/sc7-test).
-The branch retains the Switchroot references, experimental PEP, PMIC wake,
-BL31 clock/pin context and input runtime-idle work. None of those additions
-is included in the default firmware or driver source. S4 remains removed.
+On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake.
 
-The default branch retains the verified R6 shutdown/native-reset code and
-pre-sleep GPIO, I2C, power-button, RTC, touch and SIO implementations.
-Fan 1.0.0.7's independent fix moves registry writes outside the display
-notification lock. One screen-off/on cycle passed on 1.0.0.6, but repeated
-lock-screen/black-screen stalls remain unresolved; cooling alone is not sleep.
+This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
+
+A later long screen-off session on battery became unresponsive and required a forced power-off. Windows recorded a Power Button standby exit after about 43 minutes, followed by an unexpected restart. The failing component is not identified; long-duration standby remains unresolved.
+
+The driver selects HID Wake Up when the display is off and Power Down while
+it is on. Holding a wake press across the display transition does not submit
+another power request. Polling lifecycle is drained/restarted without adding
+PMIC/GIC wake interrupts or a processor PEP. SC7 development remains paused on
+[`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with the matching
+driver branch; S4 remains removed. Normal shutdown and native restart retain
+their separate accepted results above.
 
 Bluetooth 1.0.0.19 retains bounded patch/reset recovery and UART-D host
 preparation. SD 0.5.0.3 retains DDR200 development and corrects clock ordering
@@ -36,6 +36,14 @@ The earlier Bluetooth 1.0.0.18 + DDR200 0.5.0.1 combination failed with
 INACCESSIBLE_BOOT_DEVICE. The owner supplied the stop-code photograph; no
 current crash dump or driver diagnostics survived on the returned card.
 The cause remains under investigation. [Current status](PORTING.md)
+
+## Charge termination
+
+SwitchBattery **1.0.0.11** enables BQ24193 hardware termination and an eight-hour charge safety timer independently of the optional USB-C PD connection. It preserves the existing voltage/current limits, temperature settings and charge/OTG mode. Normal termination uses the configured voltage/current thresholds; a voltage drop below the recharge threshold starts a new cycle without waiting eight hours. The driver does not repeatedly reset the safety timer or stop charging solely because the gauge displays 100%.
+
+On 2026-11-08, the ARM64 build, native SYS/catalog signatures and live installation passed. The running driver reported version 11, successful REG05 readback **0x02 → 0x8A**, and a started battery device charging at about 91%. A complete full-charge/recharge cycle has not yet been observed. Earlier full-percentage readings did not show voltage exceeding the configured 4.192 V limit. Fixed initialization results use the existing driver Parameters key; the temporary monitoring package was removed.
+
+[Implementation, tests and Switchroot comparison](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/docs/hdh001/README.md#charge-termination) · [TI BQ24193 charging behavior](https://www.ti.com/lit/ds/symlink/bq24193.pdf)
 
 ## Windows request ownership fix
 

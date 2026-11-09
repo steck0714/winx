@@ -210,13 +210,17 @@ At the desktop:
 
 ### Repeated sleep and wake
 
-**Known sleep/wake issue:** after several short power-button presses or repeated use of Windows sleep controls, the display may freeze, turn black, or the system may hang. A movable pointer does not necessarily mean the lock screen can be unlocked. This issue has been observed after repeated attempts; one successful screen-off/on cycle does not establish reliable sleep or resume. Normal shutdown and native restart have separate successful hardware results in the [power notes](power-performance.md).
+On 2026-11-08, the owner confirmed that **switchpwrbtn 1.0.0.4** restores the display and normal input after repeated short power-button screen-off/wake cycles. Runtime counters recorded **12 Power Down reports and 12 Wake Up reports**; Windows recorded paired Modern Standby entry/exit events and SSH remained reachable after wake. This is the tested **S0 Modern Standby screen-off/wake** path. It is not SC7 deep sleep or S4 hibernation. Long-duration idle and the Windows sleep-menu entry path are not established by this short-button test. The tested [1.0.0.4 source](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/tree/hdh001-winarm-bounded-write/drivers/SwitchPowerButton) is included in the default driver branch and the paired firmware submodule. Install the rebuilt 1.0.0.4 package to use the correction.
+
+Long-duration screen-off on battery has subsequently hung and required a forced power-off. This remains unresolved; the short-button test above does not establish reliable long-duration standby. [Current power results](power-performance.md#current-sleepwake-work)
 
 For the optional clock configuration, use [woa-lite-home-performance.ini](woa-lite-home-performance.ini) in place of the baseline INI. It requests CPU `1996800` kHz and RAM `2100000` kHz, with automatic fan control. The test Lite read back CPU 1996.8 MHz and RAM 1866 MHz after BPMP rounding. Check actual readings rather than treating a requested rate as an achieved rate. GPU overclocking is not enabled. Setting `cpu_oc=0` and `ram_oc=1600000` returns to the normal boot request.
 
 Speaker playback, Wi-Fi, Bluetooth and brightness have hardware results in [porting status](PORTING.md). Normal Windows shutdown and native restart have owner-confirmed physical passes on the tested Lite. Use SwitchBattery **1.0.0.8** or later and the normal R6 firmware, which uses PMC reset for restart and disables diagnostic fan pulses. Wait for complete power removal before taking out the card. USB-C, headphone switching and other unaccepted functions remain listed in porting status. Keep extra test tones disabled.
 
 ## 6. Update an existing installation
+
+Include **SwitchBattery 1.0.0.11 or later** for BQ24193 automatic charge termination and the eight-hour safety timer. It preserves existing charging limits and works without the optional USB-C PD resource. Configuration readback passed on the Lite; full-charge/recharge acceptance remains pending. [Charging policy](power-performance.md#charge-termination)
 
 Back up the current boot files and Windows installation, then assemble the complete matching kit from step 2. Keep the same card-specific storage header and matching partition view in BL33 and the SD miniport. Driver updates do not require formatting, reapplying Windows or resetting OOBE.
 
@@ -249,7 +253,7 @@ When a release requires new firmware, replace the matching files under `switchro
 | Setup cannot configure Windows or reports an unexpected restart | Preserve `Windows\Panther`, `Windows\Panther\UnattendGC` and the SYSTEM hive before diagnosing the specific failed phase. Old per-machine registry workarounds are not installation steps. |
 | No Wi-Fi option | Matching runtime BL33, `SwitchWOA\Wifi\WifiPrepare.efi`, complete board firmware/NVRAM pair, active `switchwifi` binding and the retained Windows WLAN components. [Diagnostics](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchWifi/README.md#on-device-status) |
 | No Bluetooth toggle | Retained Windows Bluetooth components, BTH0 enumeration, signed `switchbt` binding and the BCM4356A3 patch. Use the [Bluetooth status tool](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/kits/Switch-Bluetooth/Bluetooth.ps1) before changing boot markers. |
-| Display freezes, goes black or hangs after repeated power-button/sleep actions | Known repeated sleep/wake issue; the pointer may still move while the lock screen is stuck. See [repeated sleep and wake](#repeated-sleep-and-wake). |
+| Power-button wake on an older driver | Use the tested switchpwrbtn 1.0.0.4 source/package. Repeated short-button screen-off/wake passed on the Lite; see [test scope](#repeated-sleep-and-wake). |
 | Temporary pagefile warning | Fixed SD slot ACPI profile, requested paging size and enough free space on WINARM. Inspect actual pagefile creation. |
 | Fan keeps running after choosing Shut down | Shutdown has not completed. Follow the current [power notes](power-performance.md); pre-Windows power-off success does not establish Windows shutdown success. |
 
@@ -261,7 +265,7 @@ The boot chain is **Hekate → BL31 → BL33 → Windows Boot Manager → Window
 
 | File | Source and role |
 |---|---|
-| `bl31.bin` | LineageOS Nintendo ARM Trusted Firmware at `85081cab2050051ea6e93206ef0f80bc0676e613`, with this repository's four ATF patches. Runs at EL3 and provides PSCI, including Lite shutdown and native restart. |
+| `bl31.bin` | LineageOS Nintendo ARM Trusted Firmware at `85081cab2050051ea6e93206ef0f80bc0676e613`, with this repository's five ATF patches. Runs at EL3 and provides PSCI, including Lite shutdown and native restart. |
 | `bl33.bin` | This WinX branch built with EDK2 `edk2-stable202402`, prefixed with a 4 KiB Hekate entry stub. Provides UEFI, ACPI, display and the card-specific WINARM boot view. |
 
 Use the workspace created in step 1. The build steps add these directories:
@@ -324,7 +328,7 @@ git -C atf checkout 85081cab2050051ea6e93206ef0f80bc0676e613
   atf out/firmware --cross-prefix "$GCC5_AARCH64_PREFIX"
 ```
 
-The builder applies patches `0001` through `0004` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check. Experimental sleep patches are maintained only on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test).
+The builder applies patches `0001` through `0005` from `patches/atf` automatically and writes **`out/firmware/bl31.bin`**. Its default is native PMC/Hekate restart with diagnostic fan pulses disabled. On T210B01, patch `0005` also masks asynchronous exceptions before entering BL33; the exception level and stack selection remain unchanged. The builder checks the BL31 entry address against Hekate's `0xFFF00000` load address. `TARGET_SOC=t210` is the upstream shared platform name; the added T214 behavior is selected by the B01 chip check. Experimental sleep patches are maintained only on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test).
 
 For later rebuilds, reuse the patched `atf` checkout and rerun the Python command. The builder recognizes its already-applied patches. The [ATF reference](../../patches/atf/README.md) explains the NX build parameters and optional diagnostic flags.
 
@@ -388,7 +392,7 @@ build -a AARCH64 -t GCC5 -b RELEASE -n 8 -p NintendoSwitchPkg/NintendoSwitch.dsc
 
 Keep the card header identical to the selected hidden or FAT32-visible SD
 miniport. The default branch does not include experimental processor power,
-PMIC wake-interrupt or SC7 context code. Sleep/wake development lives only on
+PMIC wake-interrupt or SC7 context code. SC7 deep-sleep development lives only on
 [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test), with its matching
 driver branch. S4 hibernation is unsupported and its implementation remains
 removed. See [current work and acceptance](PORTING.md).

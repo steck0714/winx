@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Lite PSCI power patch against the pinned Lineage ATF checkout."""
+"""Build the Lite PSCI power and UEFI entry patches against pinned Lineage ATF."""
 import argparse
 import os
 from pathlib import Path
@@ -14,6 +14,7 @@ POWER_PATCHES = [REPO / "patches/atf" / name for name in (
     "0002-t214-windows-shutdown.patch",
     "0003-t214-shutdown-gpio-i2c.patch",
     "0004-t214-power-boundary-trace.patch",
+    "0005-t214-bl33-entry.patch",
 )]
 
 
@@ -49,7 +50,7 @@ def main():
     make = shutil.which("gmake") or shutil.which("make")
     if not make:
         raise SystemExit("GNU make is required")
-    build_base = "build-lite-power-r6-off" if args.restart_as_off else "build-lite-power-r6-native"
+    build_base = "build-lite-entry-r7-off" if args.restart_as_off else "build-lite-entry-r7-native"
     if args.trace_power_boundary:
         build_base += "-trace"
     # LineageOS android_device_nintendo_nx/vendor/nx-vendor.mk. Hekate loads
@@ -63,7 +64,7 @@ def main():
              "ENABLE_ASSERTIONS=1", "SWITCH_LITE_PMIC_RESET=1",
              f"SWITCH_LITE_POWER_TRACE={int(args.trace_power_boundary)}",
              f"SWITCH_LITE_RESTART_AS_OFF={int(args.restart_as_off)}",
-             "BUILD_STRING=85081ca-lite-power-r6" + ("-trace" if args.trace_power_boundary else "")]
+             "BUILD_STRING=85081ca-lite-entry-r7" + ("-trace" if args.trace_power_boundary else "")]
     help_text = subprocess.check_output([args.cross_prefix + "ld", "--help"], text=True)
     if "--no-warn-rwx-segments" in help_text:
         # TF-A 2.6's ELF layout predates this binutils diagnostic. Runtime MMU

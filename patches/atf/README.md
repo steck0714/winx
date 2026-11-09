@@ -1,8 +1,8 @@
-# T214 PSCI PMIC power patch
+# T214 PSCI power and BL33 entry patches
 
-The build tool applies patches 0001 through 0004 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
+The build tool applies patches 0001 through 0005 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
 
-The experimental sleep/context patches are isolated on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test). This branch applies only the shutdown/restart patches below.
+The experimental sleep/context patches are isolated on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test). This branch applies the shutdown/restart patches and the BL33 entry correction below.
 
 ## Build
 
@@ -15,7 +15,7 @@ python3 Tools/build-t214-atf.py atf out/t214-atf --cross-prefix aarch64-none-elf
 python3 Tools/test-t214-pmic.py atf
 ```
 
-The build tool accepts the pinned checkout or its source archive, applies the patch (or recognizes it as already applied), and writes `out/t214-atf/bl31.bin`. It uses a separate build directory to avoid reusing objects from the rejected default-address build. SOURCE_DATE_EPOCH and the build string are fixed; use the same compiler for byte-identical output.
+The build tool accepts the pinned checkout or its source archive, applies the patches (or recognizes them as already applied), and writes `out/t214-atf/bl31.bin`. It uses a separate build directory to avoid reusing objects from the rejected default-address build. SOURCE_DATE_EPOCH and the build string are fixed; use the same compiler for byte-identical output.
 
 The default build uses native PMC/Hekate restart and leaves fan tracing disabled. `--native-restart` selects the same default explicitly. `--restart-as-off` reproduces the earlier fallback policy, and `--trace-power-boundary` adds two fan pulses at final power-off entry for diagnosis. Native and fallback builds, with and without tracing, use separate build directories. [Current physical results](../../docs/hdh001-home/power-performance.md)
 
@@ -29,6 +29,12 @@ CRASH_REPORTING=1 ENABLE_ASSERTIONS=1 LOG_LEVEL=0 PLAT_LOG_LEVEL_ASSERT=0
 ```
 
 The unmodified reset-to-BL31 entrypoint obtains Hekate's parameters through the existing IRAM handoff. Do not use the default Tegra link address. The script checks the ELF entry against `0xFFF00000` before exporting the binary. For recent binutils, it disables the new RWX ELF-segment warning for this older linker script; runtime memory permissions still come from TF-A's page tables.
+
+## BL33 entry state
+
+Patch `0005` masks asynchronous exceptions in the saved BL33 SPSR before the EL3 return on T210B01. Hekate supplies `SPSR_EL2T` with DAIF clear; the UEFI stub cannot mask an exception taken at that return boundary before PrePi installs vectors. The patch preserves the requested exception level, stack selection and other SPSR bits. It does not change GPU initialization or the PSCI shutdown/restart handlers.
+
+The `lite-entry-r7` build and binary inspection pass: the B01 branch ORs `0x3c0` into the saved SPSR (`0x8` becomes `0x3c8`). The existing PMIC host tests also pass. On 2026-11-08, the owner reported that startup now appears stable after this update, with no new occurrence of the early black screen reported. This is an observed improvement during normal use; no repeated-boot stress count was collected.
 
 ## Validation and deployment state
 
