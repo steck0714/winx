@@ -104,10 +104,10 @@ static void reset_mock(uint32_t config)
     recoveries = 0;
 }
 
-int main(void)
+static void check_reset(unsigned int alarm1, unsigned int alarm2)
 {
-    static const unsigned int rtc[][2] = {
-        {0x13,2}, {0x1a,0}, {0x11,0x77}, {0x18,0x77}, {0x04,1}
+    const unsigned int rtc[][2] = {
+        {0x13,alarm1}, {0x1a,alarm2}, {0x11,0x77}, {0x18,0x77}, {0x04,1}
     };
     static const unsigned int rails[][2] = {{0x16,0x20}, {0x42,0x99}, {0x41,0x80}};
     reset_mock(0x9f);
@@ -137,6 +137,26 @@ int main(void)
         cursor += words;
     }
     assert(cursor == 8);
+}
+
+int main(void)
+{
+    check_reset(2, 0); /* no Hekate handoff */
+    const char extra_entry[] = "autoboot=2\nautoboot_list=0\ncpu_oc=1996800\n"
+                               "autoboot=7\nautoboot_list=1\nloader_rev=7\n";
+    tegra_lite_capture_reboot_target(extra_entry, sizeof(extra_entry));
+    check_reset(0x31, 5); /* SELF, additional-INI entry 7 */
+    const char main_entry[] = "autoboot=12\nautoboot_list=0\nloader_rev=7\n";
+    tegra_lite_capture_reboot_target(main_entry, sizeof(main_entry));
+    check_reset(1, 3); /* SELF, main-INI entry 12 */
+    const char invalid[] = "autoboot=16\nautoboot_list=1\n";
+    tegra_lite_capture_reboot_target(invalid, sizeof(invalid));
+    check_reset(2, 0);
+    const char missing_list[] = "autoboot=7\n";
+    tegra_lite_capture_reboot_target(missing_list, sizeof(missing_list));
+    check_reset(2, 0);
+    tegra_lite_capture_reboot_target(extra_entry, sizeof(extra_entry) - 1);
+    check_reset(2, 0);
     reset_mock(0x9f);
     assert(tegra_lite_pmic_off() == -5);
     assert(pmic[0x42] == 0x1f && power_requests == 2 && delay_ms == 1000);
@@ -168,6 +188,6 @@ int main(void)
     reset_mock(0x9f); wire.connected = true; wire.force_scl_low = true;
     gpio_power_off();
     assert(!wire.oe && !wire.config && wire.power_writes == 0);
-    puts("Switchroot B01 BootROM, controller recovery and GPIO PMIC shutdown passed (simulated)");
+    puts("Switchroot B01 BootROM restart selector, controller recovery and GPIO PMIC shutdown passed (simulated)");
     return 0;
 }
