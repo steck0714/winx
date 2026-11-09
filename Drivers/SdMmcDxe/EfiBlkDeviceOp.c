@@ -105,8 +105,10 @@ STATIC UINT32 MmcReadInternal
     UINT32 ReadSize;
     UINT8 *Sptr = (UINT8 *) Buf;
 
-    ASSERT(!(DataAddr % BlockSize));
-    ASSERT(!(DataLen % BlockSize));
+    if (!DataLen) return 1;
+    if (!BlockSize || (DataLen && !Buf) || DataAddr % BlockSize ||
+        DataLen % BlockSize || DataAddr > MAX_UINT64 - DataLen)
+        return 0;
 
     /*
     * DMA onto write back memory is unsafe/nonportable,
@@ -312,14 +314,20 @@ MMCHSReadBlocks(
         return EFI_MEDIA_CHANGED;
     }
 
-    if (Lba > Media->LastBlock)
+    if (BufferSize == 0)
     {
-        return EFI_INVALID_PARAMETER;
+        return EFI_SUCCESS;
     }
 
-    if ((Lba + (BufferSize / BlockSize) - 1) > Media->LastBlock)
+    if (BlockSize == 0 || BlockSize > MAX_UINT32)
     {
-        return EFI_INVALID_PARAMETER;
+        return EFI_DEVICE_ERROR;
+    }
+
+    // MmcReadInternal accepts a 32-bit byte count. Never silently truncate UINTN.
+    if (BufferSize > MAX_UINT32)
+    {
+        return EFI_BAD_BUFFER_SIZE;
     }
 
     if (BufferSize % BlockSize != 0)
@@ -327,14 +335,19 @@ MMCHSReadBlocks(
         return EFI_BAD_BUFFER_SIZE;
     }
 
-    if (Buffer == NULL)
+    if (Buffer == NULL || Lba > Media->LastBlock)
     {
         return EFI_INVALID_PARAMETER;
     }
 
-    if (BufferSize == 0)
+    // The MMC host path uses an exclusive end LBA; keep its addition and the
+    // conversion to a byte address representable before dispatching.
+    if ((BufferSize / BlockSize) > MAX_UINT64 - Lba ||
+        (BufferSize / BlockSize) - 1 > Media->LastBlock - Lba ||
+        Lba > MAX_UINT64 / BlockSize ||
+        BufferSize > MAX_UINT64 - (Lba * BlockSize))
     {
-        return EFI_SUCCESS;
+        return EFI_INVALID_PARAMETER;
     }
 
     rc = MmcReadInternal(Instance, (UINT64) Lba * BlockSize, Buffer, BufferSize);
@@ -380,6 +393,7 @@ SdReadSector (
     OUT UINT8        *Buf
 )
 {
+    if (Lba > (MAX_UINT64 - 512) / 512) return FALSE;
     return MmcReadInternal (Instance, Lba * 512, (UINT32 *) Buf, 512) == 1;
 }
 
@@ -452,7 +466,11 @@ SdBuildAllowed (
             UINT32 N;
             for (N = 0; N < NumEnt; N++) {
                 UINT8 Z[16] = { 0 };
-                if (N % Per == 0 && !SdReadSector (Instance, EntLba + N / Per, Buf)) break;
+                UINT64 SectorOffset = N / Per;
+                if (N % Per == 0 &&
+                    (EntLba > Instance->BlockMedia.LastBlock ||
+                     SectorOffset > Instance->BlockMedia.LastBlock - EntLba ||
+                     !SdReadSector (Instance, EntLba + SectorOffset, Buf))) break;
                 {
                     CONST UINT8 *E = Buf + (N % Per) * EntSize;
                     if (CompareMem (E, Z, 16) == 0) continue;     // unused entry
@@ -508,12 +526,16 @@ MMCHSWriteBlocks(
     BlockSize = Media->BlockSize;
 
     if (MediaId != Media->MediaId) return EFI_MEDIA_CHANGED;
-    if (Buffer == NULL) return EFI_INVALID_PARAMETER;
     if (BufferSize == 0) return EFI_SUCCESS;
+    if (BlockSize == 0 || BlockSize > MAX_UINT32) return EFI_DEVICE_ERROR;
     if (BufferSize % BlockSize != 0) return EFI_BAD_BUFFER_SIZE;
+    if (Buffer == NULL || Lba > Media->LastBlock) return EFI_INVALID_PARAMETER;
 
     Blocks = BufferSize / BlockSize;
-    if (Lba > Media->LastBlock || (Lba + Blocks - 1) > Media->LastBlock) return EFI_INVALID_PARAMETER;
+    // mmc_bwrite returns a 32-bit count and checks an exclusive end LBA.
+    if (Blocks > MAX_UINT32) return EFI_BAD_BUFFER_SIZE;
+    if (Blocks > MAX_UINT64 - Lba ||
+        Blocks - 1 > Media->LastBlock - Lba) return EFI_INVALID_PARAMETER;
 
     // Safety gate: only FAT volumes are writable. The NTFS Windows partition and the partition
     // tables stay read-only, because this write path has not been verified on hardware yet.
