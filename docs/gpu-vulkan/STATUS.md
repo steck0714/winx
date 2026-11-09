@@ -1,17 +1,17 @@
 # Native Vulkan on Switch Lite
 
-**Active, incomplete.** Physical checkpoint: **0.1.0.59 / ABI 31 / 2026-11-09 08:26:52 Pacific**. Installed driver `e1d4a16`; both repositories publish only `vulkan-test`, with `WindowsDrivers` paired.
+**Active, incomplete.** Last accepted physical checkpoint: **0.1.0.59 / ABI 31 / 2026-11-09 08:26:52 Pacific** (`e1d4a16`). GPU work is published only on the paired `vulkan-test` branches.
 
 ## Goal and constraints
 
 Native Windows 11 ARM64 Vulkan on HDH-001/T214/GM20B: GPU execution/readback → off-screen Vulkan draw with known pixels → stable Win32 presentation. Desktop rendering remains software; **the shared Windows backend draws fixed NAK shaders from immutable command snapshots and the Windows NVK DLL passes an instance preflight, but no Vulkan API GPU draw or registered WDDM render adapter exists**.
 
 - KMD first; retain Mesa NVK's compiler, command generation and ICD. Microsoft's render-only sample supplies WDDM structure. Game compatibility is outside the current triangle phase; `sc7-test` stays paused.
-- Immediate priority: **real Vulkan API triangle + known pixel readback**, then a visible windowed triangle. Tell the owner to prepare video recording **before starting the visible demonstration**, and wait until they are ready. Future OpenGL compatibility should use **Mesa Zink → NVK → KMD**; no separate native OpenGL driver is planned.
+- Immediate priority: **real Vulkan API triangle and known pixel readback**. Notify the owner as soon as it passes. Continue development toward **Win11 DWM acceleration on GM20B** while the owner prepares to record the visible demonstration. Prioritize the Vulkan extensions needed for that path. Future OpenGL compatibility uses **Mesa Zink → NVK → KMD**.
 - Preserve landscape display, installed systems, files, partitions, BCD and BL31/BL33. Publish no proprietary firmware or signing keys.
 - Keep AC/DC display-off and sleep **0 / Never**, screensaver and power-button behavior. CPU diagnostic remains `CpuOverclockEnabled=0` / 998.4 MHz / 800 mV. Black-screen investigation belongs to the side chat.
 - Owner-selected UMA budget: **512 MiB maximum GPU working set**, allocated dynamically within Windows/VidMm budgets; the earlier 1 GiB pressure-test target is withdrawn. No boot-time RAM carve-out. Current Windows-visible RAM is 3,787.5 MiB; this budget is not implemented by the private diagnostic.
-- Before a necessary restart: back up the actual Hekate configuration, temporarily auto-boot the existing Windows entry, then restore the exact configuration once Windows is online. Account for the [native restart's Hekate-menu request](../hdh001-home/power-performance.md). Recent GPU installs required no reboot.
+- Keep BL31 r8: Windows Restart returns to the Windows entry captured at boot; powering on after Shutdown opens Hekate. The owner verified both with autoboot disabled. The recovery INI was removed; `bl31.r7.bin` remains. [Restart evidence and rollback](../../patches/atf/README.md)
 - Continue authorized work autonomously. Only Gemini 4 read-only collaboration is permitted; earlier review calls timed out and supply no validation evidence.
 
 ## Accepted physical evidence
@@ -34,12 +34,14 @@ Signed ACR/PMU/WPR, secure FECS/GPCCS, GPC-MMU, golden image and memory visibili
 Legacy FIFO/golden/IRQ/3D/clear/draw IOCTLs retain the 2 MiB GR layout. The new backend IOCTL uses the packed context, shared commands/roots and seven USER data pages, retaining 21 patches and the restricted 30-register access map. `tools/build_draw_shaders.py` reproducibly builds unchanged pinned Mesa NAK in an isolated host overlay: descriptor-free SM53 VS/FS 160/64 bytes, 24 GPRs each, no scratch/constants. CPU writes code/headers and sentinels; GPU reports, complete pixel/guard/code checks, cache synchronization and retirement are required.
 Local packet/image/failure models, real NETB and full ARM64 build pass. **Six native controlled models, 115 native JSON fixtures** and signed SYS/CAT/all 11 catalogue memberships pass; those fixtures substitute OS/GPU or device I/O. Earlier unchanged-core sanitizers pass. The Windows ARM64 NAK compiler also runs reproducibly on this Lite: VS/FS code, headers, metadata and disassembly match host output byte-for-byte. That is CPU compilation, not an ICD/Vulkan draw. Detailed contracts and failed bring-up evidence belong in the [driver README](../../WindowsDrivers/drivers/TegraGpu/README.md) and logs.
 
-## Installed state
+## Device and current work
 
-- **TegraGpuProbe .59 / ABI 31 / 904 bytes / oem85.inf** is Started/OK. The matching tool is in `C:\ProgramData\SwitchWOA\GpuUpdate\gr-paging-0.1.0.59` and on Public Desktop. The 08:27 Pacific read-only query retained the paging/shader pass. SYS SHA256 `de5e9cd492d35a73ea3d3f5f1723fd82f88922f6e91ef5966b430360f5eb5646` and tool SHA256 `ca127482bbb59ac6c1b2f576f6b9793231c1b865a00057ec1171892f210929d4`.
+- **Installed: TegraGpuProbe .59 / ABI 31 / 904 bytes / oem85.inf.** Restored and verified Started/OK at 10:15 Pacific. The matching tool is on Public Desktop. Both are backed up in `GpuUpdate\rollback-0.1.0.59`. SYS SHA256 `de5e9cd492d35a73ea3d3f5f1723fd82f88922f6e91ef5966b430360f5eb5646` and tool SHA256 `ca127482bbb59ac6c1b2f576f6b9793231c1b865a00057ec1171892f210929d4`.
+- **Controlled startup test .66.** Device binding and the four UMD registry paths were confirmed after the owner's restart. The temporary build closed its start gate without the volatile permit. After opening the permit and requesting a GPU devnode restart, SSH disconnected and a new Windows boot was observed. The gate closed on reboot. The retained trace has 32 events and zero `DdiStartDevice` events. .66 was removed and .59 restored. Separate a clean WDDM start from the hot PnP transition before making another hardware change. Evidence: `render66-{bind-gated.log,observed.json,dxg-start-after-reboot.json,rollback59.log}`.
+- **Render source WIP (.65, opt-in `--render`).** .63 passed DxgkInitialize, resource binding and hardware initialization. .64 used MCDM/WDDM 2.6 and DxgKrnl rejected the missing UMD name. .65 includes a DLL that declines Direct3D adapter opens. SetupAPI selected .65 before an unexpected restart; its startup remained unverified. .66 reuses that implementation with local startup instrumentation. See `render63-install-result.log`, `render64-dxg-start-full-events.json` and `render65-{setupapi.log,after-reboot.json,rollback59.log}`.
 - GPU-only DSDT: 3,676 bytes, SHA256 `b829b50944a90745fb6f6f7f44f453a6b8573fe4019a95fefd0013a983703518`; adds GPU0 LIC `0x60004414/0x1C`, retaining GSI 189/190 and all other devices. `SWITCH_LITE_GPU_IRQ=1` requires GPU opt-in. Original 3,664-byte DSDT hash: `1bac65cbe8029f40f77bf2ed00ab5808cadcba916dac4325fdc8246bf1302878`. Hash-guarded table rollback: `GpuUpdate\gpu-irq-0.1.0.32\Rollback-GpuIrqTable.ps1`; table changes need reboot.
-- **Owner returned the device for GPU tests.** No GPU operation or trace remains active. The final read-only check confirms unchanged GPU table, Never settings and CPU diagnostic 0 / 998.4 MHz; no Hekate/power-policy change was needed.
-- GPU package/service/matched-tool backups remain local and remote, including accepted **.58/.57/.56**, .54/.55 and earlier candidates. No reboot/Hekate change was needed. Preserve side chat's uncommitted `WindowsDrivers/drivers/SwitchPowerButton` files; do not stage them with GPU work.
+- The owner returned the device for GPU tests. After the owner changed the charger and restarted Windows, the battery driver reported external power and charging. The test machine uses BL31 r8 with AC/DC display and sleep set to Never.
+- GPU package/service/matched-tool backups remain local and remote, including accepted **.58/.57/.56**, .54/.55 and earlier candidates. Preserve side chat's uncommitted `WindowsDrivers/drivers/SwitchPowerButton` files.
 
 ## Next work
 
@@ -53,10 +55,12 @@ The **128 KiB / 16,384-entry** roots, ordered paging builder, rejected/empty pac
 
 **ICD state:** full Windows ARM64 NVK DLL `802676b` builds from pinned Mesa without altering the external checkout. Direct instance/version/create/enumerate/destroy passes on this Lite (API 1.4.354, 2 OS KMT adapters, **0 matching/native-ready KMDs / 0 physical devices**); DLL SHA256 `7020d7da51105df9dffe5b8ac19a011e543f183b1707fce9b3a09da2fafbd101`. Windows `nvkmd` implements KMT enumeration/private queries only. Memory/VA/context/submit/sync, physical-device construction and system-loader integration remain unimplemented; native-submit KMDs still fail explicitly until execution is implemented. Continue the KMD render-adapter/VidMm boundary and native operations, then the offscreen sample.
 
+The `tools/build_offscreen_triangle.py` build validates both SPIR-V modules and links the Windows ARM64 test with the Khronos loader. On the Lite it loaded the explicit NVK ICD and reached the LUID check. The acceptance remains a draw on the live GM20B KMT LUID with 300 red and 724 blue pixels plus 128 unchanged guard bytes. Build and instance evidence are in `vk-triangle-built/` and `vk-triangle-loader-preflight.log`.
+
 1. Run an actual **NVK Vulkan API triangle with known pixel readback**. Connect the accepted NAK shader/image/render-target path to NVK commands; the private shader diagnostic does not fulfill this gate.
 2. Use the accepted physical backend to complete the render-only WDDM adapter, remaining paging operations, real command/residency validation, ISR/DPC completion, preemption and TDR reset/restart while retaining POST display. Publish DRIVERCAPS/miniport DriverEntry only with the required paths connected; diagnostic execution/recovery notification alone is insufficient.
 3. Complete Windows `nvkmd` allocation/mapping/submission/waits and physical-device construction, connect the built ARM64 ICD DLL/JSON to the Windows loader and match the WDDM LUID. Require an actual Vulkan off-screen draw with known foreground/background pixel readback.
-4. Add stable landscape HWND presentation with resize/recreation checks, then separately evaluate DWM interop/shared surfaces/fences and compositor GPU work. A CPU-copy GDI route is not GPU-backed presentation.
+4. Prioritize Win11 desktop acceleration after the offscreen pass. Build the Windows graphics and presentation path with shared surfaces and fences, then verify that DWM actually submits composition work to GM20B. Include stable landscape HWND presentation and resize/recreation checks.
 
 ## Resume and evidence lookup
 
