@@ -192,6 +192,7 @@ static DWORD gpu_json(void) {
   HEX(backend.fence_cpu);
   NUMBER(backend.preemptions);NUMBER(backend.preemption_notifications);NUMBER(backend.preemption_completed);
   HEX(backend.cancelled_report);
+  NUMBER(backend.resets);NUMBER(backend.restarts);NUMBER(backend.reset_isolated);NUMBER(backend.lost_context_rejected);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",

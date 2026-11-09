@@ -51,13 +51,14 @@ int main(void)
  assert(!gpu_backend_pass(&drawn)); /* A legacy shader pass has no backend proof. */
  struct tg_gpu_status backend=drawn;
  backend.backend=(struct tg_gpu_backend_status){.requested=1,.stage=TG_GPU_BACKEND_COMPLETE_STAGE,
-     .worker_started=1,.submissions=3,.notifications=2,.userd_gp_get=2,.userd_gp_put=2,
-     .kernel_priv=1,.context_generation=1,.completion_fence=3,
-     .fence_observed=2,.fence_expected=2,.channel_stage=7,.fence_cpu=2,
-     .preemptions=1,.preemption_notifications=1,.preemption_completed=1,.cancelled_report=TG_GPU_CLEAR_SENTINEL};
+     .worker_started=1,.submissions=6,.notifications=4,.userd_gp_get=2,.userd_gp_put=2,
+     .kernel_priv=1,.context_generation=2,.completion_fence=6,
+     .fence_observed=4,.fence_expected=4,.channel_stage=7,.fence_cpu=4,
+     .preemptions=2,.preemption_notifications=2,.preemption_completed=4,.cancelled_report=TG_GPU_CLEAR_SENTINEL,
+     .resets=1,.restarts=1,.reset_isolated=1,.lost_context_rejected=1};
  backend.gr_channel.restore_ops=2;
  assert(gpu_backend_pass(&backend));
- for(unsigned test=0;test<28;++test){
+ for(unsigned test=0;test<32;++test){
   bad=backend;
   if(test==0)bad.backend.requested=0;if(test==1)bad.backend.stage=7;
   if(test==2)bad.backend.result=0xc0000001;if(test==3)bad.backend.worker_started=0;
@@ -65,7 +66,7 @@ int main(void)
   if(test==6)bad.backend.recovery_requests=1;if(test==7)bad.backend.userd_gp_get=1;
   if(test==8)bad.backend.userd_gp_put=1;if(test==9)bad.backend.user_priv=1;
   if(test==10)bad.backend.kernel_priv=0;if(test==11)bad.backend.allocations_remaining=1;
-  if(test==12)bad.backend.context_generation=2;if(test==13)bad.backend.completion_fence=1;
+  if(test==12)bad.backend.context_generation=1;if(test==13)bad.backend.completion_fence=1;
   if(test==14)bad.gr_channel.restore_ops=1;if(test==15)bad.gr_channel.current_context=0x80000000;
   if(test==16)bad.fifo_interrupt=0x100;if(test==17)bad.mmu_fault=1;
   if(test==18)bad.pbdma_interrupt=1;if(test==19)bad.pbdma_interrupt_1=1;
@@ -74,6 +75,8 @@ int main(void)
   if(test==23)bad.backend.fence_cpu=1;
   if(test==24)bad.backend.preemptions=0;if(test==25)bad.backend.preemption_notifications=0;
   if(test==26)bad.backend.preemption_completed=2;if(test==27)bad.backend.cancelled_report=0;
+  if(test==28)bad.backend.resets=0;if(test==29)bad.backend.restarts=0;
+  if(test==30)bad.backend.reset_isolated=0;if(test==31)bad.backend.lost_context_rejected=0;
   assert(!gpu_backend_pass(&bad));
  }
  for(unsigned test=0;test<12;++test){
