@@ -2,6 +2,10 @@
 
 調べた先: WOA-Project/Lumia950XLPkg, edk2-porting/edk2-sdm845, WOA-Project/mu_andromeda_platforms (2026-10-15 時点の HEAD)。
 
+## 数値と検証レベル
+
+このメモのSoCアドレス、IRQ、クロック等は、別途「実機readback」と明記しない限り、Linux/ Hekateのソースやデバイスツリーから得た**理論値・ソース由来値**です。ACPI/AMLのビルド・逆アセンブル確認は、Windowsでのデバイス起動や実機応答を証明しません。共通の基準は[検証状況一覧](verification-status.md)を参照してください。
+
 ## 現状 (winx)
 AcpiTables/ には FADT / FACS / MADT / GTDT / DBG2 と DSDT (CPU, GIC, timer, UARTB(NVDA0100), SDMMC1/4) がある。
 MCFG / PPTT / PCIe・XHCI の DSDT デバイスは無い。実機未検証。
@@ -28,7 +32,7 @@ D. Wi-Fi は ECAM 問題があるため後回し (USB Wi-Fi ドングルの方�
 - A: 現行 DSDT (iasl 20230628 でコンパイル, 610 バイト, revision 1) の AML を逆アセンブルして確認。使われている opcode は従来型のみ (Name/Method/Store/Or/Increment/CreateXField/ConcatenateResTemplate 等)。Lumia で問題になった ACPI 6.x 系の新 opcode は見当たらない。
   → 現状の DSDT では asl.exe は不要と判断。ただし「Windows がこの AML を実際に読めるか」は未確認。DSDT を大きくする (XHCI 等) ときは同じ確認を繰り返すこと。
 - 参考: Dsdt.asl の `CHN2 = Arg1++` は AML では Store(Increment(Arg1), CHN2) で、意図通り Arg1+1 になる (変更せず)。
-- C: DSDT に XHCI デバイス `XHC0` を追加 (`-D SWITCH_ACPI_XHCI=1` のときだけ。既定 OFF)。レジスタ 0x70090000/0x8000, SPI 39 → INTID 0x47 は tegra210.dtsi と一致。ビルド rc=0、AML を逆アセンブルして GCRS(0x70090000, 0x8000, 0x47) を確認。EMMC フラグとの併用もビルド確認済み (DSDT の ASLPP フラグを DEFINE で合成)。XUSB ファーム未ロード/メールボックス未処理だと Windows からは死んだコントローラに見える点に注意。Tegra の XHCI は FPCI/IPFS 側の初期化とメールボックス応答が要るため、Windows の標準 usbxhci で動くかは未確認 (最大の不確定要素)。
+- C: DSDT に XHCI デバイス `XHC0` を追加 (`-D SWITCH_ACPI_XHCI=1` のときだけ。既定 OFF)。レジスタ `0x70090000/0x8000` と `SPI 39 → INTID 0x47` は `tegra210.dtsi` 由来の**理論値**。ビルド rc=0、AMLを逆アセンブルし、GCRSにその値が出力されることを確認。これはAML生成の確認で、物理レジスタのreadback・Windowsのデバイス起動・USB転送は未確認。EMMCフラグとの併用もビルド確認済み。XUSBファームとメールボックスの実機動作は別途検証が必要。
 
 ## EhciDxeTegra 監査 (2026-10-16)
 EhciDxeTegra は upstream EhciDxe とほぼ同一 (差分は EhciReg.c の「リセット後にホストモードへ戻す」のみ)。Tegra210 (ChipIdea, 内蔵 TT, コンパニオン無し) 固有の不足を調べた:

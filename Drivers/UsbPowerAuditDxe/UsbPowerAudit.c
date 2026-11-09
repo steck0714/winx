@@ -3990,7 +3990,7 @@ STATIC VOID R393AudioProbe (VOID) {
   volatile UINT32 *Car = (volatile UINT32 *)CAR_BASE;
   volatile UINT32 *Pmc = (volatile UINT32 *)PMC_BASE;
   UINT16 Id1 = 0, Id2 = 0, Reset = 0;
-  BOOLEAN Ok1, Ok2, Ok3;
+  BOOLEAN Ok1, Ok3;
 
   // Codec LDO1 enable: PZ4 as a GPIO output, high (pad as in the L4T pinmux, pull down, driven).
   Pin[PINMUX_GPIO_PZ4 / 4] = PINMUX_PULL_DOWN_BITS;
@@ -4011,7 +4011,7 @@ STATIC VOID R393AudioProbe (VOID) {
       if (Try != 0) gBS->Stall (100000);
       Ok1 = R393CodecRead16 (RT5640_VENDOR_ID1, &Id1);
     }
-    Ok2 = R393CodecRead16 (RT5640_VENDOR_ID2, &Id2);
+    (VOID)R393CodecRead16 (RT5640_VENDOR_ID2, &Id2);
     Ok3 = R393CodecRead16 (RT5640_RESET, &Reset);
     Print (L"R394 audio codec: I2C1 0x1C %s after %u tries VENDOR_ID1=%04x (10ec = Realtek) ID2=%04x reg00=%04x\r\n",
            Ok1 ? L"answers" : L"NO ANSWER", (UINT32)Try, Id1, Id2, Reset);

@@ -1,6 +1,6 @@
 /** @file
   FanDxe - initial fan setup for Nintendo Switch. The default profile is Erista;
-  SWITCH_LITE_FAN selects Mariko/HDH-001 and prepares I2C1 for the Windows fan driver.
+  SWITCH_LITE_FAN selects Hoag (HDH-001) and prepares I2C1 for the Windows fan driver.
 
   STATUS: NOT TESTED ON HARDWARE.
     The register sequence below is a port of hekate's fan driver (bdk/thermal/fan.c,

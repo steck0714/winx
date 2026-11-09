@@ -1,5 +1,7 @@
 # 統合ブランチ `unified` (Under-development 5a32737 から)
 
+> **履歴メモ:** これは統合時点の作業記録です。「ビルドも実機起動も未確認」などの注意は当時の状態を示し、現在のブランチ状態ではありません。現在の検証区分と結果は[検証状況一覧](verification-status.md)を参照してください。
+
 ## 変えたこと
 | 内容 | 場所 |
 |---|---|
@@ -8,7 +10,7 @@
 | DSDT に `I2C2` と `SENS`(SWOA0901) を追加 (`SWITCH_ACPI_SWOA` のときだけ) | `AcpiTables/Dsdt/Dsdt.asl` |
 | `WindowsDrivers/` を Windows-for-Switch-Drivers main に更新 (Tegra210Sdhc, SwitchSensor, SwitchPatcher, Switch-Sd, Switch-Sensor) | `WindowsDrivers/` |
 | ビルドの入口を `Tools/build.sh` に一本化 (既定 `woa`、従来の構成は `ehci`) | `Tools/build.sh` |
-| 番号付きパッチ群 `patches/1..6` を移動 | `archive/patches/` |
+| 重複していた番号付きパッチ群を1か所に集約 | `archive/patches/` (履歴の正本) |
 
 ## ビルド
 ```

@@ -9,6 +9,8 @@
 [Sources]
   WifiBt.c
   WifiPrepare.h
+  WifiPrepareCommon.h
+  PowerState.h
   WifiPcie.h
   WifiPexStages.h
   WifiPciLayout.h
@@ -17,7 +19,10 @@
   WifiMsgbuf.h
   WifiScan.h
   t214/uphy.h
-  t214/power.h
+  t214/Hoag/power.h
+  t214/Hoag/Prepare.h
+  t210/Icosa/power.h
+  t210/Icosa/Prepare.h
 
 [Packages]
   MdePkg/MdePkg.dec

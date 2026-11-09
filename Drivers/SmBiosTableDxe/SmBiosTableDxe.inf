@@ -18,7 +18,6 @@
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel
-  gArmTokenSpaceGuid.PcdArmArchTimerFreqInHz
   
 [Packages]
   ArmPkg/ArmPkg.dec

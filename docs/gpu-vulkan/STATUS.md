@@ -1,5 +1,7 @@
 # Native Vulkan on Switch Lite
 
+**Evidence rule:** Physical results below name the Lite, test date and readback where available. Numeric values in source-reference sections (addresses, apertures, IRQs, clocks and register fields) are source-derived/theoretical unless explicitly labeled **physical readback**. Build and host-test passes are not hardware results. See the repository [verification-status guide](../verification-status.md).
+
 ## Goal and boundaries
 
 Implement native Windows 11 ARM64 Vulkan acceleration for Switch Lite HDH-001/T214 using Mesa NVK and a Windows GPU kernel backend. The desktop still uses **CPU software rendering**.

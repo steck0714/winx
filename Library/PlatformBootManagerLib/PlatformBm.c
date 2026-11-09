@@ -28,6 +28,7 @@
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/LoadedImage.h>
+
 #include <Protocol/PciIo.h>
 #include <Protocol/PciRootBridgeIo.h>
 #include <Guid/EventGroup.h>
@@ -35,6 +36,13 @@
 
 #include <Device/TouchPanel.h>
 #include "PlatformBm.h"
+#include "SwitchBootMenu.h"
+
+#ifdef SWITCH_GRUB_MENU
+STATIC EFI_GUID mWinxGrubFileGuid = {
+  0x55A3E7B2, 0x1B1F, 0x4C49, { 0x9D, 0x41, 0x35, 0x75, 0x2E, 0xE6, 0x38, 0xA1 }
+};
+#endif
 
 #define DP_NODE_LEN(Type) { (UINT8)sizeof (Type), (UINT8)(sizeof (Type) >> 8) }
 
@@ -330,13 +338,12 @@ AddOutput (
     ReportText));
 }
 
-#ifndef SWITCH_LITE_BOOT_SD
-STATIC
 VOID
 PlatformRegisterFvBootOption (
   CONST EFI_GUID                   *FileGuid,
   CHAR16                           *Description,
-  UINT32                           Attributes
+  UINT32                           Attributes,
+  UINTN                            Position
   )
 {
   EFI_STATUS                        Status;
@@ -386,15 +393,13 @@ PlatformRegisterFvBootOption (
                   );
 
   if (OptionIndex == -1) {
-    Status = EfiBootManagerAddLoadOptionVariable (&NewOption, MAX_UINTN);
+    Status = EfiBootManagerAddLoadOptionVariable (&NewOption, Position);
     ASSERT_EFI_ERROR (Status);
   }
   EfiBootManagerFreeLoadOption (&NewOption);
   EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
 }
 
-
-#endif
 
 STATIC
 VOID
@@ -407,6 +412,13 @@ PlatformRegisterOptionsAndKeys (
   EFI_INPUT_KEY                F2;
   EFI_INPUT_KEY                Esc;
   EFI_BOOT_MANAGER_LOAD_OPTION BootOption;
+
+#ifdef SWITCH_GRUB_MENU
+  // The opt-in multi-OS profile boots GRUB first; its menu chooses Windows/Linux.
+  PlatformRegisterFvBootOption (
+    &mWinxGrubFileGuid, L"WinX Multi-OS (GRUB)", LOAD_OPTION_ACTIVE, 0
+    );
+#endif
 
   //
   // Register ENTER as CONTINUE key
@@ -606,8 +618,15 @@ PlatformBootManagerAfterConsole (
   // Register UEFI Shell
   //
   PlatformRegisterFvBootOption (
-    &gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE
+    &gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE, MAX_UINTN
     );
+
+  // Hekate -> BL33 now presents a Switch-specific selector by default. The
+  // EDK2 firmware menu remains available from the selector (Esc).
+  Status = SwitchBootMenuRun (NULL, NULL, NULL);
+  if (EFI_ERROR (Status)) {
+    Print (L"Switch boot menu unavailable (%r); returning to UEFI boot flow.\r\n", Status);
+  }
 }
 
 #endif

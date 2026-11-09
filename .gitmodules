@@ -2,3 +2,6 @@
 	path = WindowsDrivers
 	url = https://github.com/ruje0504-2/Windows-for-Switch-Drivers.git
 	branch = vulkan-test
+[submodule "efifs"]
+	path = efifs
+	url = https://github.com/pbatard/efifs.git

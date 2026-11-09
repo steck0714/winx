@@ -36,6 +36,41 @@
   DEFINE LITE_BOOT_SD_FLAGS    =
   DEFINE LITE_XUSB_FLAGS        =
   DEFINE LITE_GPU_FLAGS         =
+  DEFINE SWITCH_QEMU_TEST_FLAGS =
+!ifdef SWITCH_QEMU_TEST
+  DEFINE SWITCH_QEMU_TEST_FLAGS = -DSWITCH_QEMU_TEST=1
+!endif
+  DEFINE SWITCH_BOARD_FLAGS    =
+!ifdef SWITCH_BOARD_ERISTA
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_ERISTA=1 -DSWITCH_BOARD_ICOSA=1
+!ifdef SWITCH_BOARD_MARIKO
+    !error "Select only one Switch board profile"
+!endif
+!ifdef SWITCH_BOARD_OLED
+    !error "Select only one Switch board profile"
+!endif
+!ifdef SWITCH_LITE_TOUCH
+    !error "SWITCH_BOARD_ERISTA cannot be combined with the Lite profile"
+!endif
+!endif
+!ifdef SWITCH_BOARD_MARIKO
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_MARIKO=1 -DSWITCH_BOARD_IOWA=1
+!ifdef SWITCH_BOARD_OLED
+    !error "Select only one Switch board profile"
+!endif
+!ifdef SWITCH_LITE_TOUCH
+    !error "SWITCH_BOARD_MARIKO cannot be combined with the Lite profile"
+!endif
+!endif
+!ifdef SWITCH_BOARD_OLED
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_OLED=1 -DSWITCH_BOARD_AULA=1
+!ifdef SWITCH_LITE_TOUCH
+    !error "SWITCH_BOARD_OLED cannot be combined with the Lite profile"
+!endif
+!endif
+!ifdef SWITCH_LITE_TOUCH
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_LITE=1 -DSWITCH_BOARD_HOAG=1
+!endif
 !ifdef SWITCH_LITE_GPU
   !ifndef SWITCH_HEKATE
     !error "SWITCH_LITE_GPU requires the Hekate HDH-001 boot chain"
@@ -74,17 +109,32 @@
     !error "SWITCH_LITE_SIO requires the HDH-001 GPIO profile"
   !endif
 !endif
+  DEFINE GRUB_MENU_FLAGS       =
+!ifdef SWITCH_GRUB_MENU
+  DEFINE GRUB_MENU_FLAGS       = -DSWITCH_GRUB_MENU=1
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_GRUB_MENU requires the Hekate BL33 boot chain"
+  !endif
+  !ifndef SWITCH_BIGFD
+    !error "SWITCH_GRUB_MENU requires SWITCH_BIGFD for the larger multi-OS firmware"
+  !endif
+!endif
   DEFINE WIFI_RUNTIME_FLAGS   =
 !ifdef SWITCH_WIFI_RUNTIME
   DEFINE WIFI_RUNTIME_FLAGS   = -DSWITCH_WIFI_RUNTIME=1
-  !ifndef SWITCH_HEKATE
-    !error "SWITCH_WIFI_RUNTIME requires the Hekate Home boot chain"
-  !endif
-  !ifndef SWITCH_LITE_BOOT_SD
-    !error "SWITCH_WIFI_RUNTIME requires the bounded Home boot profile"
-  !endif
-  !ifndef SWITCH_LITE_POWER
-    !error "SWITCH_WIFI_RUNTIME requires the I2C5 power profile"
+  !ifdef SWITCH_WIFI_ERISTA
+    # Erista (T210): model-specific preparation stays out of generic BDS startup.
+    DEFINE WIFI_RUNTIME_FLAGS = -DSWITCH_WIFI_RUNTIME=1 -DSWITCH_WIFI_ERISTA=1
+  !else
+    !ifndef SWITCH_HEKATE
+      !error "SWITCH_WIFI_RUNTIME requires the Hekate Home boot chain"
+    !endif
+    !ifndef SWITCH_LITE_BOOT_SD
+      !error "SWITCH_WIFI_RUNTIME requires the bounded Home boot profile"
+    !endif
+    !ifndef SWITCH_LITE_POWER
+      !error "SWITCH_WIFI_RUNTIME requires the I2C5 power profile"
+    !endif
   !endif
 !endif
 !ifdef SWITCH_LITE_BOOT_SD
@@ -190,7 +240,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_GPU_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(SWITCH_BOARD_FLAGS) $(EXCFB_FLAGS) $(LITE_GPU_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(GRUB_MENU_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS) $(SWITCH_QEMU_TEST_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -241,7 +291,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_GPU_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(SWITCH_BOARD_FLAGS) $(LITE_GPU_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -252,35 +302,28 @@
   gEmbeddedTokenSpaceGuid.PcdPrePiProduceMemoryTypeInformationHob|TRUE
   gEfiMdeModulePkgTokenSpaceGuid.PcdTurnOffUsbLegacySupport|TRUE
 
+!include MdePkg/MdeLibs.dsc.inc
+
 [LibraryClasses.common]
   # ARM Architectural Libraries
-  ArmLib|ArmPkg/Library/ArmLib/ArmBaseLib.inf
+  ArmLib|MdePkg/Library/ArmLib/ArmBaseLib.inf
   RegisterFilterLib|MdePkg/Library/RegisterFilterLibNull/RegisterFilterLibNull.inf
   ImagePropertiesRecordLib|MdeModulePkg/Library/ImagePropertiesRecordLib/ImagePropertiesRecordLib.inf
   VariableFlashInfoLib|MdeModulePkg/Library/BaseVariableFlashInfoLib/BaseVariableFlashInfoLib.inf
-  ArmMmuLib|ArmPkg/Library/ArmMmuLib/ArmMmuBaseLib.inf
-  ArmPlatformStackLib|ArmPlatformPkg/Library/ArmPlatformStackLib/ArmPlatformStackLib.inf
+  ArmMmuLib|UefiCpuPkg/Library/ArmMmuLib/ArmMmuBaseLib.inf
   CacheMaintenanceLib|ArmPkg/Library/ArmCacheMaintenanceLib/ArmCacheMaintenanceLib.inf
-  CpuExceptionHandlerLib|ArmPkg/Library/ArmExceptionLib/ArmExceptionLib.inf
-!ifdef SWITCH_EXCFB
-  # CPU exception dump (ESR/FAR/ELR/registers) is also drawn on the panel: for diagnosing alignment faults on real hardware.
-  DefaultExceptionHandlerLib|NintendoSwitchPkg/Library/FbExceptionHandlerLib/FbExceptionHandlerLib.inf
-!else
-  DefaultExceptionHandlerLib|ArmPkg/Library/DefaultExceptionHandlerLib/DefaultExceptionHandlerLib.inf
-!endif
-  ArmDisassemblerLib|ArmPkg/Library/ArmDisassemblerLib/ArmDisassemblerLib.inf
+  CpuExceptionHandlerLib|UefiCpuPkg/Library/CpuExceptionHandlerLib/DxeCpuExceptionHandlerLib.inf
   ArmGenericTimerCounterLib|ArmPkg/Library/ArmGenericTimerPhyCounterLib/ArmGenericTimerPhyCounterLib.inf
   TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
   TimerLib|ArmPkg/Library/ArmArchTimerLib/ArmArchTimerLib.inf
-  ArmSmcLib|ArmPkg/Library/ArmSmcLib/ArmSmcLib.inf
+  ArmSmcLib|MdePkg/Library/ArmSmcLib/ArmSmcLib.inf
+  ArmTransferListLib|ArmPkg/Library/ArmTransferListLib/ArmTransferListLib.inf
+  ArmMonitorLib|ArmPkg/Library/ArmMonitorLib/ArmMonitorLib.inf
   ArmHvcLib|ArmPkg/Library/ArmHvcLib/ArmHvcLib.inf
-  ArmGicLib|ArmPkg/Drivers/ArmGic/ArmGicLib.inf
-  ArmGicArchLib|ArmPkg/Library/ArmGicArchLib/ArmGicArchLib.inf
   
   # Compiler Services
-  NULL|ArmPkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf
-  CompilerIntrinsicsLib|ArmPkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf
-  NULL|MdePkg/Library/BaseStackCheckLib/BaseStackCheckLib.inf
+  CompilerIntrinsicsLib|MdePkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf
+  GptLib|MdeModulePkg/Library/GptLib/GptLib.inf
   
   # UEFI Platform Services
   AuthVariableLib|MdeModulePkg/Library/AuthVariableLibNull/AuthVariableLibNull.inf
@@ -367,7 +410,7 @@
 !endif
 
   # System Libraries
-  EfiResetSystemLib|ArmPkg/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf
+  ResetSystemLib|ArmPkg/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf
 
   # Support Libraries
   DmaBounceBufferLib|NintendoSwitchPkg/Library/DmaBounceBufferLib/DmaBounceBufferLib.inf
@@ -420,7 +463,7 @@
   ExtractGuidedSectionLib|MdePkg/Library/DxeExtractGuidedSectionLib/DxeExtractGuidedSectionLib.inf
 
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
-  ArmSmcLib|ArmPkg/Library/ArmSmcLib/ArmSmcLib.inf
+  ArmSmcLib|MdePkg/Library/ArmSmcLib/ArmSmcLib.inf
   HobLib|MdePkg/Library/DxeHobLib/DxeHobLib.inf
   MemoryAllocationLib|MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf
   ReportStatusCodeLib|MdeModulePkg/Library/DxeReportStatusCodeLib/DxeReportStatusCodeLib.inf
@@ -437,13 +480,11 @@
 
 [PcdsFeatureFlag.common]
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
-  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutUgaSupport|FALSE
   # Use the Vector Table location in CpuDxe. We will not copy the Vector Table at PcdCpuVectorBaseAddress
-  gArmTokenSpaceGuid.PcdRelocateVectorTable|FALSE
 
 [PcdsFixedAtBuild.common]
   gArmPlatformTokenSpaceGuid.PcdCoreCount|4
-  gArmTokenSpaceGuid.PcdVFPEnabled|1
+  gNintendoSwitchPkgTokenSpaceGuid.PcdVFPEnabled|1
 
 !ifdef SWITCH_FAN_DUTY
   !if ($(SWITCH_FAN_DUTY) < 1) OR ($(SWITCH_FAN_DUTY) > 235)
@@ -464,7 +505,7 @@
   # Size of the region used by UEFI in permanent memory (Reserved 128MB)
   gEmbeddedTokenSpaceGuid.PcdPrePiStackSize|0x00040000      # 64K stack
   gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize|0x40000
-  gArmPlatformTokenSpaceGuid.PcdSystemMemoryUefiRegionSize|0x10000000
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize|0x10000000
 
   ## Default Terminal Type
   ## 0-PCANSI, 1-VT100, 2-VT00+, 3-UTF8, 4-TTYTERM
@@ -504,7 +545,6 @@
   ## If TRUE, Graphics Output Protocol will be installed on virtual handle created by ConsplitterDxe.
   #  It could be set FALSE to save size.
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
-  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutUgaSupport|FALSE
 
   # Debug Configuration
   gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x2f
@@ -526,7 +566,6 @@
   # Core configs
   gArmTokenSpaceGuid.PcdArmPrimaryCore|0
   gArmTokenSpaceGuid.PcdArmPrimaryCoreMask|0xf03
-  gArmTokenSpaceGuid.PcdArmArchTimerFreqInHz|19200000
 
   # Performance
   gEfiMdePkgTokenSpaceGuid.PcdPerformanceLibraryPropertyMask|1
@@ -534,9 +573,27 @@
   # Version Info
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor|L"Little Moe, LLC."
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"0.01"
+!ifdef SWITCH_LITE_TOUCH
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch Lite (HDH-001)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"NVIDIA Tegra X1+ (T210B01/T214)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"HDH-001"
+!else
+!ifdef SWITCH_BOARD_OLED
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch OLED (HEG-001)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"NVIDIA Tegra X1+ (T210B01)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"HEG-001"
+!else
+!ifdef SWITCH_BOARD_MARIKO
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch (HAC-001-01)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"NVIDIA Tegra X1+ (T210B01)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"HAC-001-01"
+!else
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch (HAC-001)"
-  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"NVIDIA Tegra X1"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"NVIDIA Tegra X1 (T210)"
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"HAC-001"
+!endif
+!endif
+!endif
 
   # Display
   # Simple FrameBuffer
@@ -575,7 +632,7 @@
 [Components.common]
   NintendoSwitchPkg/LiteSdTest/LiteSdTest.inf
   # PEI/SEC
-  ArmPlatformPkg/PrePi/PeiUniCore.inf
+  NintendoSwitchPkg/PrePi/PeiUniCore.inf
 
   # DXE
   MdeModulePkg/Core/Dxe/DxeMain.inf {
@@ -598,7 +655,7 @@
   MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
   MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
-  EmbeddedPkg/ResetRuntimeDxe/ResetRuntimeDxe.inf
+  MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
   EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf {
     <LibraryClasses>
@@ -617,7 +674,7 @@
   # CPU Services
   ArmPkg/Drivers/CpuDxe/CpuDxe.inf
   ArmPkg/Drivers/TimerDxe/TimerDxe.inf
-  ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+  ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
   # Display
@@ -751,15 +808,7 @@
   NintendoSwitchPkg/Drivers/SdAutoDxe/SdAutoDxe.inf
 !endif
 !ifdef SWITCH_FSDRV
-  # Read-only non-FAT file systems (pbatard/EfiFs v1.12 + GRUB 2.14, GPLv3): NTFS/exFAT (Windows),
-  # ext2/3/4/XFS/Btrfs (Linux), F2FS/EROFS/ext4 (Android). Needs EfiFsPkg (see README.fsdrv).
-  EfiFsPkg/EfiFsPkg/Ntfs.inf
-  EfiFsPkg/EfiFsPkg/ExFat.inf
-  EfiFsPkg/EfiFsPkg/Ext2.inf
-  EfiFsPkg/EfiFsPkg/Xfs.inf
-  EfiFsPkg/EfiFsPkg/Btrfs.inf
-  EfiFsPkg/EfiFsPkg/F2fs.inf
-  EfiFsPkg/EfiFsPkg/EroFs.inf
+  # EfiFs v1.13 AArch64 binaries are embedded directly from NintendoSwitch.fdf.
 !endif
 !ifdef SWITCH_NET
   # USB Ethernet adapters (CDC-ECM, CDC-NCM, RNDIS) + the UEFI IPv4 stack, so ifconfig / ping / tftp work.

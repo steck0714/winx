@@ -27,6 +27,18 @@
 #include <Library/UefiLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 
+#ifdef SWITCH_WIFI_ERISTA
+VOID PlatformWifiPrepareBeforeBoot (VOID);
+#endif
+
+VOID
+PlatformRegisterFvBootOption (
+  IN CONST EFI_GUID  *FileGuid,
+  IN CHAR16          *Description,
+  IN UINT32          Attributes,
+  IN UINTN           Position
+  );
+
 /**
   Use SystemTable Conout to stop video based Simple Text Out consoles from
   going to the video device. Put up LogoFile on every video device that is a

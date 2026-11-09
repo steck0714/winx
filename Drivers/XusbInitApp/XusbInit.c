@@ -407,7 +407,8 @@ StepClk (
   Us (2);
   Log (L"clk: xusb+padctl up, RST_W=%08x", Rd (CAR_BASE, CAR_RST_W));
 
-  // Host core 102 MHz (PLLP/(6+2)*2), falcon 204 MHz, FS 48 MHz, SS 120 MHz (hekate/Linux values).
+  // Source-derived theoretical clock targets from Hekate/Linux; not measured on a WinX Switch.
+  // Host core 102 MHz (PLLP/(6+2)*2), falcon 204 MHz, FS 48 MHz, SS 120 MHz.
   Wr (CAR_BASE, CAR_ENB_U_SET, XUSB_HOST_RST_U);
   Rmw (CAR_BASE, CAR_SRC_XUSB_HOST,   0xE00000FF, (1 << 29) | 6);
   Rmw (CAR_BASE, CAR_SRC_XUSB_FALCON, 0xE00000FF, (1 << 29) | 2);
@@ -715,7 +716,8 @@ SvcHandleSmi (
     switch (Cmd) {
       case MBOX_CMD_INC_FALC:
       case MBOX_CMD_DEC_FALC:
-        MboxSend (Data == 204000 ? MBOX_CMD_ACK : MBOX_CMD_NAK, 204000);   // falcon clock is 204 MHz
+        // The 204 MHz request is the source-derived expected value; no WinX hardware readback is recorded.
+        MboxSend (Data == 204000 ? MBOX_CMD_ACK : MBOX_CMD_NAK, 204000);
         break;
       case MBOX_CMD_INC_SSPI:
       case MBOX_CMD_DEC_SSPI:

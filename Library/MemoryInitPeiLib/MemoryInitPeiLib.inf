@@ -29,6 +29,7 @@
   EmbeddedPkg/EmbeddedPkg.dec
   ArmPkg/ArmPkg.dec
   ArmPlatformPkg/ArmPlatformPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
   NintendoSwitchPkg/NintendoSwitch.dec
 
 [LibraryClasses]

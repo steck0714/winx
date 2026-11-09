@@ -10,6 +10,7 @@
 
 [Sources.common]
   SidebandButtons.c
+  SwitchSidebandButtons.h
 
 [Packages]
   ArmPkg/ArmPkg.dec
@@ -35,11 +36,10 @@
   DevicePathLib
 
 [Protocols]
-  gEfiDriverBindingProtocolGuid
-  gEfiSimpleTextInProtocolGuid
-  gEfiSimpleTextInputExProtocolGuid
   gPmicProtocolGuid
+  gTegraPinMuxProtocolGuid
+  gWinXSidebandButtonProtocolGuid
 
 [Depex]
-  gPmicProtocolGuid
+  gPmicProtocolGuid AND gTegraPinMuxProtocolGuid
 

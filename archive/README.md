@@ -1,4 +1,4 @@
 # archive
 
-Superseded patch chain from before the tree was unified (`archive/patches/1..6`, see `archive/patches/README.txt`).
-Kept for reference and bisecting. `patches/edk2/` and `winx-bl33.patch` stay where they were.
+Superseded patch snapshots from before the tree was unified. They are named by upstream base or delivery under `archive/patches/`; see `archive/patches/README.txt` for the chain.
+Kept for reference and bisecting. Active patch sets remain under `patches/`.
