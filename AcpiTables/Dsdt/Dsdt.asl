@@ -911,9 +911,18 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         {
             Name (_HID, "SWOA0601")
             Name (_UID, Zero)
+#ifdef SWITCH_LITE_POWER_IRQ
+            // Ordinary S0 wake; no processor PEP or SC7 state is added.
+            // B01 PMU_EXT is SPI 86 / GSI 118 after PMC polarity inversion.
+            Name (_S0W, 3)
+#endif
             Name (_CRS, ResourceTemplate ()
             {
                 I2cSerialBusV2 (0x003C, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+#ifdef SWITCH_LITE_POWER_IRQ
+                Memory32Fixed (ReadWrite, 0x7000E400, 4)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, ExclusiveAndWake) { 118 }
+#endif
             })
 
             Method (_STA, 0, NotSerialized)
