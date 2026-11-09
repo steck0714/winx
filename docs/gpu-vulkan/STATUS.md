@@ -1,6 +1,6 @@
 # Native Vulkan on Switch Lite
 
-**Active, incomplete.** Physical checkpoint: **0.1.0.44 / ABI 24 / 2026-11-09 03:07:00 Pacific**. Driver `e4de778`; both repositories publish only `vulkan-test`, with `WindowsDrivers` paired.
+**Active, incomplete.** Physical checkpoint: **0.1.0.44 / ABI 24 / 2026-11-09 03:07:00 Pacific**. Installed driver `e4de778`; both repositories publish only `vulkan-test`, with `WindowsDrivers` paired.
 
 ## Goal and constraints
 
@@ -39,7 +39,7 @@ Local packet/image/failure models, sanitizers, real NETB and full ARM64 build pa
 
 ## Next work
 
-**WIP, library only:** `windows/adapter.c` composes headless WDDM lifecycle/resource/table/context/queue ownership. `UMDRIVERPRIVATE` ABI 1 reports the OS LUID and **512 MiB ceiling**; native-submit stays unset. The shared cold prefix and hot bind/publish/retire helpers have private-diagnostic evidence. WDDM now prepares empty GP_PUT and requires an owned BAR1 mapping before submission/resume; reset invalidates readiness. Per-context graphics images, mapping the WDDM command pages into BAR1, cold-backend hookup and real dispatch/recovery remain unfinished. Full ARM64 build plus controlled native lifecycle/paging tests pass; no DriverEntry/INF or live WDDM registration exists.
+**WIP `38c5866`, library only:** `windows/adapter.c` composes headless WDDM ownership; UMD-private ABI 1 reports the OS LUID and **512 MiB ceiling**, with native-submit unset. `windows/graphics.c` now gives each ordinary context one **976 KiB** RAMIN/GR allocation, an owned immutable golden template, rebased private mappings and saved-state preservation. Full reset rejects initialized contexts from the previous generation. Full ARM64 build and native controlled tests pass, using synthetic golden data and OS/GPU substitutes; the packed layout has no physical GPU pass. Cold-backend/template hookup, mapping command pages into BAR1 and real dispatch/recovery remain unfinished. No DriverEntry/INF or live WDDM registration exists.
 
 **ICD prerequisites:** Windows ARM64 NIR/NAK compiler build/native output checks pass, and build-host Mesa CLC/`vtn_bindgen2` tools are ready. The external Mesa checkout is unchanged. Windows `nvkmd` and the full NVK ICD DLL remain unimplemented.
 
@@ -54,6 +54,7 @@ Keep this entry short; replace stale state instead of appending chronology. Read
 
 - Physical: **`hot44-physical-result.json` + `hot44-physical-run-meta.json`**. Earlier `boot43/draw41/gr31/irq34/gr36/clear39-physical-result.json`; failed-draw diagnosis `draw40-physical-result.json`.
 - Build/sign/install: `hot44-{build-v2,stage,signature-verify,install-result}.log`; native WDK fixtures `hot44-native-contract-v2.log`; final snapshot `hot44-handoff.log` and `hot44-desktop-status.json`. Package `hot44-package`, remote `GpuUpdate\gr-hot-0.1.0.44`; .43 rollback is exported locally/remotely (`hot44-backup-manifest.json`). Table proof: `irq32-acpi/`; unchanged tool fixture: `draw40-native-json.log`.
+- WDDM graphics WIP: `graphics45-build-v2.log` and `graphics45-native-contract-v2.log`; ARM64 artifacts in `graphics45-build/`, remote controlled tests in `GpuUpdate/wddm-graphics45`. No probe package or firmware/power change was made for this library step; installed hardware remains .44.
 - Shader compilation: `draw40-shaders/` reproduces the committed shader words; Windows build/native/rebuild evidence is in `nak-win43/{build,repro-build,native-compile,native-repro}.log` and `native*-comparison.json`. `icd-host-tools-{setup,build}.log` records the build-host CLC tools. No ICD DLL or Vulkan API result is implied.
 - SSH: `ssh -i ~/.ssh/dsh_handheld_ed25519 ruje@192.168.8.6`. Direct `C:\Users\Public\Desktop\LitePerformanceCheck.exe --gpu-json` only queries. Separate run flags: `--gpu-729`, `--gpu-gr-729`, `--gpu-irq-729`, `--gpu-3d-729`, `--gpu-clear-729`, `--gpu-draw-729`; capture stdout synchronously. Query exit 0 alone is not a GPU pass. SSH timeout alone is not a confirmed hang.
 
