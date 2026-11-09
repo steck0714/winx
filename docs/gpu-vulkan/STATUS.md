@@ -1,6 +1,6 @@
 # Native Vulkan on Switch Lite
 
-**Active; long-term goal incomplete.** Current checkpoint: 2026-11-08 (Pacific), firmware `4a82145`, paired driver `163b7f6`, both `vulkan-test`.
+**Active; long-term goal incomplete.** Latest physical checkpoint: 2026-11-08 (Pacific), firmware `4a82145`, paired driver `163b7f6`, both `vulkan-test`.
 
 ## Goal and constraints
 
@@ -21,7 +21,8 @@ Implement native Windows 11 ARM64 Vulkan on HDH-001/T214/GM20B: GPU execution/re
 | **0.1.0.34 / ABI 20** | IRQ run at **23:38:04 Pacific**: exit 0, Stage 306, `fifo_pass=true`, `irq_pass=true`, measured 729,600 kHz; GPU report/readbacks `1FAA904A/E0556FB5`, **2 ISR / 2 DPC**, GSI 190; fault/result/restore/owned zero | Diagnostic notifications; live WDDM dispatch/IRQ integration and TDR still pending |
 
 Signed ACR authentication, PMU/WPR acknowledgement, secure FECS/GPCCS startup, GPC-MMU, memory visibility and GR golden save have physical evidence. WDDM allocation/query/paging/context/queue modules compile and pass controlled native fixtures; **no render adapter is registered and no live VidMm pass exists**.
-The latest IRQ fix accepts full MC/LIC bitmaps, including `MC_MASK1=FFFFFFFF`. Earlier .32/.33 arm checks rejected this before submission; ABI 20 exposes the first failing stage/register/value across cleanup. Exact owned-bit write verification remains. Full host models, sanitizers, real NETB checks, ARM64 build, 34-case native JSON fixture and native SYS/CAT/11-member signing checks pass. Fixtures use explicit OS/device/GPU substitutes.
+The accepted .34 IRQ fix handles full MC/LIC bitmaps and preserves first-failure diagnostics. Its host models, sanitizers, real NETB, ARM64 build, 34-case native JSON fixture and native SYS/CAT/11-member signing checks pass; fixtures explicitly substitute OS/device/GPU behavior.
+**Source WIP, uninstalled:** .35 / ABI 20, driver `f3e41de`, prepares per-channel GR image headers, 21 rebased global patches and the pinned 30-register/512 KiB access map in an extended 2 MiB layout. Golden immutability, 40-bit VA encoding, read-only map/patch PTEs and failure/visibility models, sanitizers, real NETB and full ARM64 build pass locally (`gr35-build.log`). The new loader is not wired to a probe IOCTL or WDDM dispatch; no physical context restore or 3D workload is established. See the [module contracts](../../WindowsDrivers/drivers/TegraGpu/README.md).
 
 ## Installed snapshot and hardware ownership
 
@@ -33,7 +34,7 @@ The latest IRQ fix accepts full MC/LIC bitmaps, including `MC_MASK1=FFFFFFFF`. E
 
 ## Next work
 
-1. Complete per-context GR image/header/patch/access-map state and validate an actual graphics-engine workload. Keep the accepted FIFO, golden and IRQ entry points distinct; no CPU path may write an expected completion value.
+1. Connect the prepared per-context image to a distinct graphics submission path and validate an engine-produced report. A PBDMA fence alone cannot prove GR execution. Keep the accepted FIFO, golden and IRQ entry points distinct; no CPU path may write an expected completion value.
 2. Connect memory, context and queue modules to a registered render-only WDDM adapter: real dispatch/residency/command validation, ISR/DPC completion, preemption and TDR. Keep the working POST display.
 3. Implement Windows `nvkmd` discovery/allocation/mapping/submission/waits, retaining NVK compilation and command generation. Build ARM64 ICD DLL/JSON, match the WDDM LUID, then require an off-screen draw with known foreground/background pixel readback.
 4. Add stable landscape HWND presentation with resize/recreation checks; only then evaluate DWM interop/shared surfaces/fences and measured compositor GPU work. Mesa's CPU-copy GDI route is not GPU-backed presentation.
