@@ -500,6 +500,10 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
 #define GPU_ID_ASL(Base, Size) Memory32Fixed (ReadOnly, Base, Size)
                 T214_GPU_ID_RESOURCES(GPU_ID_ASL)
 #undef GPU_ID_ASL
+#ifdef SWITCH_LITE_GPU_IRQ
+                // CPU-side forwarding for GPU nonstall SPI 158; no wake policy.
+                Memory32Fixed (ReadWrite, T214_GPU_LIC_BASE, T214_GPU_LIC_SIZE)
+#endif
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_STALL_GSI }
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_NONSTALL_GSI }
             })

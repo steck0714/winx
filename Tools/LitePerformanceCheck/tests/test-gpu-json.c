@@ -8,6 +8,7 @@
 #define _WIN32_WINNT 0x0a00
 #include <windows.h>
 #include <TegraGpu/windows/control.h>
+#include <TegraGpu/core/execute.h>
 
 static unsigned fixture,opened;
 static DWORD wantedCode,lastError;
@@ -26,7 +27,7 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  struct tg_gpu_request *request=in;
  (void)overlapped;
  if(handle!=(HANDLE)(ULONG_PTR)123 || code!=wantedCode || outBytes!=sizeof(s))ExitProcess(102);
- if(code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN){
+ if(code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN || code==TG_GPU_IOCTL_IRQ_RUN){
   if(inBytes!=sizeof(*request) || request->version!=TG_GPU_CONTROL_VERSION ||
      request->target_khz!=TG_GPU_CONTROL_DEFAULT_KHZ)ExitProcess(103);
  }else if(in || inBytes)ExitProcess(104);
@@ -60,7 +61,7 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
    if(fixture==12)s.gr.stage=13; /* FECS queries alone omit GPC translation setup. */
   }
  }
- if(fixture>=13){
+ if(fixture>=13 && fixture<=19){
   s.graphics.stage=9;s.graphics.context_bytes=s.gr.context_bytes;
   s.graphics.bind_mailbox=0x10;s.graphics.save_mailbox=1;
   s.graphics.image_magic=0x600dc0de;s.graphics.image_changed_words=123;
@@ -70,6 +71,19 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
   if(fixture==17)s.graphics.image_magic=0xa5a5a5a5;
   if(fixture==18)s.graphics.save_mailbox=3;
   if(fixture==19)s.graphics.bind_mailbox=0x30;
+ }
+ if(fixture>=20){
+  s.irq_gsi=T214_GPU_NONSTALL_GSI;s.irq_expected=2;
+  s.interrupt.interrupts=2;s.irq_dpcs=2;
+  if(fixture==21)s.interrupt.interrupts=0;
+  if(fixture==22)s.interrupt.interrupts=1;
+  if(fixture==23)s.irq_dpcs=1;
+  if(fixture==24)s.interrupt.result=TG_GPU_IRQ_UNEXPECTED;
+  if(fixture==25)s.interrupt.restore_result=TG_GPU_IRQ_REGISTER;
+  if(fixture==26)s.irq_expected=0;
+  if(fixture==27)s.irq_gsi=0;
+  if(fixture==28)s.resources_owned=1;
+  if(fixture==29)s.execution_result=TG_GPU_EXEC_IRQ;
  }
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;
@@ -89,6 +103,8 @@ void start(void) {
  LPWSTR query[]={L"fixture.exe",L"--gpu-json"};
  LPWSTR run[]={L"fixture.exe",L"--gpu-json",L"--gpu-729"};
  LPWSTR runGr[]={L"fixture.exe",L"--gpu-json",L"--gpu-gr-729"};
+ LPWSTR runIrq[]={L"fixture.exe",L"--gpu-json",L"--gpu-irq-729"};
+ LPWSTR conflictIrq[]={L"fixture.exe",L"--gpu-json",L"--gpu-irq-729",L"--gpu-gr-729"};
  LPWSTR conflictGr[]={L"fixture.exe",L"--gpu-json",L"--gpu-gr-729",L"--gpu-729"};
  LPWSTR conflict[]={L"fixture.exe",L"--gpu-json",L"--gpu-729",L"--gpu-1228"};
  const DWORD results[]={0,0,ERROR_GEN_FAILURE,0,ERROR_ACCESS_DENIED,
@@ -102,6 +118,14 @@ void start(void) {
   wantedCode=i<2?TG_GPU_IOCTL_STATUS:TG_GPU_IOCTL_RUN;
   result=gpu_json();
   if(result!=results[i] || opened!=(i==7?0u:1u))ExitProcess(110+i);
+ }
+ for(unsigned i=0;i<11;++i){
+  fixture=i==10?20:20+i;opened=0;
+  arguments=i==10?conflictIrq:runIrq;argumentCount=i==10?4:3;
+  wantedCode=TG_GPU_IOCTL_IRQ_RUN;
+  DWORD result=gpu_json();
+  if(result!=(i==10?ERROR_INVALID_PARAMETER:i?ERROR_GEN_FAILURE:0) ||
+     opened!=(i==10?0u:1u))ExitProcess(160+i);
  }
  for(unsigned i=0;i<8;++i){
   fixture=i==7?13:13+i;opened=0;
