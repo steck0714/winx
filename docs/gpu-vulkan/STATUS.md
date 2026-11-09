@@ -1,13 +1,13 @@
 # Native Vulkan on Switch Lite
 
-**Active, incomplete.** Latest physical render checkpoint **0.1.0.86**. Latest physical GPU draw/readback **0.1.0.59 / ABI 31** (`e1d4a16`). GPU work is published on the paired `vulkan-test` branches.
+**Native Vulkan triangle passed on the Lite with 0.1.0.87.** Win11 DWM acceleration and hardware presentation remain pending. GPU work is published on the paired `vulkan-test` branches.
 
 ## Goal and constraints
 
-Native Windows 11 ARM64 Vulkan on HDH-001/T214/GM20B. The shared Windows backend draws fixed NAK shaders, live WDDM executes a guarded application copy, and NVK initializes the matching Windows Vulkan device through live WDDM. The Vulkan API draw with known pixels, Win32 presentation and DWM hardware composition remain pending.
+Native Windows 11 ARM64 Vulkan on HDH-001/T214/GM20B. The Windows ARM64 Khronos loader and NVK ICD drew a known-pixel triangle on the matching GM20B LUID through live WDDM. A Win32 window showed its verified readback.
 
 - KMD first; retain Mesa NVK's compiler, command generation and ICD. Microsoft's render-only sample supplies WDDM structure. Game compatibility is outside the current triangle phase; `sc7-test` stays paused.
-- Immediate priority: **real Vulkan API triangle and known pixel readback**. Notify the owner as soon as it passes. Continue development toward **Win11 DWM acceleration on GM20B** while the owner prepares to record the visible demonstration. Prioritize the Vulkan extensions needed for that path. Future OpenGL compatibility uses **Mesa Zink → NVK → KMD**.
+- Current priority is **Win11 DWM acceleration on GM20B**, including the WDDM graphics adapter, native Direct3D entry point, shared surfaces and fences, and GPU-backed Win32 presentation. The owner was notified after the offscreen pass and interactive preview. Future OpenGL compatibility uses **Mesa Zink → NVK → KMD**.
 - Preserve landscape display, installed systems, files, partitions, BCD and BL31/BL33. Publish no proprietary firmware or signing keys.
 - Keep AC/DC display-off and sleep **0 / Never**, screensaver and power-button behavior. CPU diagnostic remains `CpuOverclockEnabled=0` / 998.4 MHz / 800 mV. Black-screen investigation belongs to the side chat.
 - Owner-selected UMA budget: **512 MiB maximum GPU working set**, allocated dynamically within Windows/VidMm budgets; the earlier 1 GiB pressure-test target is withdrawn. No boot-time RAM carve-out. The render path charges opaque VidMm allocations per adapter. The private diagnostic has its own arena.
@@ -36,7 +36,9 @@ Local packet/image/failure models, real NETB and full ARM64 build pass. **Six na
 
 ## Device and current work
 
-- **Rollback baseline .59 / ABI 31 / 904 bytes / oem85.inf.** Restored after .86 and verified Code 0 at 15:20 Pacific. Both AC/DC display and sleep timeouts read 0. The matched tool is on Public Desktop. Both are backed up in `GpuUpdate\rollback-0.1.0.59`. SYS SHA256 `de5e9cd492d35a73ea3d3f5f1723fd82f88922f6e91ef5966b430360f5eb5646` and tool SHA256 `ca127482bbb59ac6c1b2f576f6b9793231c1b865a00057ec1171892f210929d4`.
+- **Rollback baseline .59 / ABI 31 / 904 bytes / oem85.inf.** Restored after .87 and verified Code 0 at 15:38 Pacific. Both AC/DC display and sleep timeouts read 0. The matched tool is on Public Desktop. Both are backed up in `GpuUpdate\rollback-0.1.0.59`. SYS SHA256 `de5e9cd492d35a73ea3d3f5f1723fd82f88922f6e91ef5966b430360f5eb5646` and tool SHA256 `ca127482bbb59ac6c1b2f576f6b9793231c1b865a00057ec1171892f210929d4`.
+- **Native Vulkan triangle .87.** Clean ARM64 ICD `2f5f7860…`, KMT LUID `0000000000004df4`. The one-boot KMD accepted three exact NVK packets of 7,500, 148 and 1,556 bytes. Draw fence 27 succeeded; completion later reached 50 with recovery status 0. All **300 red, 724 blue pixels and 128 guard bytes** matched. The optional `--preview` repeated the result and painted it with GDI in interactive session 1. Evidence in `render87-nvk-run.log` and `render87-evidence/`.
+- **Desktop path .87.** Active internal panel source and target both used Microsoft DXGI LUID `0000000000004d55`, at 720×1280 rotated 90°. The GM20B Vulkan/KMT LUID `0000000000004df4` was absent from DXGI graphics enumeration. The render miniport advertises `ComputeOnly` with zero VidPN sources. Evidence in `desktop87/`.
 - **Native Vulkan initialization .86.** The page-table encoder now accepts uncompressed Maxwell block-linear kind `0xFE` for GPU-physical leaves. This addresses the precise `STATUS_NOT_SUPPORTED` recorded by .85. On .86, Vulkan matched LUID `000000000000540e` and passed image mapping. The one-boot KMD accepted the 7,500-byte and 148-byte NVK initialization packets at fences 15 and 26. Later completion reached fence 28 with recovery status 0. The 1,556-byte draw and readback packet was rejected at fence 27 for a host `SET_REFERENCE(0)`. The Vulkan wait returned and pixel 0,0 retained its `A5` sentinel. Raw pushes and KMD records are in `render86-evidence/`; the .85 mapping failure is in `render85-evidence/`.
 - **NVK transport .84.** The first ICD enumerated the matching GM20B Windows LUID and reached `vkQueueSubmit`. The observation gate captured 7,756 bytes and prevented execution. Removing two privileged MME paths produced the initialization used by .85 and .86. Evidence in `render84-user-raw/` and `render84-user-evidence/`.
 - **Live GM20B application copy .83.** On LUID `00000000:000053AE`, the one-boot test miniport accepted exactly one B0B5 copy recipe for the application page at GPU VA `0x10000`. Windows delivered 52 command bytes and 68 UMD-private bytes to `SubmitCommandVirtual` with flags 0. Application submission fence 9 retired, the monitored fence reached 7, and CPU readback matched all 64 copied words and 960 untouched words. Cleanup completed through KMD fence 12 with recovery status 0. The published native-submit flag remains gated pending NVK command validation. The SDK-compiled NVK bridge repeated the copy with aligned and fixed VA reservations, residency, a timed fence wait and CPU/GPU signals. Evidence in `render83-run-copy.log`, `transport84-run.log` and `transport84-evidence/`.
@@ -52,7 +54,7 @@ Local packet/image/failure models, real NETB and full ARM64 build pass. **Six na
 
 **Captured command path from .58.** `submit_abi.h` / `command_snapshot.c` accept a 16-byte header + at most 64 KiB of linear push words in the OS-copied UMD-private payload. The DDI snapshots/validates owned bytes; the worker clears/copies them into a USER-readable/read-only reserved staging region. Commands backing is now **80 KiB**. Packet decoding rejects host Reference writes, malformed/control-flow headers and wrap/truncation; per-class privilege/address/residency validation remains open. Snapshots retire or cancel with their owned queue node. The raw-address queue helper is trusted internal/model-only; native-submit stays unset.
 
-The .83 pass uses the shared worker with VidMm mappings, the OS application root and live scheduler notifications. Windows `nvkmd` now implements KMT device, memory, VA, context, submit and monitored-fence transport. The Windows host-read barrier now emits a Maxwell all-engine WFI. The KMD owns the completion counter.
+The .83 pass uses the shared worker with VidMm mappings, the OS application root and live scheduler notifications. Windows `nvkmd` now implements KMT device, memory, VA, context, submit and monitored-fence transport. The Windows host-read barrier now emits a Maxwell all-engine WFI. The KMD owns the completion counter. The .87 one-boot package admitted only the three audited buffers from the offscreen test.
 
 Physical .51 showed completion-PB USER fetch was blocked by its PRIV PTE; .52 then showed a virtual semaphore store to the PRIV fence is also USER at the MMU. The packet is now USER-readable/read-only; ring, writable USERD and GR remain PRIV. `WFI(ALL) → SET_REFERENCE` updates the channel's physical USERD.Reference (+0x48), with HCE physical-transfer privilege disabled. .53 exposed delayed CPU visibility: .54 requires GPU-alias proof, channel retirement, then L2 synchronization and matching saved CPU Reference before notification. **.58 blocks caller-issued Reference updates and captures immutable commands**; remaining class/privilege/residency validation keeps native-submit unset. All failed attempts isolated/freed backing successfully.
 
@@ -60,11 +62,11 @@ General NVK class, address and residency validation and per-engine reset/resubmi
 
 **ICD state.** `icd87-final/` is the clean ARM64 build with the host-read barrier change. The published KMD native-submit bit remains gated pending command validation.
 
-The `tools/build_offscreen_triangle.py` build validates both SPIR-V modules and links the Windows ARM64 test with the Khronos loader. On the Lite it loaded the explicit NVK ICD and reached the LUID check. The acceptance remains a draw on the live GM20B KMT LUID with 300 red and 724 blue pixels plus 128 unchanged guard bytes. Build and instance evidence are in `vk-triangle-built/` and `vk-triangle-loader-preflight.log`.
+The `tools/build_offscreen_triangle.py` tool validates both SPIR-V modules and links the Windows ARM64 sample against the Khronos loader. Pass `--preview` after the explicit NVK DLL and matching KMT LUID to show the verified readback in a Win32 window for five minutes.
 
-1. Exercise the audited NVK draw through live WDDM and validate the resulting readback.
-2. Verify the **Vulkan API triangle and pixel readback** through the ARM64 loader on the matching GM20B LUID.
-3. Notify the owner after the offscreen pass and continue toward Win11 desktop acceleration. Verify DWM composition work on GM20B, shared surfaces and fences, and stable landscape HWND presentation.
+1. Verify GM20B is exposed through the graphics WDDM path and reaches the ARM64 Direct3D UMD's `OpenAdapter10_2` on the same LUID.
+2. Bring up the Direct3D resource and draw path. Validate shared surfaces, monitored fences and the internal panel's WDDM presentation path.
+3. Verify DWM submits and retires composition work on GM20B. Validate landscape presentation and the Vulkan Win32 interop extensions used by the tested path.
 
 ## Resume and evidence lookup
 
