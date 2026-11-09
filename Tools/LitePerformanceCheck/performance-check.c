@@ -49,7 +49,8 @@ static LPWSTR *arguments;
 static BOOL gpu_io(DWORD code, DWORD target, struct tg_gpu_status *out, DWORD *error) {
  DWORD bytes=0;
  BOOL run=code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN || code==TG_GPU_IOCTL_IRQ_RUN ||
-          code==TG_GPU_IOCTL_3D_RUN || code==TG_GPU_IOCTL_CLEAR_RUN || code==TG_GPU_IOCTL_DRAW_RUN;
+          code==TG_GPU_IOCTL_3D_RUN || code==TG_GPU_IOCTL_CLEAR_RUN || code==TG_GPU_IOCTL_DRAW_RUN ||
+          code==TG_GPU_IOCTL_BACKEND_RUN;
  struct tg_gpu_request in={TG_GPU_CONTROL_VERSION,target};
  HANDLE h=CreateFileW(L"\\\\.\\TegraGpuProbe",run?GENERIC_WRITE:GENERIC_READ,
                      FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
@@ -102,21 +103,23 @@ static DWORD gpu_json(void) {
  BOOL run3d=has_switch(L"--gpu-3d-729");
  BOOL runClear=has_switch(L"--gpu-clear-729");
  BOOL runDraw=has_switch(L"--gpu-draw-729");
- BOOL run=run729||run1228||runGr||runIrq||run3d||runClear||runDraw;
+ BOOL runBackend=has_switch(L"--gpu-backend-729");
+ BOOL run=run729||run1228||runGr||runIrq||run3d||runClear||runDraw||runBackend;
  HANDLE out=GetStdHandle(STD_OUTPUT_HANDLE);
  if(!out || out==INVALID_HANDLE_VALUE)return ERROR_INVALID_HANDLE;
  for(int i=1;i<argumentCount;++i)
   if(lstrcmpW(arguments[i],L"--gpu-json") && lstrcmpW(arguments[i],L"--gpu-729") &&
      lstrcmpW(arguments[i],L"--gpu-1228") && lstrcmpW(arguments[i],L"--gpu-gr-729") &&
      lstrcmpW(arguments[i],L"--gpu-irq-729") && lstrcmpW(arguments[i],L"--gpu-3d-729") &&
-     lstrcmpW(arguments[i],L"--gpu-clear-729") && lstrcmpW(arguments[i],L"--gpu-draw-729"))ioError=ERROR_INVALID_PARAMETER;
- if(run729+run1228+runGr+runIrq+run3d+runClear+runDraw>1)ioError=ERROR_INVALID_PARAMETER;
+     lstrcmpW(arguments[i],L"--gpu-clear-729") && lstrcmpW(arguments[i],L"--gpu-draw-729") &&
+     lstrcmpW(arguments[i],L"--gpu-backend-729"))ioError=ERROR_INVALID_PARAMETER;
+ if(run729+run1228+runGr+runIrq+run3d+runClear+runDraw+runBackend>1)ioError=ERROR_INVALID_PARAMETER;
  /* A status query never powers up the GPU. RUN requires an already elevated
   * caller: no UAC window, hidden GUI, retry loop or file is created over SSH.
   */
- if(!ioError)gpu_io(runDraw?TG_GPU_IOCTL_DRAW_RUN:runClear?TG_GPU_IOCTL_CLEAR_RUN:run3d?TG_GPU_IOCTL_3D_RUN:runIrq?TG_GPU_IOCTL_IRQ_RUN:runGr?TG_GPU_IOCTL_GR_RUN:run?TG_GPU_IOCTL_RUN:TG_GPU_IOCTL_STATUS,
+ if(!ioError)gpu_io(runBackend?TG_GPU_IOCTL_BACKEND_RUN:runDraw?TG_GPU_IOCTL_DRAW_RUN:runClear?TG_GPU_IOCTL_CLEAR_RUN:run3d?TG_GPU_IOCTL_3D_RUN:runIrq?TG_GPU_IOCTL_IRQ_RUN:runGr?TG_GPU_IOCTL_GR_RUN:run?TG_GPU_IOCTL_RUN:TG_GPU_IOCTL_STATUS,
                    run1228?TG_GPU_CONTROL_OC_KHZ:TG_GPU_CONTROL_DEFAULT_KHZ,&s,&ioError);
- if(!json_text(out,runDraw?"{\"operation\":\"gr-draw\"":runClear?"{\"operation\":\"gr-clear\"":run3d?"{\"operation\":\"gr-engine\"":runIrq?"{\"operation\":\"irq\"":runGr?"{\"operation\":\"gr-context\"":run?"{\"operation\":\"run\"":"{\"operation\":\"status\"") ||
+ if(!json_text(out,runBackend?"{\"operation\":\"windows-backend\"":runDraw?"{\"operation\":\"gr-draw\"":runClear?"{\"operation\":\"gr-clear\"":run3d?"{\"operation\":\"gr-engine\"":runIrq?"{\"operation\":\"irq\"":runGr?"{\"operation\":\"gr-context\"":run?"{\"operation\":\"run\"":"{\"operation\":\"status\"") ||
     !json_number(out,"tool_abi",TG_GPU_CONTROL_VERSION,FALSE) ||
     !json_number(out,"win32_error",ioError,FALSE) ||
     !json_text(out,!ioError&&gpu_pass(&s)?",\"fifo_pass\":true":",\"fifo_pass\":false") ||
@@ -124,7 +127,8 @@ static DWORD gpu_json(void) {
     !json_text(out,!ioError&&gpu_irq_pass(&s)?",\"irq_pass\":true":",\"irq_pass\":false") ||
     !json_text(out,!ioError&&gpu_3d_pass(&s)?",\"gr_engine_pass\":true":",\"gr_engine_pass\":false") ||
     !json_text(out,!ioError&&gpu_pixel_pass(&s)?",\"pixel_pass\":true":",\"pixel_pass\":false") ||
-    !json_text(out,!ioError&&gpu_draw_pass(&s)?",\"shader_pass\":true":",\"shader_pass\":false"))
+    !json_text(out,!ioError&&gpu_draw_pass(&s)?",\"shader_pass\":true":",\"shader_pass\":false") ||
+    !json_text(out,!ioError&&gpu_backend_pass(&s)?",\"backend_pass\":true":",\"backend_pass\":false"))
   return ERROR_WRITE_FAULT;
  if(!ioError){
 #define NUMBER(field) if(!json_number(out,#field,s.field,FALSE))return ERROR_WRITE_FAULT
@@ -179,6 +183,13 @@ static DWORD gpu_json(void) {
   HEX(method_error.exception);HEX(method_error.fe_esr);HEX(method_error.mme_esr);HEX(method_error.scc_esr);
   NUMBER(draw.requested);NUMBER(draw.checked);NUMBER(draw.sm);NUMBER(draw.vs_bytes);NUMBER(draw.fs_bytes);
   NUMBER(draw.vs_gprs);NUMBER(draw.fs_gprs);HEX(draw.code_hash);
+  NUMBER(backend.requested);NUMBER(backend.stage);HEX(backend.result);NUMBER(backend.worker_started);
+  NUMBER(backend.submissions);NUMBER(backend.notifications);NUMBER(backend.recovery_requests);
+  NUMBER(backend.userd_gp_get);NUMBER(backend.userd_gp_put);NUMBER(backend.user_priv);NUMBER(backend.kernel_priv);
+  NUMBER(backend.allocations_remaining);NUMBER(backend.context_generation);NUMBER(backend.completion_fence);
+  NUMBER(backend.fault_id);HEX(backend.fault_instance);HEX(backend.fault_address_lo);HEX(backend.fault_address_hi);HEX(backend.fault_info);
+  HEX(backend.fence_observed);HEX(backend.fence_expected);NUMBER(backend.channel_stage);
+  HEX(backend.fence_cpu);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",
@@ -190,7 +201,7 @@ static DWORD gpu_json(void) {
 #undef HEX
  }
  if(!json_text(out,"}\r\n"))return ERROR_WRITE_FAULT;
- return ioError?ioError:run && !(runDraw?gpu_draw_pass(&s):runClear?gpu_pixel_pass(&s):run3d?gpu_3d_pass(&s):runIrq?gpu_irq_pass(&s):runGr?gpu_gr_pass(&s):gpu_pass(&s))?ERROR_GEN_FAILURE:ERROR_SUCCESS;
+ return ioError?ioError:run && !(runBackend?gpu_backend_pass(&s):runDraw?gpu_draw_pass(&s):runClear?gpu_pixel_pass(&s):run3d?gpu_3d_pass(&s):runIrq?gpu_irq_pass(&s):runGr?gpu_gr_pass(&s):gpu_pass(&s))?ERROR_GEN_FAILURE:ERROR_SUCCESS;
 }
 static BOOL backlight_io(DWORD code,void *in,DWORD inSize,void *out,DWORD outSize) {
  DWORD bytes=0;

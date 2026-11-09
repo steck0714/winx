@@ -45,4 +45,19 @@ static inline bool gpu_draw_pass(const struct tg_gpu_status *s) {
         s->draw.vs_gprs==TG_GPU_DRAW_VS_GPRS && s->draw.fs_gprs==TG_GPU_DRAW_FS_GPRS &&
         s->draw.code_hash==TG_GPU_DRAW_CODE_HASH;
 }
+static inline bool gpu_backend_pass(const struct tg_gpu_status *s) {
+ return gpu_draw_pass(s) && s->backend.requested==1 &&
+        s->backend.stage==TG_GPU_BACKEND_COMPLETE_STAGE && !s->backend.result &&
+        s->backend.worker_started==1 && s->backend.submissions==2 &&
+        s->backend.notifications==2 && !s->backend.recovery_requests &&
+        s->backend.userd_gp_get==2 && s->backend.userd_gp_put==2 &&
+        !s->backend.user_priv && s->backend.kernel_priv==1 &&
+        !s->backend.allocations_remaining && s->backend.context_generation==1 &&
+        s->backend.completion_fence==2 && s->backend.fence_observed==2 &&
+        s->backend.fence_expected==2 && s->backend.fence_cpu==2 &&
+        s->backend.channel_stage==7 && s->gr_channel.restore_ops>=2 &&
+        !(s->gr_channel.current_context&0x80000000u) &&
+        !tg_gpu_fifo_has_error(s->fifo_interrupt) && !s->mmu_fault &&
+        !s->pbdma_interrupt && !s->pbdma_interrupt_1;
+}
 #endif

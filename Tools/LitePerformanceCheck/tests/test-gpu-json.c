@@ -28,7 +28,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  (void)overlapped;
  if(handle!=(HANDLE)(ULONG_PTR)123 || code!=wantedCode || outBytes!=sizeof(s))ExitProcess(102);
  if(code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN || code==TG_GPU_IOCTL_IRQ_RUN ||
-    code==TG_GPU_IOCTL_3D_RUN || code==TG_GPU_IOCTL_CLEAR_RUN || code==TG_GPU_IOCTL_DRAW_RUN){
+    code==TG_GPU_IOCTL_3D_RUN || code==TG_GPU_IOCTL_CLEAR_RUN || code==TG_GPU_IOCTL_DRAW_RUN ||
+    code==TG_GPU_IOCTL_BACKEND_RUN){
   if(inBytes!=sizeof(*request) || request->version!=TG_GPU_CONTROL_VERSION ||
      request->target_khz!=TG_GPU_CONTROL_DEFAULT_KHZ)ExitProcess(103);
  }else if(in || inBytes)ExitProcess(104);
@@ -136,6 +137,26 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
   if(fixture==64)s.resources_owned=1;if(fixture==65)s.gr_channel.image_ready=0;
   if(fixture==66)s.observed[1]=0xdeadbeef;
  }
+ if(fixture>=67){
+  s.backend=(struct tg_gpu_backend_status){.requested=1,.stage=TG_GPU_BACKEND_COMPLETE_STAGE,
+      .worker_started=1,.submissions=2,.notifications=2,.userd_gp_get=2,.userd_gp_put=2,
+      .kernel_priv=1,.context_generation=1,.completion_fence=2,
+      .fence_observed=2,.fence_expected=2,.channel_stage=7,.fence_cpu=2};
+  s.gr_channel.restore_ops=2;s.gr_channel.current_context=0x000c0040;
+  if(fixture==68)s.backend.requested=0;if(fixture==69)s.backend.stage=7;
+  if(fixture==70)s.backend.result=0xc0000001;if(fixture==71)s.backend.worker_started=0;
+  if(fixture==72)s.backend.submissions=1;if(fixture==73)s.backend.notifications=1;
+  if(fixture==74)s.backend.recovery_requests=1;if(fixture==75)s.backend.userd_gp_get=1;
+  if(fixture==76)s.backend.userd_gp_put=1;if(fixture==77)s.backend.user_priv=1;
+  if(fixture==78)s.backend.kernel_priv=0;if(fixture==79)s.backend.allocations_remaining=1;
+  if(fixture==80)s.backend.context_generation=2;if(fixture==81)s.backend.completion_fence=1;
+  if(fixture==82)s.gr_channel.restore_ops=1;if(fixture==83)s.gr_channel.current_context|=0x80000000;
+  if(fixture==84)s.fifo_interrupt=0x100;if(fixture==85)s.mmu_fault=1;
+  if(fixture==86)s.pbdma_interrupt=1;if(fixture==87)s.pbdma_interrupt_1=1;
+  if(fixture==88)s.backend.fence_observed=1;if(fixture==89)s.backend.fence_expected=1;
+  if(fixture==90)s.backend.channel_stage=4;
+  if(fixture==91)s.backend.fence_cpu=1;
+ }
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;
 }
@@ -158,6 +179,8 @@ void start(void) {
  LPWSTR run3d[]={L"fixture.exe",L"--gpu-json",L"--gpu-3d-729"};
  LPWSTR runClear[]={L"fixture.exe",L"--gpu-json",L"--gpu-clear-729"};
  LPWSTR runDraw[]={L"fixture.exe",L"--gpu-json",L"--gpu-draw-729"};
+ LPWSTR runBackend[]={L"fixture.exe",L"--gpu-json",L"--gpu-backend-729"};
+ LPWSTR conflictBackend[]={L"fixture.exe",L"--gpu-json",L"--gpu-backend-729",L"--gpu-draw-729"};
  LPWSTR conflictDraw[]={L"fixture.exe",L"--gpu-json",L"--gpu-draw-729",L"--gpu-clear-729"};
  LPWSTR conflictClear[]={L"fixture.exe",L"--gpu-json",L"--gpu-clear-729",L"--gpu-3d-729"};
  LPWSTR conflict3d[]={L"fixture.exe",L"--gpu-json",L"--gpu-3d-729",L"--gpu-irq-729"};
@@ -169,6 +192,14 @@ void start(void) {
                          ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,0,
                          ERROR_GEN_FAILURE,ERROR_GEN_FAILURE,ERROR_GEN_FAILURE};
  const unsigned fixtures[]={0,1,1,2,3,4,5,2,6,7,8,9,10,11,12};
+ for(unsigned i=0;i<26;++i){
+  fixture=i==25?67:67+i;opened=0;
+  arguments=i==25?conflictBackend:runBackend;argumentCount=i==25?4:3;
+  wantedCode=TG_GPU_IOCTL_BACKEND_RUN;
+  DWORD result=gpu_json();
+  if(result!=(i==25?ERROR_INVALID_PARAMETER:i?ERROR_GEN_FAILURE:0) ||
+     opened!=(i==25?0u:1u))ExitProcess(260+i);
+ }
  for(unsigned i=0;i<15;++i){
   DWORD result;fixture=fixtures[i];opened=0;
   arguments=i<2?query:i==7?conflict:run;argumentCount=i<2?2:i==7?4:3;
