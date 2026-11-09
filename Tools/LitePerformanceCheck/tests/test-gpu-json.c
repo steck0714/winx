@@ -27,7 +27,7 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  struct tg_gpu_request *request=in;
  (void)overlapped;
  if(handle!=(HANDLE)(ULONG_PTR)123 || code!=wantedCode || outBytes!=sizeof(s))ExitProcess(102);
- if(code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN || code==TG_GPU_IOCTL_IRQ_RUN){
+ if(code==TG_GPU_IOCTL_RUN || code==TG_GPU_IOCTL_GR_RUN || code==TG_GPU_IOCTL_IRQ_RUN || code==TG_GPU_IOCTL_3D_RUN){
   if(inBytes!=sizeof(*request) || request->version!=TG_GPU_CONTROL_VERSION ||
      request->target_khz!=TG_GPU_CONTROL_DEFAULT_KHZ)ExitProcess(103);
  }else if(in || inBytes)ExitProcess(104);
@@ -61,7 +61,7 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
    if(fixture==12)s.gr.stage=13; /* FECS queries alone omit GPC translation setup. */
   }
  }
- if(fixture>=13 && fixture<=19){
+ if((fixture>=13 && fixture<=19) || fixture>=30){
   s.graphics.stage=9;s.graphics.context_bytes=s.gr.context_bytes;
   s.graphics.bind_mailbox=0x10;s.graphics.save_mailbox=1;
   s.graphics.image_magic=0x600dc0de;s.graphics.image_changed_words=123;
@@ -72,7 +72,7 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
   if(fixture==18)s.graphics.save_mailbox=3;
   if(fixture==19)s.graphics.bind_mailbox=0x30;
  }
- if(fixture>=20){
+ if(fixture>=20 && fixture<=29){
   s.irq_gsi=T214_GPU_NONSTALL_GSI;s.irq_expected=2;
   s.interrupt.interrupts=2;s.irq_dpcs=2;
   s.interrupt.stage=TG_GPU_IRQ_RESTORE;
@@ -90,6 +90,22 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
    s.interrupt.stage=TG_GPU_IRQ_SNAPSHOT;
    s.interrupt.last_register=T214_GPU_REG_BASE+0x644;s.interrupt.last_value=0xffffffff;
   }
+ }
+ if(fixture>=30){
+  s.gr.fecs_error_mailbox=s.gr.fecs_host_interrupt=0;
+  s.gr_channel.image_ready=1;s.gr_channel.class_id=TG_GPU_GR_ENGINE_CLASS;
+  s.gr_channel.current_context=0x800c0040;s.gr_channel.restore_ops=1;
+  if(fixture==31)s.gr_channel.image_result=TG_GPU_GR_CTX_VISIBILITY;
+  if(fixture==32)s.gr_channel.image_ready=0;
+  if(fixture==33)s.gr_channel.image_ready=2;
+  if(fixture==34)s.gr_channel.class_id=0xb06f;
+  if(fixture==35)s.gr.gr_interrupt=1;
+  if(fixture==36)s.gr.fecs_error_mailbox=1;
+  if(fixture==37)s.resources_owned=1;
+  if(fixture==38)s.observed[1]=0xdeadbeef;
+  if(fixture==39)s.graphics.stage=8;
+  if(fixture==40)s.graphics.image_changed_words=0;
+  if(fixture==41)s.gr.fecs_host_interrupt=0x10000;
  }
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;
@@ -110,6 +126,8 @@ void start(void) {
  LPWSTR run[]={L"fixture.exe",L"--gpu-json",L"--gpu-729"};
  LPWSTR runGr[]={L"fixture.exe",L"--gpu-json",L"--gpu-gr-729"};
  LPWSTR runIrq[]={L"fixture.exe",L"--gpu-json",L"--gpu-irq-729"};
+ LPWSTR run3d[]={L"fixture.exe",L"--gpu-json",L"--gpu-3d-729"};
+ LPWSTR conflict3d[]={L"fixture.exe",L"--gpu-json",L"--gpu-3d-729",L"--gpu-irq-729"};
  LPWSTR conflictIrq[]={L"fixture.exe",L"--gpu-json",L"--gpu-irq-729",L"--gpu-gr-729"};
  LPWSTR conflictGr[]={L"fixture.exe",L"--gpu-json",L"--gpu-gr-729",L"--gpu-729"};
  LPWSTR conflict[]={L"fixture.exe",L"--gpu-json",L"--gpu-729",L"--gpu-1228"};
@@ -124,6 +142,14 @@ void start(void) {
   wantedCode=i<2?TG_GPU_IOCTL_STATUS:TG_GPU_IOCTL_RUN;
   result=gpu_json();
   if(result!=results[i] || opened!=(i==7?0u:1u))ExitProcess(110+i);
+ }
+ for(unsigned i=0;i<13;++i){
+  fixture=i==12?30:30+i;opened=0;
+  arguments=i==12?conflict3d:run3d;argumentCount=i==12?4:3;
+  wantedCode=TG_GPU_IOCTL_3D_RUN;
+  DWORD result=gpu_json();
+  if(result!=(i==12?ERROR_INVALID_PARAMETER:i?ERROR_GEN_FAILURE:0) ||
+     opened!=(i==12?0u:1u))ExitProcess(180+i);
  }
  for(unsigned i=0;i<11;++i){
   fixture=i==10?20:20+i;opened=0;

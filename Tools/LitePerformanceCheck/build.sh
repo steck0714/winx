@@ -28,6 +28,8 @@ for name,s in libs.items():
 PY
 "$link" /nologo /machine:arm64 /subsystem:windows,10.0 /release /entry:start /include:_load_config_used /nodefaultlib /opt:ref /timestamp:0 /out:ui/performance-check.exe ui/performance-check.obj ui/*.lib
 if [ "${BUILD_TESTS:-0}" = 1 ]; then
+ "${HOST_CC:-cc}" -std=c11 -O2 -Wall -Wextra -Werror -I "$drivers" "$src/tests/test-gpu-pass.c" -o ui/test-gpu-pass
+ ./ui/test-gpu-pass
  "$cc" --target=aarch64-w64-windows-gnu --sysroot="$root" -ffreestanding -fasynchronous-unwind-tables -fno-stack-protector -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers -I "$drivers" -c "$src/tests/test-gpu-json.c" -o ui/test-gpu-json.obj
  "$link" /nologo /machine:arm64 /subsystem:console,10.0 /release /entry:start /include:_load_config_used /nodefaultlib /opt:ref /timestamp:0 /out:ui/test-gpu-json.exe ui/test-gpu-json.obj ui/*.lib
 fi
