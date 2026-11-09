@@ -194,6 +194,7 @@ static DWORD gpu_json(void) {
   HEX(backend.cancelled_report);
   NUMBER(backend.resets);NUMBER(backend.restarts);NUMBER(backend.reset_isolated);NUMBER(backend.lost_context_rejected);
   NUMBER(backend.snapshot_uploads);NUMBER(backend.snapshot_bytes);NUMBER(backend.snapshot_rejections);NUMBER(backend.source_mutations);
+  NUMBER(backend.paging_fence);NUMBER(backend.paging_bytes);NUMBER(backend.paging_errors);
   {
    char text[128];
    wsprintfA(text,",\"acr.wpr_base\":\"0x%08lX%08lX\",\"acr.wpr_size\":\"0x%08lX%08lX\"",

@@ -53,15 +53,16 @@ static inline bool gpu_backend_pass(const struct tg_gpu_status *s) {
         s->backend.userd_gp_get==2 && s->backend.userd_gp_put==2 &&
         !s->backend.user_priv && s->backend.kernel_priv==1 &&
         !s->backend.allocations_remaining && s->backend.context_generation==2 &&
-        s->backend.completion_fence==6 && s->backend.fence_observed==4 &&
-        s->backend.fence_expected==4 && s->backend.fence_cpu==4 &&
+        s->backend.completion_fence==9 && s->backend.fence_observed==6 &&
+        s->backend.fence_expected==6 && s->backend.fence_cpu==6 &&
         s->backend.channel_stage==7 && s->gr_channel.restore_ops>=2 &&
         s->backend.preemptions==2 && s->backend.preemption_notifications==2 &&
-        s->backend.preemption_completed==4 && s->backend.cancelled_report==TG_GPU_CLEAR_SENTINEL &&
+        s->backend.preemption_completed==7 && s->backend.cancelled_report==TG_GPU_CLEAR_SENTINEL &&
         s->backend.resets==1 && s->backend.restarts==1 && s->backend.reset_isolated==1 &&
         s->backend.lost_context_rejected==1 &&
         s->backend.snapshot_uploads==4 && s->backend.snapshot_bytes>0 &&
         s->backend.snapshot_rejections==2 && s->backend.source_mutations==6 &&
+        s->backend.paging_fence==1 && s->backend.paging_bytes==4000 && !s->backend.paging_errors &&
         !(s->gr_channel.current_context&0x80000000u) &&
         !tg_gpu_fifo_has_error(s->fifo_interrupt) && !s->mmu_fault &&
         !s->pbdma_interrupt && !s->pbdma_interrupt_1;
