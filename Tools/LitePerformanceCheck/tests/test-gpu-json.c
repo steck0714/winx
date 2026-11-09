@@ -75,6 +75,8 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
  if(fixture>=20){
   s.irq_gsi=T214_GPU_NONSTALL_GSI;s.irq_expected=2;
   s.interrupt.interrupts=2;s.irq_dpcs=2;
+  s.interrupt.stage=TG_GPU_IRQ_RESTORE;
+  s.interrupt.last_register=T214_GPU_REG_BASE+0x144;s.interrupt.last_value=0;
   if(fixture==21)s.interrupt.interrupts=0;
   if(fixture==22)s.interrupt.interrupts=1;
   if(fixture==23)s.irq_dpcs=1;
@@ -83,7 +85,11 @@ static BOOL WINAPI FixtureControl(HANDLE handle,DWORD code,LPVOID in,DWORD inByt
   if(fixture==26)s.irq_expected=0;
   if(fixture==27)s.irq_gsi=0;
   if(fixture==28)s.resources_owned=1;
-  if(fixture==29)s.execution_result=TG_GPU_EXEC_IRQ;
+  if(fixture==29){
+   s.execution_result=TG_GPU_EXEC_IRQ;s.interrupt.result=TG_GPU_IRQ_REGISTER;
+   s.interrupt.stage=TG_GPU_IRQ_SNAPSHOT;
+   s.interrupt.last_register=T214_GPU_REG_BASE+0x644;s.interrupt.last_value=0xffffffff;
+  }
  }
  *(struct tg_gpu_status *)out=s;*bytes=sizeof(s)-(fixture==5?4:0);
  return TRUE;

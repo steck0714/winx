@@ -177,6 +177,7 @@ static DWORD gpu_json(void) {
   HEX(graphics.image_magic);NUMBER(graphics.image_changed_words);HEX(graphics.image_hash);
   NUMBER(interrupt.result);NUMBER(interrupt.restore_result);HEX(interrupt.mc_pending);
   HEX(interrupt.fifo_pending);NUMBER(interrupt.interrupts);
+  NUMBER(interrupt.stage);HEX(interrupt.last_register);HEX(interrupt.last_value);
   NUMBER(irq_dpcs);NUMBER(irq_gsi);NUMBER(irq_expected);
   {
    char text[128];
