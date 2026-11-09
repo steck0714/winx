@@ -39,4 +39,10 @@ static inline bool gpu_pixel_pass(const struct tg_gpu_status *s) {
         !s->clear.errors && !s->clear.guard_errors &&
         s->clear.background==TG_GPU_CLEAR_BACKGROUND && s->clear.foreground==TG_GPU_CLEAR_FOREGROUND;
 }
+static inline bool gpu_draw_pass(const struct tg_gpu_status *s) {
+ return gpu_pixel_pass(s) && s->draw.requested==1 && s->draw.checked==1 && s->draw.sm==53 &&
+        s->draw.vs_bytes==TG_GPU_DRAW_VS_CODE_BYTES && s->draw.fs_bytes==TG_GPU_DRAW_FS_CODE_BYTES &&
+        s->draw.vs_gprs==TG_GPU_DRAW_VS_GPRS && s->draw.fs_gprs==TG_GPU_DRAW_FS_GPRS &&
+        s->draw.code_hash==TG_GPU_DRAW_CODE_HASH;
+}
 #endif

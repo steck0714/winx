@@ -43,6 +43,20 @@ int main(void)
  good.clear=(struct tg_gpu_clear_status){.checked=1,.width=16,.height=16,.pitch=128,
      .format=0xd5,.pixels=256,.background=0xffff0000,.foreground=0xff0000ff};
  assert(gpu_pixel_pass(&good));
+ assert(!gpu_draw_pass(&good)); /* The accepted clear is not a shader pass. */
+ struct tg_gpu_status drawn=good;
+ drawn.draw=(struct tg_gpu_draw_status){1,1,53,TG_GPU_DRAW_VS_CODE_BYTES,TG_GPU_DRAW_FS_CODE_BYTES,
+     TG_GPU_DRAW_VS_GPRS,TG_GPU_DRAW_FS_GPRS,TG_GPU_DRAW_CODE_HASH};
+ assert(gpu_draw_pass(&drawn));
+ for(unsigned test=0;test<12;++test){
+  bad=drawn;
+  if(test==0)bad.draw.requested=0;if(test==1)bad.draw.checked=0;
+  if(test==2)bad.draw.sm=50;if(test==3)bad.draw.vs_bytes=0;if(test==4)bad.draw.fs_bytes=0;
+  if(test==5)bad.draw.vs_gprs=0;if(test==6)bad.draw.fs_gprs=0;if(test==7)bad.draw.code_hash^=1;
+  if(test==8)bad.clear.guard_errors=1;if(test==9)bad.clear.errors=1;
+  if(test==10)bad.resources_owned=1;if(test==11)bad.gr.gr_interrupt=1;
+  assert(!gpu_draw_pass(&bad));
+ }
  for(unsigned test=0;test<8;++test){
   bad=good;
   if(test==0)bad.clear.errors=1;if(test==1)bad.clear.guard_errors=1;
