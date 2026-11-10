@@ -48,6 +48,7 @@ STATIC CHAR16   mScreenshotStatusPath[128];
 STATIC BOOLEAN  mBootStatusValid;
 STATIC EFI_STATUS mLastBootStatus;
 STATIC UINT32   mLastJoyConButtons;
+STATIC UINTN    mConsoleRows = 25;
 
 #define WINX_MENU_LIST_FIRST_ROW  6
 #define WINX_MENU_TAB_ROW         3
@@ -160,22 +161,36 @@ WriteTextAt (
 {
   CHAR16  Line[256];
   UINTN   Index;
+  BOOLEAN Truncated;
 
-  if ((gST->ConOut == NULL) || (Column >= ScreenColumns) || (Width == 0)) {
+  if ((gST->ConOut == NULL) || (ScreenColumns == 0) || (Row >= mConsoleRows)) {
     return;
   }
+
+  // Leave room for a useful label on very narrow text modes.
+  if (ScreenColumns <= 4) {
+    Column = 0;
+    Width = ScreenColumns;
+  }
+  if ((Column >= ScreenColumns) || (Width == 0)) return;
 
   if (Width > ARRAY_SIZE (Line) - 1) Width = ARRAY_SIZE (Line) - 1;
   if (Width > ScreenColumns - Column) Width = ScreenColumns - Column;
   Index = 0;
+  Truncated = FALSE;
   if (Text != NULL) {
     while ((Index < Width) && (Text[Index] != L'\0')) {
       Line[Index] = Text[Index];
       ++Index;
     }
+    Truncated = (BOOLEAN)(Text[Index] != L'\0');
   }
   while (Index < Width) {
     Line[Index++] = L' ';
+  }
+  if (Truncated && (Width != 0)) {
+    // Mark clipped labels and paths instead of silently ending mid-string.
+    Line[Width - 1] = L'~';
   }
   Line[Width] = L'\0';
 
@@ -191,13 +206,27 @@ GetConsoleDimensions (
   OUT UINTN  *Rows
   )
 {
+  EFI_STATUS  Status;
+  UINTN       ModeColumns;
+  UINTN       ModeRows;
+
   *Columns = 80;
   *Rows = 25;
   if ((gST->ConOut != NULL) && (gST->ConOut->Mode != NULL)) {
-    gST->ConOut->QueryMode (gST->ConOut, gST->ConOut->Mode->Mode, Columns, Rows);
+    ModeColumns = 0;
+    ModeRows = 0;
+    Status = gST->ConOut->QueryMode (
+                           gST->ConOut,
+                           gST->ConOut->Mode->Mode,
+                           &ModeColumns,
+                           &ModeRows
+                           );
+    if (!EFI_ERROR (Status) && (ModeColumns != 0) && (ModeRows != 0)) {
+      *Columns = ModeColumns;
+      *Rows = ModeRows;
+    }
   }
-  if (*Columns == 0) *Columns = 80;
-  if (*Rows == 0) *Rows = 25;
+  mConsoleRows = *Rows;
 }
 
 STATIC
@@ -272,6 +301,29 @@ CountProtocolHandles (
 
 STATIC
 VOID
+WriteDiagnosticLine (
+  IN     UINTN   Columns,
+  IN     UINTN   FooterRow,
+  IN OUT UINTN   *Row,
+  IN     UINTN   Attribute,
+  IN     CONST CHAR16  *Text
+  )
+{
+  if (*Row < FooterRow) {
+    WriteTextAt (
+      Columns,
+      2,
+      *Row,
+      (Columns > 4) ? Columns - 4 : Columns,
+      Attribute,
+      Text
+      );
+  }
+  if (*Row < MAX_UINTN) ++(*Row);
+}
+
+STATIC
+VOID
 DrawDiagnostics (
   IN WINX_SWITCH_BOARD_INFO  Board,
   IN UINTN                   BootOptionCount,
@@ -290,6 +342,7 @@ DrawDiagnostics (
   UINTN                         AbsolutePointers;
   UINTN                         RelativePointers;
   UINTN                         Row;
+  UINTN                         FooterRow;
   CHAR16                        Line[256];
   BOOLEAN                       HasGop;
   BOOLEAN                       HasMouseCursor;
@@ -298,10 +351,14 @@ DrawDiagnostics (
   GetConsoleDimensions (&Columns, &Rows);
   gST->ConOut->ClearScreen (gST->ConOut);
   WinxVisualsDrawMenuBackground ();
-  WriteTextAt (Columns, 2, 1, Columns > 4 ? Columns - 4 : Columns, EFI_CYAN | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
-               L"WINX / READ-ONLY DIAGNOSTICS");
-  WriteTextAt (Columns, 2, 2, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
-               L"Quick protocol and configuration checks; no stress test or hardware writes are run.");
+  if (Rows > 1) {
+    WriteTextAt (Columns, 2, 0, Columns, EFI_CYAN | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+                 L"WINX / READ-ONLY DIAGNOSTICS");
+  }
+  if (Rows > 3) {
+    WriteTextAt (Columns, 2, 1, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
+                 L"Quick checks only; no stress test or hardware writes are run.");
+  }
 
   Gop = NULL;
   HasGop = (BOOLEAN)!EFI_ERROR (gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop)) &&
@@ -317,12 +374,21 @@ DrawDiagnostics (
   FileSystems = CountProtocolHandles (&gEfiSimpleFileSystemProtocolGuid);
   BlockDevices = CountProtocolHandles (&gEfiBlockIoProtocolGuid);
 
-  Row = 4;
+  FooterRow = (Rows > 2) ? Rows - 2 : Rows - 1;
+  Row = (Rows > 3) ? 3 : FooterRow;
   UnicodeSPrint (Line, sizeof (Line), L"BOARD  %s   HIDREV %08x   ODM4 %08x",
                  WinxSwitchBoardName (Board.Board), Board.HidRev, Board.Odm4);
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (
+    Columns, FooterRow, &Row,
+    EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+    Line
+    );
   UnicodeSPrint (Line, sizeof (Line), L"PROFILE  %s", !Pinned ? L"generic" : (Matches ? L"matches detected board" : L"MISMATCH"));
-  WriteTextAt (Columns, 2, Row++, Columns - 4, (Pinned && !Matches) ? EFI_RED | EFI_BRIGHT | EFI_BACKGROUND_BLACK : EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (
+    Columns, FooterRow, &Row,
+    (Pinned && !Matches) ? EFI_RED | EFI_BRIGHT | EFI_BACKGROUND_BLACK : EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
+    Line
+    );
 
   UnicodeSPrint (Line, sizeof (Line), L"GOP  %s%s", HasGop ? L"present  " : L"missing",
                  HasGop ? L"" : L"(display diagnostics unavailable)");
@@ -331,37 +397,41 @@ DrawDiagnostics (
                    Gop->Mode->Info->HorizontalResolution, Gop->Mode->Info->VerticalResolution,
                    Gop->Mode->Mode);
   }
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
   UnicodeSPrint (Line, sizeof (Line), L"Console input  %s  (protocol presence only)",
                  (gST->ConIn != NULL && gST->ConIn->WaitForKey != NULL) ? L"present" : L"missing");
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
   UnicodeSPrint (Line, sizeof (Line), L"Touch/absolute pointer handles  %u  (presence is not a touch test)", AbsolutePointers);
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
   UnicodeSPrint (Line, sizeof (Line), L"Relative pointer handles  %u  | mouse cursor protocol  %s",
                  RelativePointers, HasMouseCursor ? L"present" : L"missing");
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
   UnicodeSPrint (Line, sizeof (Line), L"Joy-Con input protocol  %s  (presence is not a hardware test)",
                  HasJoyCon ? L"present" : L"not installed");
-  WriteTextAt (Columns, 2, Row++, Columns - 4, HasJoyCon ? EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK : EFI_BROWN | EFI_BRIGHT | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (
+    Columns, FooterRow, &Row,
+    HasJoyCon ? EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK : EFI_BROWN | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+    Line
+    );
   UnicodeSPrint (Line, sizeof (Line), L"Simple file systems  %u  | block I/O handles  %u",
                  FileSystems, BlockDevices);
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
   UnicodeSPrint (Line, sizeof (Line), L"Boot entries  %u firmware + %u configured custom EFI paths",
                  BootOptionCount, CustomOptionCount);
-  WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+  WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
 
   if (mBootStatusValid) {
     UnicodeSPrint (Line, sizeof (Line), L"Last returned boot status  %r", mLastBootStatus);
-    WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_BROWN | EFI_BRIGHT | EFI_BACKGROUND_BLACK, Line);
+    WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_BROWN | EFI_BRIGHT | EFI_BACKGROUND_BLACK, Line);
   }
   if (mScreenshotStatusValid) {
     UnicodeSPrint (Line, sizeof (Line), L"Last screenshot  %s%r",
                    EFI_ERROR (mScreenshotStatus) ? L"failed " : L"saved ", mScreenshotStatus);
-    WriteTextAt (Columns, 2, Row++, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+    WriteDiagnosticLine (Columns, FooterRow, &Row, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
   }
 
-  WriteTextAt (Columns, 2, Rows > 2 ? Rows - 2 : 0, Columns - 4, EFI_CYAN | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
-               L"ESC / B / any tap: return to boot menu");
+  WriteTextAt (Columns, 2, FooterRow, Columns > 4 ? Columns - 4 : Columns, EFI_CYAN | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+               L"Any key / tap / Joy-Con: return to boot menu");
   DEBUG ((DEBUG_INFO, "WinX diagnostics: board=%u gop=%u abs=%u rel=%u joycon=%u fs=%u block=%u boot=%u custom=%u\n",
           Board.Board, HasGop, AbsolutePointers, RelativePointers, HasJoyCon,
           FileSystems, BlockDevices, BootOptionCount, CustomOptionCount));
@@ -384,6 +454,8 @@ DrawBootMenu (
   IN  BOOLEAN                       Matches,
   OUT UINTN                        *ColumnsOut,
   OUT UINTN                        *RowsOut,
+  OUT UINTN                        *FirstItemRowOut,
+  OUT UINTN                        *TabRowOut,
   OUT UINTN                        *VisibleStartOut,
   OUT UINTN                        *VisibleCountOut
   )
@@ -395,6 +467,8 @@ DrawBootMenu (
   UINTN       VisibleRows;
   UINTN       VisibleStart;
   UINTN       VisibleIndex;
+  UINTN       FirstItemRow;
+  UINTN       TabRow;
   UINTN       Index;
   UINTN       CategoryCount;
   UINTN       TabWidth;
@@ -404,33 +478,85 @@ DrawBootMenu (
   CHAR16      *PathText;
   EFI_BOOT_MANAGER_LOAD_OPTION *Option;
   UINTN       TextAttribute;
+  BOOLEAN     ShowDetail;
+  BOOLEAN     ShowStatus;
 
   GetConsoleDimensions (&Columns, &Rows);
-  FooterRow = (Rows > 4) ? Rows - 4 : Rows - 1;
-  DetailRow = (FooterRow > 0) ? FooterRow - 1 : 0;
-  VisibleRows = (DetailRow > WINX_MENU_LIST_FIRST_ROW) ? DetailRow - WINX_MENU_LIST_FIRST_ROW : 1;
+  ShowDetail = FALSE;
+  ShowStatus = FALSE;
+  // Keep the full layout on normal UEFI text modes and collapse sections on short modes.
+  if (Rows >= 18) {
+    TabRow = WINX_MENU_TAB_ROW;
+    FirstItemRow = WINX_MENU_LIST_FIRST_ROW;
+    FooterRow = Rows - 4;
+    DetailRow = FooterRow - 1;
+    VisibleRows = (DetailRow > FirstItemRow) ? DetailRow - FirstItemRow : 1;
+    ShowDetail = TRUE;
+    ShowStatus = TRUE;
+  } else if (Rows >= 9) {
+    TabRow = 2;
+    FirstItemRow = 4;
+    FooterRow = Rows - 4;
+    DetailRow = Rows;
+    VisibleRows = (FooterRow > FirstItemRow) ? FooterRow - FirstItemRow : 1;
+    ShowStatus = TRUE;
+  } else if (Rows >= 5) {
+    TabRow = 1;
+    FirstItemRow = 2;
+    FooterRow = Rows - 2;
+    DetailRow = Rows;
+    VisibleRows = (FooterRow > FirstItemRow) ? FooterRow - FirstItemRow : 1;
+  } else {
+    TabRow = MAX_UINTN;
+    FirstItemRow = 0;
+    FooterRow = Rows;
+    DetailRow = Rows;
+    VisibleRows = Rows;
+    if (VisibleRows == 0) VisibleRows = 1;
+  }
+
+  if (Columns < WinxBootCategoryMax) {
+    TabRow = MAX_UINTN;
+  }
   if (VisibleRows == 0) VisibleRows = 1;
   VisibleStart = (Selected / VisibleRows) * VisibleRows;
 
   *ColumnsOut = Columns;
   *RowsOut = Rows;
+  *FirstItemRowOut = FirstItemRow;
+  *TabRowOut = TabRow;
   *VisibleStartOut = VisibleStart;
   *VisibleCountOut = VisibleRows;
 
-  WriteTextAt (Columns, 2, 0, Columns - 4, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
-               L"WinX");
-  UnicodeSPrint (Line, sizeof (Line), L"%s   %u options",
-                 WinxSwitchBoardName (Board.Board), OptionCount + CustomEntryCount);
-  WriteTextAt (Columns, 2, 1, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
-  if (Pinned && !Matches) {
-    WriteTextAt (Columns, 2, 2, Columns - 4, EFI_RED | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
-                 L"This build targets a different Switch model. Board-specific options are hidden.");
-  } else {
-    WriteTextAt (Columns, 2, 2, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
+  if (Rows >= 5) {
+    WriteTextAt (Columns, 2, 0, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+                 L"WinX");
+    UnicodeSPrint (Line, sizeof (Line), L"%s   %u options",
+                   WinxSwitchBoardName (Board.Board), OptionCount + CustomEntryCount);
+    if (Rows >= 9) {
+      if (Pinned && !Matches) {
+        WriteTextAt (
+          Columns, 2, 1, Columns > 4 ? Columns - 4 : Columns,
+          EFI_RED | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+          L"Wrong board profile; board-specific entries are hidden."
+          );
+      } else {
+        WriteTextAt (Columns, 2, 1, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, Line);
+      }
+    }
+    if (Pinned && !Matches && Rows >= 18) {
+      WriteTextAt (
+        Columns, 2, 2, Columns > 4 ? Columns - 4 : Columns,
+        EFI_RED | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+        L"This build targets a different Switch model. Board-specific options are hidden."
+        );
+    } else if (Rows >= 18) {
+      WriteTextAt (Columns, 2, 2, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
+    }
   }
 
   TabWidth = Columns / WinxBootCategoryMax;
-  for (Index = 0; Index < WinxBootCategoryMax; ++Index) {
+  for (Index = 0; (TabRow < Rows) && (Index < WinxBootCategoryMax); ++Index) {
     CategoryCount = 0;
     if (Index == WinxBootCategoryAll) {
       UINTN  OptionIndex;
@@ -456,17 +582,22 @@ DrawBootMenu (
       }
     }
     UnicodeSPrint (Line, sizeof (Line), L"%s  (%u)", mWinxCategoryNames[Index], CategoryCount);
-    WriteTextAt (Columns, Index * TabWidth, WINX_MENU_TAB_ROW, TabWidth,
+    WriteTextAt (Columns, Index * TabWidth, TabRow, TabWidth,
                  (Category == (WINX_BOOT_CATEGORY)Index) ? EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE : EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
                  Line);
   }
 
-  WriteTextAt (Columns, 0, 4, Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
-  WriteTextAt (Columns, 2, 5, Columns - 4, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
-               L"Boot options");
+  if (Rows >= 18) {
+    WriteTextAt (Columns, 0, 4, Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
+    WriteTextAt (Columns, 2, 5, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+                 L"Boot options");
+  } else if (Rows >= 9) {
+    WriteTextAt (Columns, 2, 3, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+                 L"Boot options");
+  }
 
   for (VisibleIndex = 0; VisibleIndex < VisibleRows; ++VisibleIndex) {
-    Row = WINX_MENU_LIST_FIRST_ROW + VisibleIndex;
+    Row = FirstItemRow + VisibleIndex;
     Index = VisibleStart + VisibleIndex;
     if (Index < ItemCount) {
       FormatItemName (&Items[Index], Options, CustomEntries, ExtraEntryName, Name, sizeof (Name));
@@ -478,8 +609,10 @@ DrawBootMenu (
     }
   }
 
-  WriteTextAt (Columns, 2, DetailRow, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
-  if (Selected < ItemCount) {
+  if (ShowDetail) {
+    WriteTextAt (Columns, 2, DetailRow, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
+  }
+  if (ShowDetail && (Selected < ItemCount)) {
     Option = GetItemOption (&Items[Selected], Options, CustomEntries);
     if (Option != NULL) {
       PathText = ConvertDevicePathToText (Option->FilePath, TRUE, FALSE);
@@ -502,15 +635,22 @@ DrawBootMenu (
     }
   }
 
-  WriteTextAt (Columns, 2, FooterRow, Columns - 4, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
-               L"Up / Down  Select     Left / Right  Filter     Enter / A  Start");
-  WriteTextAt (Columns, 2, FooterRow + 1, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
-               L"F10 / D  Diagnostics     F12 / Capture  Screenshot     Esc / B  Firmware");
-  if (mBootStatusValid) {
+  if (Rows >= 9) {
+    WriteTextAt (Columns, 2, FooterRow, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+                 L"Up / Down  Select     Left / Right  Filter     Enter / A  Start");
+    WriteTextAt (Columns, 2, FooterRow + 1, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
+                 L"F10 / D  Diagnostics     F12 / Capture  Screenshot     Esc / B  Firmware");
+  } else if (Rows >= 5) {
+    WriteTextAt (Columns, 2, FooterRow, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BRIGHT | EFI_BACKGROUND_BLACK,
+                 L"Up/Down select   Enter boot   Esc firmware");
+    WriteTextAt (Columns, 2, FooterRow + 1, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK,
+                 L"F10/D diagnostics   F12 screenshot");
+  }
+  if (ShowStatus && mBootStatusValid) {
     UnicodeSPrint (Line, sizeof (Line), L"Last boot returned: %r", mLastBootStatus);
-    WriteTextAt (Columns, 2, Rows - 1, Columns - 4, EFI_BROWN | EFI_BRIGHT | EFI_BACKGROUND_BLACK, Line);
-  } else {
-    WriteTextAt (Columns, 2, Rows - 1, Columns - 4, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
+    WriteTextAt (Columns, 2, Rows - 1, Columns > 4 ? Columns - 4 : Columns, EFI_BROWN | EFI_BRIGHT | EFI_BACKGROUND_BLACK, Line);
+  } else if (ShowStatus) {
+    WriteTextAt (Columns, 2, Rows - 1, Columns > 4 ? Columns - 4 : Columns, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK, L"");
   }
 }
 
@@ -518,6 +658,7 @@ STATIC EFI_STATUS
 ReadMenuInput (
   IN  UINTN                    ItemCount,
   IN  UINTN                    FirstItemRow,
+  IN  UINTN                    TabRow,
   IN  UINTN                    VisibleStart,
   IN  UINTN                    VisibleCount,
   IN  UINTN                    Columns,
@@ -660,7 +801,7 @@ ReadMenuInput (
         SpanY = (UINT64)Pointer->Mode->AbsoluteMaxY - Pointer->Mode->AbsoluteMinY + 1;
         Column = (UINTN)(((UINT64)(State.CurrentX - Pointer->Mode->AbsoluteMinX) * Columns) / SpanX);
         Row = (UINTN)(((UINT64)(State.CurrentY - Pointer->Mode->AbsoluteMinY) * Rows) / SpanY);
-        if ((Row == WINX_MENU_TAB_ROW) && (Columns != 0)) {
+        if ((Row == TabRow) && (Columns != 0)) {
           UINTN  CategoryIndex;
 
           CategoryIndex = (UINTN)(((UINT64)Column * WinxBootCategoryMax) / Columns);
@@ -698,7 +839,7 @@ ReadMenuInput (
 
       Row = (UINTN)(((UINT64)MouseState.Y * Rows) / MouseState.ScreenHeight);
       Column = (UINTN)(((UINT64)MouseState.X * Columns) / MouseState.ScreenWidth);
-      if (MouseState.LeftButton && !WasDown && (Row == WINX_MENU_TAB_ROW) && (Columns != 0)) {
+      if (MouseState.LeftButton && !WasDown && (Row == TabRow) && (Columns != 0)) {
         UINTN  CategoryIndex;
 
         CategoryIndex = (UINTN)(((UINT64)Column * WinxBootCategoryMax) / Columns);
@@ -792,6 +933,8 @@ SwitchBootMenuRun (
   UINTN                         Item;
   UINTN                         VisibleIndex;
   UINTN                         DebugSelected;
+  UINTN                         FirstItemRow;
+  UINTN                         TabRow;
   WINX_BOOT_CATEGORY            Category;
   WINX_BOOT_CATEGORY            DebugCategory;
   BOOLEAN                       RequestScreenshot;
@@ -920,9 +1063,9 @@ SwitchBootMenuRun (
 
     DrawBootMenu (Board, Options, OptionCount, CustomEntries, CustomEntryCount,
                   ExtraEntryName, Items, ItemCount, Selected, Category, Pinned, Matches,
-                  &Columns, &Rows, &VisibleStart, &VisibleCount);
+                  &Columns, &Rows, &FirstItemRow, &TabRow, &VisibleStart, &VisibleCount);
 
-    Status = ReadMenuInput (ItemCount, WINX_MENU_LIST_FIRST_ROW, VisibleStart, VisibleCount,
+    Status = ReadMenuInput (ItemCount, FirstItemRow, TabRow, VisibleStart, VisibleCount,
                             Columns, Rows, &Selected, &Category, &CategoryChanged,
                             &Activate, &OpenBootManager, &RequestScreenshot,
                             &OpenDiagnostics, AllowBootManager);
@@ -939,7 +1082,7 @@ SwitchBootMenuRun (
       GetConsoleDimensions (&Columns, &Rows);
       DebugSelected = 0;
       DebugCategory = Category;
-      Status = ReadMenuInput (Rows, 0, 0, Rows, Columns, Rows, &DebugSelected,
+      Status = ReadMenuInput (Rows, 0, MAX_UINTN, 0, Rows, Columns, Rows, &DebugSelected,
                               &DebugCategory, &CategoryChanged, &Activate,
                               &OpenBootManager, &RequestScreenshot,
                               &OpenDiagnostics, FALSE);
