@@ -1,0 +1,137 @@
+Subject: [PATCH] tegra: resume the Hekate boot entry on Lite restart
+
+diff --git a/plat/nvidia/tegra/common/tegra_bl31_setup.c b/plat/nvidia/tegra/common/tegra_bl31_setup.c
+index 23a8847..63ae222 100644
+--- a/plat/nvidia/tegra/common/tegra_bl31_setup.c
++++ b/plat/nvidia/tegra/common/tegra_bl31_setup.c
+@@ -44,6 +44,14 @@ IMPORT_SYM(uint64_t, __RW_START__,	BL31_RW_START);
+ 
+ extern uint64_t tegra_bl31_phys_base;
+ 
++#if SWITCH_LITE_PMIC_RESET
++/* Hekate L4T places its NUL-terminated boot environment below BL33. */
++#define HEKATE_BL33_ENTRY	0xaa000000UL
++#define HEKATE_ENV_SIZE		0x40000U
++#define HEKATE_ENV_MAGIC	0x33334c42U
++extern void tegra_lite_capture_reboot_target(const char *env, size_t capacity);
++#endif
++
+ static entry_point_info_t bl33_image_ep_info, bl32_image_ep_info;
+ static plat_params_from_bl2_t plat_bl31_params_from_bl2 = {
+ 	.tzdram_size = TZDRAM_SIZE
+@@ -122,9 +130,17 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 	 * Preserve the requested EL/stack and all other state, masking only
+ 	 * asynchronous exceptions before entering the AArch64 BL33 image.
+ 	 */
+-	if (tegra_chipid_is_t210_b01())
++	if (tegra_chipid_is_t210_b01()) {
++		uintptr_t env = HEKATE_BL33_ENTRY - HEKATE_ENV_SIZE;
++
+ 		bl33_image_ep_info.spsr |=
+ 			DISABLE_ALL_EXCEPTIONS << SPSR_DAIF_SHIFT;
++		/* Snapshot while the boot environment is still owned by Hekate.
++		 * Windows may reclaim that memory after entering BL33. */
++		if (bl33_image_ep_info.pc == HEKATE_BL33_ENTRY &&
++		    mmio_read_32(env - sizeof(uint32_t)) == HEKATE_ENV_MAGIC)
++			tegra_lite_capture_reboot_target((const char *)env, HEKATE_ENV_SIZE);
++	}
+ #endif
+ 
+ 	if (arg_from_bl2->bl32_ep_info != NULL) {
+diff --git a/plat/nvidia/tegra/soc/t210/t214/pmic_power.c b/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
+index 5b88d52..118a7a5 100644
+--- a/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
++++ b/plat/nvidia/tegra/soc/t210/t214/pmic_power.c
+@@ -15,6 +15,7 @@
+ #include <stdbool.h>
+ #include <stddef.h>
+ #include <stdint.h>
++#include <string.h>
+ #include <drivers/delay_timer.h>
+ #include <lib/mmio.h>
+ 
+@@ -34,18 +35,76 @@
+ #define SOFT_RESET       0x80U
+ #define RESET_WAKE       0x80U
+ 
+-/* Switchroot B01 uses PMC reset and BootROM I2C commands, not a live ARM
+- * write to SD0. BootROM first drops the core rail and then resets the PMIC.
+- * The RTC block encodes REBOOT_REASON_MENU (2), as pmc_r2p.action=bootloader.
+- * controller_id is zero in the pinned Linux parser; copy its wire format. */
++#define REBOOT_REASON_SELF  1U
++#define REBOOT_REASON_MENU  2U
++
++static uint32_t reboot_reason = REBOOT_REASON_MENU;
++
++void tegra_lite_capture_reboot_target(const char *env, size_t capacity)
++{
++	static const char entry_key[] = "autoboot=";
++	static const char list_key[] = "autoboot_list=";
++	const char *end = memchr(env, '\0', capacity);
++	unsigned int entry = 0, list = 2;
++
++	reboot_reason = REBOOT_REASON_MENU;
++	if (end == NULL)
++		return;
++
++	/* Hekate appends the actual selector after the entry's INI fields. */
++	while (env < end) {
++		const char *next = memchr(env, '\n', (size_t)(end - env));
++		const char *line_end = next ? next : end;
++		size_t bytes = (size_t)(line_end - env);
++
++		if (bytes >= sizeof(entry_key) - 1 &&
++		    memcmp(env, entry_key, sizeof(entry_key) - 1) == 0) {
++			const char *digit = env + sizeof(entry_key) - 1;
++
++			entry = 0;
++			if (line_end - digit <= 2) {
++				for (; digit < line_end; ++digit) {
++					if (*digit < '0' || *digit > '9') {
++						entry = 0;
++						break;
++					}
++					entry = entry * 10U + (unsigned int)(*digit - '0');
++				}
++			}
++		} else if (bytes >= sizeof(list_key) - 1 &&
++			   memcmp(env, list_key, sizeof(list_key) - 1) == 0) {
++			char value = bytes == sizeof(list_key) ? line_end[-1] : '\0';
++
++			list = value == '0' ? 0U : value == '1' ? 1U : 2U;
++		}
++		env = next ? next + 1 : end;
++	}
++
++	/* max77620-rtc.h gives the entry four bits and the list one bit. */
++	if (entry > 0 && entry <= 15 && list <= 1)
++		reboot_reason = REBOOT_REASON_SELF | (entry << 4) | (list << 8);
++}
++
++/* Switchroot B01 uses PMC reset and BootROM I2C commands. BootROM writes
++ * the Hekate RTC selector, drops the core rail and then resets the PMIC. */
+ int tegra_lite_prepare_reset(void)
+ {
+-	static const uint32_t commands[] = {
+-		0x00005252U, 0x80c80568U, 0x001a0213U, 0x77187711U,
++	uint32_t rtc_low = reboot_reason & 0x3fU;
++	uint32_t rtc_high = (reboot_reason >> 6) & 0x3fU;
++	uint32_t commands[] = {
++		0x00005252U, 0x80000568U,
++		0x001a0013U | (rtc_low << 8) | (rtc_high << 24), 0x77187711U,
+ 		0x00000104U, 0x806f033cU, 0x99422016U, 0x00008041U
+ 	};
+-	uint32_t value;
+-	unsigned int i;
++	uint32_t value, sum = 0;
++	unsigned int i, shift;
++
++	/* The RTC block's header and its three command words sum to zero
++	 * modulo 256. Its checksum changes with the two RTC data bytes. */
++	for (i = 1; i < 5; ++i)
++		for (shift = 0; shift < 32; shift += 8)
++			sum += (commands[i] >> shift) & 0xffU;
++	commands[1] |= ((0U - sum) & 0xffU) << 16;
+ 
+ 	/* tegra_pmc_init(), with the B01 NX active-high request polarities. */
+ 	value = mmio_read_32(PMC);
