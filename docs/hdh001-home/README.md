@@ -401,9 +401,10 @@ The `vulkan-test` branch separately provides opt-in ordinary S0 power-button
 wake resources with `-D SWITCH_LITE_POWER_IRQ=1`, requiring the existing
 `SWITCH_LITE_POWER=1` profile and `switchpwrbtn` 1.0.0.5. It adds PWRB's
 `_S0W=3`, PMC_CNTRL and GSI 118; it does not enable SC7 or change the default
-build command above. This candidate's installation and physical results are
-tracked in [the rolling Vulkan status](../gpu-vulkan/STATUS.md). Keep the
-matching driver and table together; older firmware uses the polling path.
+build command above. This source/build/model candidate has no recorded physical
+S0-wake interrupt acceptance. The tested `switchpwrbtn` 1.0.0.4 polling path
+remains the hardware baseline. Keep the matching driver and table together;
+older firmware uses the polling path.
 
 This selects the Lite boot/storage, touch, power, audio, Bluetooth, Wi-Fi preparation, SIO and B01 USB profile. It uses Microsoft Basic Display in Windows; the flags do not enable GPU acceleration. The generic `Tools/build.sh` / `build-woa.sh` defaults select a different profile, so use the explicit command above for this guide.
 
