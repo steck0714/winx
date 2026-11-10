@@ -1,0 +1,13 @@
+[CatalogHeader]
+Name=switchsio.cat
+ResultDir=.
+PublicVersion=0x0000001
+EncodingType=0x00010001
+CatalogVersion=2
+HashAlgorithms=SHA256
+CATATTR1=0x10010001:OSAttr:2:10.0
+[CatalogFiles]
+<HASH>INF=switchsio.inf
+<HASH>INFATTR1=0x10010001:File:switchsio.inf
+<HASH>SYS=switchsio.sys
+<HASH>SYSATTR1=0x10010001:File:switchsio.sys

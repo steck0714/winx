@@ -1,8 +1,9 @@
 #!/bin/sh
-# ARM64 cross-build against KMDF 1.15. Pass the WindowsDrivers tree and an output directory.
+# ARM64 cross-build against KMDF 1.15. Pass WindowsDrivers/ or its Hoag snapshot and an output directory.
 set -eu
 src=${1:?WindowsDrivers source directory}
 out=${2:?output directory}
+if [ -d "$src/t214/Hoag/drivers" ]; then src="$src/t214/Hoag"; fi
 : "${WDK_INCLUDE:?WDK Include/version}"
 : "${WDK_LIB:?WDK Lib/version/km/ARM64}"
 : "${WDF_INCLUDE:?WDK Include/wdf/kmdf/1.15}"

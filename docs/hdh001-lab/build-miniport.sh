@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the patched WindowsDrivers/drivers/Tegra210Sdhc sources from WinX.
+# Build the patched WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc sources from WinX.
 set -eu
 src=${1:?pass the Tegra210Sdhc source directory}
 out=${2:?pass an output directory}

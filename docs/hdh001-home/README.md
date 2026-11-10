@@ -21,7 +21,7 @@ This is a source-based development port. A first installation requires firmware 
 
 You need a Switch Lite that already boots Hekate, a card reader, a backup of the existing card, and an ARM64 Windows maintenance environment with DISM, BCDBoot and BCDEdit. Native ARM64 WinPE is used for offline servicing. A Mac can prepare source and copy FAT32 boot files; its normal NTFS mount cannot install Windows drivers.
 
-The Windows drivers are maintained in the [driver repository](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). `WindowsDrivers` is a Git submodule pinned to the revision used by this firmware checkout. Create a build workspace and initialize the submodule:
+The Windows driver source used for the Lite build is included at `WindowsDrivers/t214/Hoag/`. The Erista/T210 snapshot is separate at `WindowsDrivers/t210/Icosa/`. Create a build workspace and clone WinX; the driver sources no longer require a separate checkout or a WindowsDrivers submodule:
 
 ```sh
 mkdir switch-lite-build
@@ -30,7 +30,7 @@ git clone --branch hdh001-hekate-sd --recurse-submodules \
   https://github.com/ruje0504-2/winx.git NintendoSwitchPkg
 ```
 
-The shell examples below start in `switch-lite-build`, the directory containing `NintendoSwitchPkg`, unless a command explicitly changes directory. Use a workspace path without spaces. For an existing checkout, place it at `NintendoSwitchPkg` in this layout and run `git -C NintendoSwitchPkg submodule update --init WindowsDrivers`. Run that command again after pulling a new WinX revision to select its recorded driver revision. The Lite build selects `drivers/SwitchLiteTouch`, which matches SWOA0502; the original SwitchTouch driver remains available for the upstream hardware.
+The shell examples below start in `switch-lite-build`, the directory containing `NintendoSwitchPkg`, unless a command explicitly changes directory. Use a workspace path without spaces. The remaining `efifs` submodule is optional and read-only. The Lite Windows build selects `WindowsDrivers/t214/Hoag/drivers/SwitchLiteTouch`, which matches SWOA0502; the original SwitchTouch implementation remains in the T210 snapshot.
 
 The current target generator supports this specific layout:
 
@@ -48,10 +48,10 @@ After preparing the layout, save a complete card image as `card-backup.img` in t
 
 ```sh
 mkdir -p NintendoSwitchPkg/docs/hdh001-home/generated
-python3 NintendoSwitchPkg/WindowsDrivers/drivers/Tegra210Sdhc/winarm/configure-target.py \
+python3 NintendoSwitchPkg/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/winarm/configure-target.py \
   card-backup.img NintendoSwitchPkg/docs/hdh001-home/generated/target --expose-fat32
 cp NintendoSwitchPkg/docs/hdh001-home/generated/target/winarm-target.h \
-  NintendoSwitchPkg/WindowsDrivers/drivers/Tegra210Sdhc/src/winarm-target.h
+  NintendoSwitchPkg/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/src/winarm-target.h
 ```
 
 The example selects the currently tested FAT32-visible view. Omit `--expose-fat32` for WINARM only. The output directory `generated/target` must not already exist. Build **both BL33 and nvtsdhc from this same header** using the [build reference](#firmware-and-driver-build-reference). BL33 includes it through `Include/LiteSdTarget.h`; a separate firmware copy is not needed. Keep the generated card identity private.
@@ -272,7 +272,7 @@ Use the workspace created in step 1. The build steps add these directories:
 
 ```text
 switch-lite-build/
-  NintendoSwitchPkg/       WinX and its WindowsDrivers submodule
+  NintendoSwitchPkg/       WinX and vendored model-specific Windows driver sources
   card-backup.img          private input used in step 1
   atf/                    pinned BL31 source
   edk2/                   pinned BL33 build environment
@@ -357,7 +357,7 @@ import hashlib
 p = Path("NintendoSwitchPkg/LiteSdTest/ntfs_aa64_ro.efi")
 assert hashlib.sha256(p.read_bytes()).hexdigest() == "c04d008d79b4add54a2a770fb904b0df89ae7b1ea63d2d7e5d273145f4106a45"
 PY
-test -f NintendoSwitchPkg/WindowsDrivers/drivers/Tegra210Sdhc/src/winarm-target.h
+test -f NintendoSwitchPkg/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/src/winarm-target.h
 ```
 
 The header must be the one generated for this card in step 1. It is shared with the Windows nvtsdhc build. The external NTFS binary and card header are deliberately excluded from Git.

@@ -8,6 +8,7 @@
 
 [Sources.common]
   UsbPowerAudit.c
+  WinXAudioOutput.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -32,6 +33,7 @@
   NonDiscoverableDeviceRegistrationLib
 
 [Protocols]
+  gWinXAudioOutputProtocolGuid
   gPmicProtocolGuid
   gEfiSimpleTextOutProtocolGuid
   gEdkiiNonDiscoverableDeviceProtocolGuid

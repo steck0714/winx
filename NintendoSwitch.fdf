@@ -133,11 +133,7 @@ READ_LOCK_STATUS   = TRUE
   INF RuleOverride = ACPITABLE NintendoSwitchPkg/AcpiTables/AcpiTables.inf
 
   # Drivers
-!ifndef SWITCH_WOA
-!ifndef SWITCH_LITE_TOUCH
   INF NintendoSwitchPkg/Drivers/SidebandButtonDxe/SidebandButtonDxe.inf
-!endif
-!endif
   INF NintendoSwitchPkg/Drivers/ClockManagementDxe/ClockManagementDxe.inf
   INF NintendoSwitchPkg/Drivers/PmicDxe/PmicDxe.inf
 !ifdef SWITCH_LITE_BLUETOOTH
@@ -152,15 +148,14 @@ READ_LOCK_STATUS   = TRUE
 !ifdef SWITCH_LITE_RESET
   INF NintendoSwitchPkg/Drivers/PmicDxe/t214/LiteResetDxe.inf
 !endif
-!ifdef SWITCH_LITE_TOUCH
-  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
-!endif
   INF NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
 !ifndef SWITCH_WOA
 !ifndef SWITCH_LITE_TOUCH
   INF NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
-  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
 !endif
+!endif
+  INF NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+!ifndef SWITCH_WOA
 !ifdef SWITCH_FAN_DUTY
 !ifdef SWITCH_LITE_FAN
   INF NintendoSwitchPkg/Drivers/FanDxe/LiteFanPower.inf
@@ -206,10 +201,10 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
-!ifdef SWITCH_EXT
   INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
-  INF MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
   INF NintendoSwitchPkg/Drivers/MouseCursorDxe/MouseCursorDxe.inf
+!ifdef SWITCH_EXT
+  INF MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
 !endif
 !ifdef SWITCH_FSDRV
   # Read-only non-FAT file systems: pbatard/EfiFs v1.13 (GRUB 2.16, GPLv3+), prebuilt aarch64 release binaries,

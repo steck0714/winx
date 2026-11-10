@@ -16,11 +16,11 @@
 **/
 
 #include "Platform.h"
-#ifdef SWITCH_WIFI_RUNTIME
-#include "../../WindowsDrivers/drivers/SwitchWifi/platform/tegra_resources.h"
+#if defined(SWITCH_WIFI_RUNTIME) || defined(SWITCH_WIFI_ERISTA)
+#include "../../WindowsDrivers/t214/Hoag/drivers/SwitchWifi/platform/tegra_resources.h"
 #endif
 #ifdef SWITCH_LITE_GPU
-#include "../../WindowsDrivers/drivers/TegraGpu/platform/t214_resources.h"
+#include "../../WindowsDrivers/t214/Hoag/drivers/TegraGpu/platform/t214_resources.h"
 #endif
 
 DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_OEM_REVISION) 
@@ -722,11 +722,11 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         }
 
 #endif
-#ifdef SWITCH_WIFI_RUNTIME
+#if defined(SWITCH_WIFI_RUNTIME) || defined(SWITCH_WIFI_ERISTA)
         // Composite AFI host + BCM4356 endpoint. Not an ECAM/pci.sys bridge.
         // SPI 98 / GSI 130 carries legacy INTx and AFI host notifications.
-        // Home only exposes this device after WifiPrepare succeeds; touching
-        // an unpowered host controller from Windows is not permitted.
+        // The selected model-specific boot path exposes WFI0 only after
+        // WifiPrepare succeeds; touching an unprepared host is not permitted.
         Device (WFI0)
         {
             Name (_HID, SWIFI_ACPI_HID)

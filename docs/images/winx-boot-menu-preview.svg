@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">WinX UEFI boot menu concept</title>
+  <desc id="desc">A plain firmware-style text menu concept. The text uses a fixed-width console font; labels are examples, not a hardware capture.</desc>
+  <style>
+    .console { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 16px; }
+    .normal { fill: #d7dbe0; }
+    .muted { fill: #a5adb7; }
+    .bright { fill: #f4f5f7; font-weight: 600; }
+    .selected { fill: #f4f5f7; }
+  </style>
+  <rect width="1280" height="720" fill="#080a0d"/>
+
+  <!-- 80 columns by 25 rows, matching a common 1280x720 UEFI text mode. -->
+  <text x="32" y="31" class="console bright">WinX</text>
+  <text x="32" y="59" class="console muted">Hoag / Switch Lite   7 options</text>
+
+  <rect x="0" y="86" width="256" height="29" fill="#263b58"/>
+  <g class="console normal">
+    <text x="0" y="108" class="selected">All (7)</text>
+    <text x="256" y="108">Windows (2)</text>
+    <text x="512" y="108">Linux (2)</text>
+    <text x="768" y="108">Android (1)</text>
+    <text x="1024" y="108">Other (2)</text>
+  </g>
+
+  <text x="32" y="175" class="console bright">Boot options</text>
+
+  <rect x="16" y="173" width="1248" height="29" fill="#263b58"/>
+  <g class="console normal">
+    <text x="16" y="195" class="selected">&gt;  Windows 11 Home   Boot 0001</text>
+    <text x="16" y="224">   Windows 11 Test   Boot 0004</text>
+    <text x="16" y="253">   Ubuntu ARM64   Boot 0007</text>
+    <text x="16" y="282">   Arch Linux ARM64   Custom</text>
+    <text x="16" y="311">   Android   Custom</text>
+    <text x="16" y="340">   ChromeOS   Custom</text>
+    <text x="16" y="369">   UEFI Shell   Boot 0002</text>
+    <text x="16" y="398">   Firmware boot options</text>
+    <text x="16" y="427">   Save screenshot</text>
+    <text x="16" y="456">   Diagnostics</text>
+    <text x="16" y="485">   Restart</text>
+  </g>
+
+  <text x="32" y="600" class="console muted">Path: \EFI\Microsoft\Boot\bootmgfw.efi</text>
+  <text x="32" y="628" class="console bright">Up / Down  Select     Left / Right  Filter     Enter / A  Start</text>
+  <text x="32" y="657" class="console muted">F10 / D  Diagnostics     F12 / Capture  Screenshot     Esc / B  Firmware</text>
+</svg>

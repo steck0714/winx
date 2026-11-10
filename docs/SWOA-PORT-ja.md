@@ -11,7 +11,8 @@
 | `AcpiTables/Dsdt/Dsdt.asl` | XHC0 を先駆者の形に修正(`_CCA=0`、FPCI/IPFS、SPI 39/40/49)。`SWOA0101〜0801` デバイス群を追加 |
 | `NintendoSwitch.dsc` / `.fdf` | 新スイッチ `SWITCH_WOA`。EHCI 系・TouchPanelDxe・FanDxe を外し、UsbPowerAudit + XhciDxe + XUSB ファームウェアを入れる |
 | `patches/edk2/0001-*.patch` | XhciDxe の DMA バッファを write-combined に(edk2-stable202402 用に作り直し) |
-| `WindowsDrivers/` | Windows 側ドライバ(KMDF、8種+診断)、SwitchCenter、署名・リリース用スクリプト |
+| `WindowsDrivers/t210/Icosa/` | Erista/T210 Windows ドライバーとツールのソース snapshot |
+| `WindowsDrivers/t214/Hoag/` | Lite/T214 Windows ドライバーとツールのソース snapshot |
 | `Firmware/README.md` | XUSB ファームウェアの入手方法(バイナリは同梱しません) |
 | `docs/hayato41200/` | 先駆者の README と R361〜R378 の検証メモ |
 | `Tools/build-woa.sh` | ビルドスクリプト |
@@ -24,7 +25,7 @@ git clone --depth 1 --branch edk2-stable202402 https://github.com/tianocore/edk2
 # Include/FwReleaseInfo.h を作る
 Tools/build-woa.sh   # SWITCH_BIGFD=1 込み(bl33.bin は 1048576 バイト)
 ```
-Windows 側は `WindowsDrivers/` の各 `kits/Switch-*` と README の手順で、テスト署名 → GPIO → I2C → 各ドライバの順に入れます。
+Windows 側は機種別ディレクトリ内の `kits/Switch-*` と README の手順で、テスト署名 → GPIO → I2C → 各ドライバの順に入れます。Hoag向けのドライバー生成例は `WindowsDrivers/t214/Hoag/` を使います。
 
 ## ビルド確認(2026-10-28、この環境)
 - edk2-stable202402 + GCC5/aarch64 で `-D SWITCH_HEKATE=1 -D SWITCH_WOA=1` のビルドが通り、`make-bl33.py` で bl33.bin まで生成できた。
