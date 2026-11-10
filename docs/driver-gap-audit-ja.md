@@ -52,7 +52,7 @@ Windows側の補助ドライバー（ファン、バッテリー、クロック�
 4. Windowsの表示経路/DWMへ安全に提示し、動画再生、長時間負荷、GPUハング回復を確認する。
 5. 各コードネームごとに、小さなVulkan/Direct3Dアプリ、実ゲーム、温度/消費電力と復帰を段階確認する。
 
-[Mesa Switch](https://github.com/danfromtico/mesa-switch)はGM20B上のHorizon向けNVK/OpenGL実装の参考になりますが、Horizonのメモリ・GPUキュー・同期バックエンドはWindows WDDMと同じではありません。MesaのNVK対応GPU一覧にMaxwellが含まれることも、そのSwitch Windowsポートが動く証明ではありません。Microsoftの[WDDM構成](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/windows-vista-and-later-display-driver-model-architecture)ではKMDとUMDの両方がベンダー側の提供物で、VidMm・VidSch・DWMに対応します。従って最初の現実的な目標は「T214で限定的なオフスクリーンVulkanテストをWinXと独立して再現」し、その後にDWM/ゲーム対応を目指すことです。現時点でゲームをプレイ可能とは案内できません。
+[steck0714/mesa-switch](https://github.com/steck0714/mesa-switch)は[danfromtico/mesa-switch](https://github.com/danfromtico/mesa-switch)のフォークです。2026-11-10に確認した時点では、フォークの`main`は親と同一で、独自コミットはありませんでした。READMEが説明するMesa 26.2.4移植はGM20B上のHorizon向けで、loaderless NVK Vulkan、Gallium NVC0 / Zink OpenGL、EGLを提供し、`src/nouveau/horizon`がlibnx経由でデバイス、アドレス空間、メモリー、チャネル送信、syncpoint同期、キャッシュ管理、エラー処理を担います。これはGM20Bを使った有用なユーザーモードGPU実装例ですが、Horizon専用バックエンドなのでWinXのUEFIやWindowsへそのまま組み込めません。Horizonのメモリー・キュー・同期方式はWindows WDDMと異なり、Microsoftの[WDDM構成](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/windows-vista-and-later-display-driver-model-architecture)ではWindows用KMDとUMDの両方が必要です。MesaのNVK対応GPU一覧にMaxwellが含まれることも、Switch上のWindowsで動く証拠にはなりません。従って最初の現実的な目標は「T214で限定的なオフスクリーンVulkanテストをWinXと独立して再現」し、その後にDWM/ゲーム対応を目指すことです。現時点でゲームをプレイ可能とは案内できません。
 
 ## microSD: 読み書きを速くしつつ読める状態を保つ
 
@@ -86,6 +86,6 @@ Windows側の補助ドライバー（ファン、バッテリー、クロック�
 - [EDK II `UsbKbDxe`](https://github.com/tianocore/edk2/blob/edk2-stable202608/MdeModulePkg/Bus/Usb/UsbKbDxe/KeyBoard.c)
 - [Hekate / Nyx](https://github.com/CTCaer/hekate) と [Joy-Con初期化コード](https://github.com/CTCaer/hekate/blob/master/bdk/input/joycon.c)
 - [Switchroot T210/T210B01カーネルとSDHCI](https://github.com/CTCaer/switch-l4t-kernel-4.9/releases)
-- [Mesa Switch / NVK](https://github.com/danfromtico/mesa-switch) と [Mesa NVKの対応GPU](https://docs.mesa3d.org/drivers/nvk.html)
+- [steck0714/mesa-switch](https://github.com/steck0714/mesa-switch) / [parent](https://github.com/danfromtico/mesa-switch) と [Mesa NVKの対応GPU](https://docs.mesa3d.org/drivers/nvk.html)
 - [Microsoft WDDM architecture](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/windows-vista-and-later-display-driver-model-architecture)
 - [WinX T214 Windows driver fork](https://github.com/ruje0504-2/Windows-for-Switch-Drivers) と [WinX base repo](https://github.com/steck0714/winx)
