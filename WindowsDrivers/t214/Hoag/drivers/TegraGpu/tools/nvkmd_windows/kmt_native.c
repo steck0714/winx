@@ -253,8 +253,14 @@ tg_kmt_map(const struct tg_kmt_device *dev, const struct tg_kmt_va *va, uint64_t
            const struct tg_kmt_allocation *allocation, uint64_t offset, uint64_t size,
            uint8_t kind)
 {
-   if (!size || ((va_offset | offset | size) & (TG_KMT_PAGE_SIZE - 1)) ||
+   if (!dev || !dev->paging_queue || !va || !allocation || !allocation->handle ||
+       !va->address || !va->reserved_base || !va->reserved_size ||
+       va->address < va->reserved_base ||
+       va->address - va->reserved_base > va->reserved_size ||
+       va->size > va->reserved_size - (va->address - va->reserved_base) ||
+       !size || ((va_offset | offset | size) & (TG_KMT_PAGE_SIZE - 1)) ||
        va_offset > va->size || size > va->size - va_offset ||
+       va->address > UINT64_MAX - va_offset ||
        offset > allocation->size || size > allocation->size - offset)
       return TG_KMT_INVALID_PARAMETER;
    D3DDDI_MAPGPUVIRTUALADDRESS args = {
@@ -262,6 +268,38 @@ tg_kmt_map(const struct tg_kmt_device *dev, const struct tg_kmt_va *va, uint64_t
       .hAllocation = allocation->handle,
       .OffsetInPages = offset / TG_KMT_PAGE_SIZE, .SizeInPages = size / TG_KMT_PAGE_SIZE,
       .Protection.Write = 1, .DriverProtection = kind,
+   };
+   LONG status = D3DKMTMapGpuVirtualAddress(&args);
+   if (status < 0)
+      return status;
+   return wait_paging(dev, args.PagingFenceValue);
+}
+
+LONG
+tg_kmt_unmap(const struct tg_kmt_device *dev, const struct tg_kmt_va *va,
+             uint64_t va_offset, uint64_t size)
+{
+   if (!dev || !dev->paging_queue || !va || !va->address || !va->reserved_base ||
+       !va->reserved_size || va->address < va->reserved_base ||
+       va->address - va->reserved_base > va->reserved_size ||
+       va->size > va->reserved_size - (va->address - va->reserved_base) ||
+       !size || ((va_offset | size) & (TG_KMT_PAGE_SIZE - 1)) ||
+       va_offset > va->size || size > va->size - va_offset ||
+       va->address > UINT64_MAX - va_offset)
+      return TG_KMT_INVALID_PARAMETER;
+
+   /* D3DKMTMapGpuVirtualAddress with NoAccess clears the mapping while
+    * retaining the driver's reserved VA range for later reuse. hAllocation
+    * must be NULL for this protection state. Serialize completion through
+    * the same paging queue used by map/reserve operations before returning the
+    * VA range to NVK.
+    */
+   D3DDDI_MAPGPUVIRTUALADDRESS args = {
+      .hPagingQueue = dev->paging_queue,
+      .BaseAddress = va->address + va_offset,
+      .hAllocation = NULL,
+      .SizeInPages = size / TG_KMT_PAGE_SIZE,
+      .Protection.NoAccess = 1,
    };
    LONG status = D3DKMTMapGpuVirtualAddress(&args);
    if (status < 0)
