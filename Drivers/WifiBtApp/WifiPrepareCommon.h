@@ -4,7 +4,7 @@
 #define WIFI_PREPARE_COMMON_H
 
 #include "PowerState.h"
-#include "../../WindowsDrivers/drivers/SwitchWifi/platform/tegra_resources.h"
+#include "../../WindowsDrivers/t214/Hoag/drivers/SwitchWifi/platform/tegra_resources.h"
 
 STATIC EFI_STATUS
 WifiPrepareRun (WIFI_PCIE_POWER_STATE *Supply,

@@ -124,6 +124,19 @@
   !ifndef SWITCH_LITE_POWER
     !error "SWITCH_WIFI_RUNTIME requires the I2C5 power profile"
   !endif
+  !ifdef SWITCH_WIFI_ERISTA
+    !error "Select only one of SWITCH_WIFI_RUNTIME and SWITCH_WIFI_ERISTA"
+  !endif
+!endif
+  DEFINE WIFI_ERISTA_FLAGS    =
+!ifdef SWITCH_WIFI_ERISTA
+  DEFINE WIFI_ERISTA_FLAGS    = -DSWITCH_WIFI_ERISTA=1
+  !ifndef SWITCH_BOARD_ERISTA
+    !error "SWITCH_WIFI_ERISTA requires the T210/Icosa board profile"
+  !endif
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_WIFI_ERISTA requires the Hekate boot chain"
+  !endif
 !endif
 !ifdef SWITCH_LITE_BOOT_SD
   DEFINE LITE_BOOT_SD_FLAGS    = -DSWITCH_LITE_BOOT_SD=1
@@ -235,7 +248,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(SWITCH_BOARD_FLAGS) $(EXCFB_FLAGS) $(LITE_GPU_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(SWITCH_BOARD_FLAGS) $(EXCFB_FLAGS) $(LITE_GPU_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(WIFI_ERISTA_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -286,7 +299,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(SWITCH_BOARD_FLAGS) $(LITE_GPU_FLAGS) $(LITE_GPU_IRQ_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_POWER_IRQ_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(SWITCH_BOARD_FLAGS) $(LITE_GPU_FLAGS) $(LITE_GPU_IRQ_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(WIFI_ERISTA_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_POWER_IRQ_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #
@@ -701,9 +714,6 @@
 !ifdef SWITCH_LITE_RESET
   NintendoSwitchPkg/Drivers/PmicDxe/t214/LiteResetDxe.inf
 !endif
-!ifdef SWITCH_LITE_TOUCH
-  NintendoSwitchPkg/Drivers/TouchPanelDxe/LiteTouchPower.inf
-!endif
 !ifdef SWITCH_SD_FAST
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf {
     <BuildOptions>
@@ -713,8 +723,8 @@
   NintendoSwitchPkg/Drivers/SdMmcDxe/SdMmcDxe.inf
 !endif
   NintendoSwitchPkg/Drivers/PinMuxDxe/PinMuxDxe.inf
-!ifndef SWITCH_WOA
   NintendoSwitchPkg/Drivers/TouchPanelDxe/TouchPanelDxe.inf
+!ifndef SWITCH_WOA
 !ifdef SWITCH_FAN_DUTY
 !ifdef SWITCH_LITE_FAN
   NintendoSwitchPkg/Drivers/FanDxe/LiteFanPower.inf
@@ -780,14 +790,14 @@
     <LibraryClasses>
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
   }
-!ifdef SWITCH_EXT
-  # Shell/USB extras: USB mouse and the RAM disk driver (the shell `ramdisk` command and the HII form).
+  # USB mouse pointer is always present; the cursor driver idles at 250 ms without a mouse.
   MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf {
     <LibraryClasses>
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
   }
-  MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
   NintendoSwitchPkg/Drivers/MouseCursorDxe/MouseCursorDxe.inf
+!ifdef SWITCH_EXT
+  MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
 !endif
 !ifdef SWITCH_WINSPY
   NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
@@ -915,6 +925,24 @@
       gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
     <BuildOptions>
       GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1 -DWIFI_PREPARE=1
+  }
+!endif
+!ifdef SWITCH_WIFI_ERISTA
+  # T210 Erista Wi-Fi hand-off is opt-in and remains unverified on hardware.
+  NintendoSwitchPkg/Drivers/WifiBtApp/WifiPrepare.inf {
+    <LibraryClasses>
+      DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+      ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+      FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+      SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
+      PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+      HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+      gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xFFFFFFFF
+    <BuildOptions>
+      GCC:*_*_AARCH64_CC_FLAGS = -mstrict-align -DWIFI_AUTO_PROBE=1 -DWIFI_PREPARE=1 -DSWITCH_WIFI_ERISTA=1
   }
 !endif
 !ifdef SWITCH_PERF

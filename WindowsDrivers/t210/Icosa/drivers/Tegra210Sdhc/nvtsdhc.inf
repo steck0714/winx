@@ -1,0 +1,63 @@
+[Version]
+Signature="$Windows NT$"
+Class=SDHost
+ClassGuid={a0a588a4-c46f-4b37-b7ea-c82fe89870c6}
+Provider=%ProviderName%
+DriverVer=10/29/2026,0.3.2.0
+CatalogFile=nvtsdhc.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DriverCopy=12
+
+[SourceDisksNames]
+1=%DiskName%
+
+[SourceDisksFiles]
+nvtsdhc.sys=1
+
+[Manufacturer]
+%ProviderName%=Nvidia,NTARM64.10.0
+
+[Nvidia.NTARM64.10.0]
+%DeviceName%=Tegra210Sdhc,ACPI\NVDA0101
+
+[Tegra210Sdhc]
+CopyFiles=DriverCopy
+AddReg=DeviceReg
+
+[Tegra210Sdhc.Services]
+AddService=nvtsdhc,0x00000002,ServiceInstall
+
+[Tegra210Sdhc.HW]
+AddReg=LocationReg
+
+[DriverCopy]
+nvtsdhc.sys
+
+[ServiceInstall]
+DisplayName=%ServiceName%
+ServiceType=1
+StartType=0
+ErrorControl=1
+ServiceBinary=%12%\nvtsdhc.sys
+LoadOrderGroup=System Bus Extender
+BootFlags=0x00000008
+AddReg=ServiceReg
+
+[DeviceReg]
+HKR,,Driver,,"nvtsdhc.sys"
+
+[LocationReg]
+HKR,,UINumberDescFormat,,%SlotName%
+
+[ServiceReg]
+HKR,Parameters,SdCmdFlags,1,05,01,06,01,08,11,09,19,0A,19,0D,11,10,01,11,01,12,01,17,01,18,05,19,05,1A,01,1B,01,1C,01,20,05,21,05,26,05,2A,01,34,02,35,02,37,01,38,01,22,01,23,05,24,01,25,01
+HKR,Parameters,SdAppCmdFlags,1,06,01,0D,01,16,01,17,01,33,01,12,01,19,01,1A,01,26,01,2B,01,2C,01,2D,01,2E,01,2F,01,30,01,31,01
+
+[Strings]
+ProviderName="Nintendo Switch Windows Project"
+DeviceName="NVIDIA Tegra210 SDMMC1 Host Controller"
+ServiceName="Nintendo Switch Tegra210 SD Host Miniport"
+SlotName="Nintendo Switch microSD slot %1!u!"
+DiskName="Tegra210 SD Host Driver Disk"

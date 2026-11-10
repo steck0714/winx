@@ -1,0 +1,85 @@
+# Build and test-sign switchaudio.sys (ARM64 PortCls WaveRT driver) on a GitHub-hosted Windows runner.
+# UNTESTED workflow: written without running it. If a step fails, the log names the missing path.
+#
+# Signing certificate:
+#  - Optional repository secrets SWOA_PFX_BASE64 (base64 of a .pfx) and SWOA_PFX_PASSWORD: the same certificate
+#    is used on every run, so install its .cer on the Switch only once.
+#  - Without them a new self-signed certificate (CN=SwitchWOA Test Driver Signing) is made on each run and its .cer
+#    is in the artifact; that certificate must be added to Trusted Root and Trusted Publishers of the Windows image.
+name: build-switchaudio
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'drivers/SwitchAudio/**'
+      - 'tools/**'
+      - '.github/workflows/build-switchaudio.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM (clang-cl, lld-link)
+        shell: pwsh
+        run: |
+          choco install llvm --no-progress -y
+          Test-Path 'C:\Program Files\LLVM\bin\clang-cl.exe'
+
+      - name: Install the WDK 10.0.19041 (the SDK 10.0.19041 is on the runner image)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/?linkid=2128854' -OutFile "$env:RUNNER_TEMP\wdksetup.exe"
+          Start-Process "$env:RUNNER_TEMP\wdksetup.exe" -ArgumentList '/quiet','/norestart' -Wait
+          $k = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          'wdm.h'   | ForEach-Object { Test-Path "$k\Include\10.0.19041.0\km\$_" }
+          Test-Path "$k\Lib\10.0.19041.0\km\arm64\portcls.lib"
+          Get-ChildItem "$k\Lib\wdf\kmdf\arm64" -Name
+
+      - name: Point Build-Driver.ps1 at the signtool / Inf2Cat of this runner
+        shell: pwsh
+        run: |
+          $k = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $v = Get-ChildItem $k -Directory | Where-Object { $_.Name -match '^10\.' -and (Test-Path "$($_.FullName)\x64\signtool.exe") -and (Test-Path "$($_.FullName)\x86\Inf2Cat.exe") } |
+               Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $v) { throw 'no SDK bin folder with signtool.exe and Inf2Cat.exe' }
+          Write-Host "using $($v.Name)"
+          (Get-Content tools\Build-Driver.ps1 -Raw).Replace('10.0.26100.0', $v.Name) | Set-Content tools\Build-Driver.ps1 -Encoding utf8
+
+      - name: Certificate
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.SWOA_PFX_BASE64 }}
+          PFX_PASS: ${{ secrets.SWOA_PFX_PASSWORD }}
+        run: |
+          if ($env:PFX_B64) {
+            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\swoa.pfx", [Convert]::FromBase64String($env:PFX_B64))
+            $p = ConvertTo-SecureString $env:PFX_PASS -AsPlainText -Force
+            $c = Import-PfxCertificate -FilePath "$env:RUNNER_TEMP\swoa.pfx" -CertStoreLocation Cert:\CurrentUser\My -Password $p
+            Write-Host "imported certificate $($c.Subject) $($c.Thumbprint)"
+          } else {
+            Write-Host 'no secret: Build-Driver.ps1 will make a new self-signed certificate'
+          }
+
+      - name: Build and sign
+        shell: pwsh
+        run: |
+          .\tools\Build-Driver.ps1 -Wdm -Name switchaudio `
+            -Sources drivers\SwitchAudio\src\switchaudio.cpp -Libs portcls.lib,libcntpr.lib `
+            -Inf drivers\SwitchAudio\switchaudio.inf -OutDir out\switchaudio
+
+      - name: Make the kit
+        shell: pwsh
+        run: |
+          $o = 'kit\Switch-Audio'
+          New-Item -ItemType Directory -Force $o | Out-Null
+          Copy-Item out\switchaudio\switchaudio.sys,out\switchaudio\switchaudio.inf,out\switchaudio\switchaudio.cat $o
+          Copy-Item kits\Switch-Audio\Audio.ps1,kits\Switch-Audio\README-ja.md $o
+          Copy-Item tools\cert\SwitchWOA-Test.cer kit\
+          Get-FileHash $o\switchaudio.sys, kit\SwitchWOA-Test.cer | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Switch-Audio
+          path: kit

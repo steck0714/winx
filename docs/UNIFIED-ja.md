@@ -8,7 +8,7 @@
 | SDM1 を nvtsdhc 用に記述するスイッチ `SWITCH_ACPI_SD_NVTSDHC` (Windows 11) | `AcpiTables/Dsdt/Dsdt.asl`, `NintendoSwitch.dsc` |
 | `UsbPowerAuditDxe` を hayato41200 の R379 に更新 (I2C2 / SPI4 のクロックとセンサー ID 読み出し) | `Drivers/UsbPowerAuditDxe/UsbPowerAudit.c` (出典コメントのみ winx 側) |
 | DSDT に `I2C2` と `SENS`(SWOA0901) を追加 (`SWITCH_ACPI_SWOA` のときだけ) | `AcpiTables/Dsdt/Dsdt.asl` |
-| `WindowsDrivers/` を Windows-for-Switch-Drivers main に更新 (Tegra210Sdhc, SwitchSensor, SwitchPatcher, Switch-Sd, Switch-Sensor) | `WindowsDrivers/` |
+| Windows driver source snapshots are stored by SoC/board; T210 Icosa and T214 Hoag each retain their source and license | `WindowsDrivers/t210/Icosa/`, `WindowsDrivers/t214/Hoag/` |
 | ビルドの入口を `Tools/build.sh` に一本化 (既定 `woa`、従来の構成は `ehci`) | `Tools/build.sh` |
 | 重複していた番号付きパッチ群を1か所に集約 | `archive/patches/` (履歴の正本) |
 

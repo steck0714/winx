@@ -40,3 +40,11 @@ The later GBAtemp post in the same thread that lists touchscreen, EHCI hotplug, 
 - Microsoft's [Windows 11 minimum hardware requirements](https://download.microsoft.com/download/7/8/8/788bf5ab-0751-4928-a22c-dffdc23c27f2/Minimum%20Hardware%20Requirements%20for%20Windows%2011.pdf) list ARMv8.1 atomic instructions for ARM64, while Arm's [Cortex-A57 manual](https://documentation-service.arm.com/static/5e906b9fc8052b1608760c7b) identifies the core as Armv8-A. This is a source-derived compatibility constraint, not a version-by-version boot result; the Lite's reported 22631.2861 (23H2) boot is the separately recorded physical evidence.
 
 When new tests are added, record the board code/product, boot chain, firmware/driver revision, date, exact observation and whether it was owner-reported or independently reproduced. Keep measured readbacks separate from requested clock/voltage targets and source-derived constants.
+
+### This working tree
+
+The input, screenshot, PCM, WinX visual, multi-boot menu and read-only custom-entry changes in this working tree are source edits only; this revision has not been rebuilt or measured on hardware. Earlier build and QEMU results above predate these edits. Mouse latency, timer overhead, screenshot throughput, PCM sound, custom BMP presentation/BGRT handoff, multi-OS launch behavior and Doom integration remain unverified.
+
+An earlier host GCC `-fsyntax-only` pass accepted the then-current `SwitchVisuals.c` and `SwitchBootMenu.c`, and an earlier preview SVG parsed with the Windows XML parser. That pass predates the current menu parser/redesign and does **not** verify the current source. No current AArch64 EDK II build or QEMU test was produced for these edits. Installing Clang/LLD was previously attempted, but pacman stopped before installation because the C: package volume lacked disk space. The updated menu mockup has not yet been rendered on Switch hardware.
+
+The [driver gap audit](driver-gap-audit-ja.md) and [multi-boot menu guide](winx-multiboot-ja.md) distinguish source status from physical evidence. In particular, the T214 SD driver has SDR104 host readback but no throughput benchmark; DDR200 active-mode readback is still pending. The Windows GM20B sources do not yet provide game-capable WDDM plus a user-mode API driver.

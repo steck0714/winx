@@ -35,8 +35,10 @@
 #include <Guid/TtyTerm.h>
 
 #include <Device/TouchPanel.h>
+#include "../../Drivers/SidebandButtonDxe/SwitchSidebandButtons.h"
 #include "PlatformBm.h"
 #include "SwitchBootMenu.h"
+#include "SwitchVisuals.h"
 
 #ifdef SWITCH_GRUB_MENU
 STATIC EFI_GUID mWinxGrubFileGuid = {
@@ -112,6 +114,7 @@ typedef struct {
 #pragma pack ()
 
 STATIC TOUCH_DEVICE_PATH mTouchPanel = TOUCH_DEVICE_PATH_INIT;
+STATIC WINX_SWITCH_BUTTON_DEVICE_PATH mSidebandKeyboard = WINX_SWITCH_BUTTON_DEVICE_PATH_INIT;
 
 STATIC PLATFORM_USB_KEYBOARD mUsbKeyboard = {
   //
@@ -520,6 +523,22 @@ PlatformBootManagerBeforeConsole (
   EfiBootManagerUpdateConsoleVariable (ConIn,
     (EFI_DEVICE_PATH_PROTOCOL *)&mTouchPanel, NULL);
 
+  // Add the Switch volume/power button keyboard so EFI applications such as
+  // GRUB receive standard arrow and Enter keystrokes through ConIn.
+  {
+    WINX_SWITCH_BUTTON_PROTOCOL  *Buttons;
+
+    Buttons = NULL;
+    Status = gBS->LocateProtocol (&gWinXSidebandButtonProtocolGuid, NULL, (VOID **)&Buttons);
+    if (!EFI_ERROR (Status) && (Buttons != NULL)) {
+      EfiBootManagerUpdateConsoleVariable (
+        ConIn,
+        (EFI_DEVICE_PATH_PROTOCOL *)&mSidebandKeyboard,
+        NULL
+        );
+    }
+  }
+
   //
   // Add the hardcoded serial console device path to ConIn, ConOut, ErrOut.
   //
@@ -561,6 +580,8 @@ PlatformBootManagerAfterConsole (
 {
   ESRT_MANAGEMENT_PROTOCOL      *EsrtManagement;
   EFI_STATUS                    Status;
+  EFI_STATUS                    LogoStatus;
+  EFI_STATUS                    SplashStatus;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
   UINTN                         FirmwareVerLength;
   UINTN                         PosX;
@@ -571,14 +592,15 @@ PlatformBootManagerAfterConsole (
   //
   // Show the splash screen.
   //
-  Status = BootLogoEnableLogo ();
-  if (EFI_ERROR (Status)) {
+  LogoStatus = BootLogoEnableLogo ();
+  SplashStatus = WinxVisualsShowFirmwareSplash ();
+  if (EFI_ERROR (SplashStatus) && EFI_ERROR (LogoStatus)) {
     if (FirmwareVerLength > 0) {
       Print (VERSION_STRING_PREFIX L"%s\n",
         PcdGetPtr (PcdFirmwareVersionString));
     }
     Print (L"Press ESCAPE for boot options ");
-  } else if (FirmwareVerLength > 0) {
+  } else if (EFI_ERROR (SplashStatus) && (FirmwareVerLength > 0)) {
     Status = gBS->HandleProtocol (gST->ConsoleOutHandle,
                     &gEfiGraphicsOutputProtocolGuid, (VOID **)&GraphicsOutput);
     if (!EFI_ERROR (Status)) {

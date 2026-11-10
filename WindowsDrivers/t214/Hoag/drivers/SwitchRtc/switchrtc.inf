@@ -1,0 +1,55 @@
+;
+; switchrtc.inf - Nintendo Switch real-time clock (MAX77620 RTC on I2C5, read-only + offset)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %Mfg%
+CatalogFile = switchrtc.cat
+DriverVer   = 10/26/2026,1.0.0.2
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+switchrtc.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = SwRtc_Inst, ACPI\SWOA0801
+
+[SwRtc_Inst.NT]
+CopyFiles = SwRtc_Copy
+
+[SwRtc_Copy]
+switchrtc.sys
+
+[SwRtc_Inst.NT.Services]
+AddService = switchrtc, 0x00000002, SwRtc_Service
+
+[SwRtc_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\switchrtc.sys
+
+[SwRtc_Inst.NT.Wdf]
+KmdfService = switchrtc, SwRtc_WdfSection
+
+[SwRtc_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA RTC"
+DeviceDesc  = "Nintendo Switch Real-Time Clock"
+ServiceDesc = "Nintendo Switch Real-Time Clock"

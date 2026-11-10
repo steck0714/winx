@@ -14,6 +14,7 @@
 #include <Library/IoLib.h>
 #include <Protocol/AbsolutePointer.h>
 #include <Protocol/DevicePath.h>
+#include <Protocol/SimplePointer.h>
 
 #include <Foundation/Types.h>
 #include <Library/I2cLib.h>
@@ -24,6 +25,9 @@
 #include <Device/TouchPanel.h>
 
 #include "Fts4.h"
+
+#define T210_HIDREV      0x70000804UL
+#define TOUCH_IRQ_MUX    (PINMUX_AUX_BASE + 0x220)
 
 typedef struct {
   UINT8   Raw[FTS4_EVENT_SIZE];
@@ -37,6 +41,12 @@ STATIC EFI_HANDLE                     mHandle;
 STATIC BOOLEAN                        mClone;          // non-genuine IC: must use READ_ONE_EVENT
 STATIC BOOLEAN                        mStateChanged;
 STATIC EFI_ABSOLUTE_POINTER_STATE     mState;
+STATIC EFI_SIMPLE_POINTER_STATE       mMouseState;
+STATIC BOOLEAN                        mMouseStateChanged;
+STATIC BOOLEAN                        mTouchActive;
+STATIC UINT32                         mPreviousMouseX;
+STATIC UINT32                         mPreviousMouseY;
+STATIC EFI_EVENT                      mMouseWaitForInput;
 STATIC TOUCH_DEVICE_PATH              mDevicePath = TOUCH_DEVICE_PATH_INIT;
 
 STATIC EFI_ABSOLUTE_POINTER_MODE      mMode = {
@@ -44,6 +54,12 @@ STATIC EFI_ABSOLUTE_POINTER_MODE      mMode = {
   TOUCH_RES_X - 1, TOUCH_RES_Y - 1, 0,      // AbsoluteMax X/Y/Z (no pressure axis)
   0                                         // Attributes
 };
+
+STATIC EFI_SIMPLE_POINTER_MODE        mMouseMode = {
+  8, 8, 0, TRUE, FALSE
+};
+
+STATIC EFI_SIMPLE_POINTER_PROTOCOL    mMousePtr;
 
 // ---------------------------------------------------------------------------------------------
 // Low level I2C helpers. The I2cLib convention: 1 = success, 0 = failure.
@@ -190,6 +206,14 @@ TouchPowerOn (VOID)
   i2c_init (I2C_3);
   gBS->Stall (1000);
 
+#ifdef SWITCH_LITE_TOUCH
+  // Hoag uses PX1 as the active-low FTM4 interrupt input. Keep the pin ready for
+  // the Windows HID driver after ExitBootServices; firmware polls the FIFO below.
+  MmioWrite32 (TOUCH_IRQ_MUX, PINMUX_INPUT_ENABLE | BIT4 | (2U << 2));
+  gpio_output_enable (GPIO_PORT_X, GPIO_PIN_1, GPIO_OUTPUT_DISABLE);
+  gpio_config (GPIO_PORT_X, GPIO_PIN_1, GPIO_MODE_GPIO);
+#endif
+
   // Release reset and wait for the controller.
   gpio_write (TOUCH_RST_GPIO_PORT, TOUCH_RST_GPIO_PIN, GPIO_HIGH);
   gBS->Stall (10000);
@@ -268,6 +292,10 @@ TouchPoll (IN EFI_EVENT Event, IN VOID *Context)
     return;
   }
 
+  if (!Ev.Touch) {
+    Ev.X = mState.CurrentX;
+    Ev.Y = mState.CurrentY;
+  }
   if (Ev.Touch) {
     mState.CurrentX = Ev.X;
     mState.CurrentY = Ev.Y;
@@ -275,6 +303,48 @@ TouchPoll (IN EFI_EVENT Event, IN VOID *Context)
   mState.CurrentZ      = 0;
   mState.ActiveButtons = Ev.Touch ? 1 : 0;
   mStateChanged        = TRUE;
+
+  if (mTouchActive != Ev.Touch) {
+    mTouchActive = Ev.Touch;
+    gBS->SetTimer (
+      mPollTimer,
+      TimerPeriodic,
+      mTouchActive ? TOUCH_POLL_INTERVAL_100NS : (2 * TOUCH_POLL_INTERVAL_100NS)
+      );
+  }
+
+  // Publish a relative pointer view as well as the absolute touchscreen. This lets EFI
+  // applications which only understand SimplePointer use the panel like a one-button mouse.
+  {
+    INT32  DeltaX;
+    INT32  DeltaY;
+
+    DeltaX = (INT32)Ev.X - (INT32)mPreviousMouseX;
+    DeltaY = (INT32)Ev.Y - (INT32)mPreviousMouseY;
+    if (Ev.Touch || mMouseState.LeftButton) {
+      if ((DeltaX > 0) && (mMouseState.RelativeMovementX > MAX_INT32 - DeltaX)) {
+        mMouseState.RelativeMovementX = MAX_INT32;
+      } else if ((DeltaX < 0) && (mMouseState.RelativeMovementX < MIN_INT32 - DeltaX)) {
+        mMouseState.RelativeMovementX = MIN_INT32;
+      } else {
+        mMouseState.RelativeMovementX += DeltaX;
+      }
+      if ((DeltaY > 0) && (mMouseState.RelativeMovementY > MAX_INT32 - DeltaY)) {
+        mMouseState.RelativeMovementY = MAX_INT32;
+      } else if ((DeltaY < 0) && (mMouseState.RelativeMovementY < MIN_INT32 - DeltaY)) {
+        mMouseState.RelativeMovementY = MIN_INT32;
+      } else {
+        mMouseState.RelativeMovementY += DeltaY;
+      }
+    }
+    mPreviousMouseX = Ev.X;
+    mPreviousMouseY = Ev.Y;
+  }
+  mMouseState.LeftButton = Ev.Touch;
+  mMouseStateChanged = TRUE;
+  if (mMouseWaitForInput != NULL) {
+    gBS->SignalEvent (mMouseWaitForInput);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -289,6 +359,62 @@ AbsPtrReset (IN EFI_ABSOLUTE_POINTER_PROTOCOL *This, IN BOOLEAN ExtendedVerifica
   mStateChanged = FALSE;
   return EFI_SUCCESS;
 }
+
+STATIC
+EFI_STATUS
+EFIAPI
+MousePtrReset (
+  IN EFI_SIMPLE_POINTER_PROTOCOL  *This,
+  IN BOOLEAN                      ExtendedVerification
+  )
+{
+  ZeroMem (&mMouseState, sizeof (mMouseState));
+  mMouseStateChanged = FALSE;
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+MousePtrGetState (
+  IN  EFI_SIMPLE_POINTER_PROTOCOL  *This,
+  OUT EFI_SIMPLE_POINTER_STATE     *State
+  )
+{
+  if (State == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+  if (!mMouseStateChanged) {
+    return EFI_NOT_READY;
+  }
+
+  CopyMem (State, &mMouseState, sizeof (*State));
+  mMouseState.RelativeMovementX = 0;
+  mMouseState.RelativeMovementY = 0;
+  mMouseState.RelativeMovementZ = 0;
+  mMouseStateChanged = FALSE;
+  return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+EFIAPI
+MousePtrWaitForInput (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  if (mMouseStateChanged) {
+    gBS->SignalEvent (Event);
+  }
+}
+
+STATIC EFI_SIMPLE_POINTER_PROTOCOL mMousePtr = {
+  MousePtrReset,
+  MousePtrGetState,
+  NULL,
+  &mMouseMode
+};
 
 STATIC
 EFI_STATUS
@@ -332,6 +458,11 @@ TouchPanelDxeInitialize (
 {
   EFI_STATUS Status;
 
+#ifdef SWITCH_LITE_TOUCH
+  if ((MmioRead32 (T210_HIDREV) & 0xFFF0) != 0x2120) {
+    return EFI_UNSUPPORTED;
+  }
+#endif
   Status = gBS->LocateProtocol (&gPmicProtocolGuid, NULL, (VOID **)&mPmic);
   if (EFI_ERROR (Status)) {
     return Status;
@@ -343,24 +474,46 @@ TouchPanelDxeInitialize (
     return Status;
   }
 
+  // MouseCursorDxe starts at the display center when it first receives input.
+  // The touch panel and Switch display are both 1280x720 on this profile.
+  mPreviousMouseX = TOUCH_RES_X / 2;
+  mPreviousMouseY = TOUCH_RES_Y / 2;
+
   Status = gBS->CreateEvent (EVT_NOTIFY_WAIT, TPL_NOTIFY, AbsPtrWaitForInput, NULL,
                              &mAbsPtr.WaitForInput);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
+  Status = gBS->CreateEvent (EVT_NOTIFY_WAIT, TPL_NOTIFY, MousePtrWaitForInput, NULL,
+                             &mMouseWaitForInput);
+  if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mAbsPtr.WaitForInput);
+    mAbsPtr.WaitForInput = NULL;
+    return Status;
+  }
+  mMousePtr.WaitForInput = mMouseWaitForInput;
+
   Status = gBS->InstallMultipleProtocolInterfaces (&mHandle,
                   &gEfiDevicePathProtocolGuid,      &mDevicePath,
                   &gEfiAbsolutePointerProtocolGuid, &mAbsPtr,
+                  &gEfiSimplePointerProtocolGuid,   &mMousePtr,
                   NULL);
   if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mMouseWaitForInput);
+    mMouseWaitForInput = NULL;
+    mMousePtr.WaitForInput = NULL;
+    gBS->CloseEvent (mAbsPtr.WaitForInput);
+    mAbsPtr.WaitForInput = NULL;
     return Status;
   }
 
   Status = gBS->CreateEvent (EVT_NOTIFY_SIGNAL | EVT_TIMER, TPL_CALLBACK, TouchPoll, NULL,
                              &mPollTimer);
   if (!EFI_ERROR (Status)) {
-    Status = gBS->SetTimer (mPollTimer, TimerPeriodic, TOUCH_POLL_INTERVAL_100NS);
+    // FTM4 is polled at 20 ms while idle and 10 ms during contact. This keeps
+    // touch responsive while halving idle I2C traffic relative to the active rate.
+    Status = gBS->SetTimer (mPollTimer, TimerPeriodic, 2 * TOUCH_POLL_INTERVAL_100NS);
   }
   return Status;
 }

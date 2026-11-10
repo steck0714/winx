@@ -34,12 +34,14 @@
   I2cLib
   Max7762xPmicLib
   DevicePathLib
+  IoLib
 
 [Protocols]
+  gEfiDevicePathProtocolGuid
+  gEfiSimpleTextInProtocolGuid
   gPmicProtocolGuid
-  gTegraPinMuxProtocolGuid
   gWinXSidebandButtonProtocolGuid
 
 [Depex]
-  gPmicProtocolGuid AND gTegraPinMuxProtocolGuid
+  gPmicProtocolGuid
 

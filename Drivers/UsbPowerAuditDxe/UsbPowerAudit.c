@@ -26,6 +26,7 @@
 #include <Protocol/UsbIo.h>
 #include <Protocol/BlockIo.h>
 #include <Protocol/Utc/Tegra210/PinMux.h>
+#include "WinXAudioOutput.h"
 
 #define BASE_ADDR       0x7000C000UL
 #define CNFG            0x00
@@ -3974,6 +3975,13 @@ STATIC UINTN R390UartEvent (UINT8 *Buf, UINTN Max, UINTN TimeoutMs) {
 
 STATIC BOOLEAN mR395CodecAnswers;
 STATIC BOOLEAN mLiteAudioProfile;
+STATIC BOOLEAN mWinXAudioPathReady;
+STATIC BOOLEAN mWinXAudioProtocolInstalled;
+STATIC BOOLEAN mWinXAudioWriteActive;
+STATIC BOOLEAN mWinXAudioDmaBufferReady;
+STATIC EFI_HANDLE mWinXAudioProtocolHandle;
+STATIC EFI_PHYSICAL_ADDRESS mWinXAudioDmaBuffer;
+STATIC WINX_AUDIO_OUTPUT_PROTOCOL mWinXAudioOutput;
 #include "t214/audio-pads.h"
 
 STATIC BOOLEAN R393CodecRead16 (UINT8 Reg, UINT16 *Value) {
@@ -4406,7 +4414,107 @@ STATIC BOOLEAN R395AudioTone (BOOLEAN PlayTone) {
   Print (L"R402 audio: left running for Windows, speaker volume %04x: %s\r\n", R402_SPK_VOL,
          R395CodecWrite (RT5640_SPK_VOL, (UINT16)R402_SPK_VOL) ? L"ok" : L"I2C FAIL");
   R403Headphones ();
+  mWinXAudioPathReady = CodecOk;
   return CodecOk;
+}
+
+STATIC EFI_STATUS EFIAPI WinXAudioStop (IN WINX_AUDIO_OUTPUT_PROTOCOL *This) {
+  volatile UINT32 *Adma;
+
+  if (This != &mWinXAudioOutput) return EFI_INVALID_PARAMETER;
+  if (!mWinXAudioPathReady) return EFI_NOT_READY;
+  if (mWinXAudioWriteActive) return EFI_NOT_READY;
+
+  Adma = (volatile UINT32 *)APE_ADMA_BASE;
+  Adma[ADMA_CH_CMD / 4] = 0;
+  gBS->Stall (50);
+  return EFI_SUCCESS;
+}
+
+STATIC EFI_STATUS EFIAPI WinXAudioWritePcm16 (
+  IN WINX_AUDIO_OUTPUT_PROTOCOL *This,
+  IN CONST INT16 *InterleavedStereo,
+  IN UINTN FrameCount
+  )
+{
+  volatile UINT32 *Adma;
+  UINTN Bytes;
+  UINT64 DurationUs;
+
+  if (This != &mWinXAudioOutput || InterleavedStereo == NULL || FrameCount == 0) {
+    return EFI_INVALID_PARAMETER;
+  }
+  if (!mWinXAudioPathReady) return EFI_NOT_READY;
+  if (FrameCount > WINX_AUDIO_OUTPUT_MAX_FRAMES) return EFI_BAD_BUFFER_SIZE;
+  if (mWinXAudioWriteActive) return EFI_NOT_READY;
+  if (!mWinXAudioDmaBufferReady) return EFI_NOT_READY;
+
+  Bytes = FrameCount * WINX_AUDIO_OUTPUT_CHANNELS * sizeof (INT16);
+  CopyMem ((VOID *)(UINTN)mWinXAudioDmaBuffer, InterleavedStereo, Bytes);
+  WriteBackDataCacheRange ((VOID *)(UINTN)mWinXAudioDmaBuffer, Bytes);
+
+  mWinXAudioWriteActive = TRUE;
+  Adma = (volatile UINT32 *)APE_ADMA_BASE;
+  Adma[ADMA_CH_CMD / 4] = 0;
+  gBS->Stall (10);
+  Adma[ADMA_GLOBAL_CMD / 4] = 1;
+  Adma[ADMA_CH_TC / 4] = (UINT32)Bytes;
+  Adma[ADMA_CH_CTRL / 4] = ADMA_CTRL_TX1;
+  Adma[ADMA_CH_LOWER_SRC / 4] = (UINT32)mWinXAudioDmaBuffer;
+  Adma[ADMA_CH_LOWER_TRG / 4] = 0;
+  Adma[ADMA_CH_FIFO_CTRL / 4] = ADMA_FIFO_TX3;
+  Adma[ADMA_CH_CONFIG / 4] = ADMA_CONFIG_1BUF;
+  Adma[ADMA_CH_CMD / 4] = 1;
+
+  DurationUs = (((UINT64)FrameCount * 1000000ULL) + (WINX_AUDIO_OUTPUT_SAMPLE_RATE - 1)) /
+               WINX_AUDIO_OUTPUT_SAMPLE_RATE;
+  gBS->Stall ((UINTN)DurationUs);
+  Adma[ADMA_CH_CMD / 4] = 0;
+  gBS->Stall (50);
+  mWinXAudioWriteActive = FALSE;
+  return EFI_SUCCESS;
+}
+
+STATIC WINX_AUDIO_OUTPUT_PROTOCOL mWinXAudioOutput = {
+  WINX_AUDIO_OUTPUT_PROTOCOL_REVISION,
+  WINX_AUDIO_OUTPUT_SAMPLE_RATE,
+  WINX_AUDIO_OUTPUT_CHANNELS,
+  WINX_AUDIO_OUTPUT_BITS_PER_SAMPLE,
+  WinXAudioWritePcm16,
+  WinXAudioStop
+};
+
+STATIC EFI_STATUS InstallWinXAudioOutputProtocol (VOID) {
+  EFI_STATUS Status;
+  EFI_PHYSICAL_ADDRESS Buffer;
+
+  if (!mWinXAudioPathReady) return EFI_NOT_READY;
+  if (mWinXAudioProtocolInstalled) return EFI_SUCCESS;
+
+  Buffer = MAX_UINT32;
+  Status = gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData, 1, &Buffer);
+  if (EFI_ERROR (Status)) return Status;
+  if (Buffer > MAX_UINT32) {
+    gBS->FreePages (Buffer, 1);
+    return EFI_UNSUPPORTED;
+  }
+  mWinXAudioDmaBuffer = Buffer;
+  mWinXAudioDmaBufferReady = TRUE;
+
+  Status = gBS->InstallProtocolInterface (
+                  &mWinXAudioProtocolHandle,
+                  &gWinXAudioOutputProtocolGuid,
+                  EFI_NATIVE_INTERFACE,
+                  &mWinXAudioOutput
+                  );
+  if (!EFI_ERROR (Status)) {
+    mWinXAudioProtocolInstalled = TRUE;
+  } else {
+    mWinXAudioDmaBufferReady = FALSE;
+    gBS->FreePages (mWinXAudioDmaBuffer, 1);
+    mWinXAudioDmaBuffer = 0;
+  }
+  return Status;
 }
 
 // Audio-only entry for the Hekate HDH-001 profile. Reuse the upstream codec,
@@ -4449,7 +4557,8 @@ EFI_STATUS EFIAPI LiteAudioInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *Syste
   i2c_init (I2C_1);
   R393AudioProbe ();
   if (!mR395CodecAnswers) return EFI_NOT_FOUND;
-  return R395AudioTone (FALSE) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+  if (!R395AudioTone (FALSE)) return EFI_DEVICE_ERROR;
+  return InstallWinXAudioOutputProtocol ();
 }
 
 STATIC BOOLEAN R390BluetoothPowerOn (VOID) {
@@ -4838,7 +4947,11 @@ STATIC VOID EFIAPI RunTest (EFI_EVENT Event, VOID *Context) {
   R379SensorsPowerOn ();
   R390BluetoothPowerOn ();
   R393AudioProbe ();
-  if (mR395CodecAnswers) R395AudioTone (SWITCH_AUDIO_TEST_TONE != 0);
+  if (mR395CodecAnswers && R395AudioTone (SWITCH_AUDIO_TEST_TONE != 0)) {
+    EFI_STATUS AudioStatus = InstallWinXAudioOutputProtocol ();
+    Print (L"WinX audio PCM protocol: %r (%u Hz, stereo S16LE)\r\n",
+           AudioStatus, WINX_AUDIO_OUTPUT_SAMPLE_RATE);
+  }
   // R397: the codec went through I2cLib, which leaves I2C1 out of packet mode;
   // the BM92T reads then failed (R396: "BM92T read FAIL", USB skipped).
   ((volatile UINT32 *)BASE_ADDR)[CNFG] |= 0x400U;

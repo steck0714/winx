@@ -26,6 +26,9 @@ distribution as a whole is GPL-2.0-only.
 | hekate memory map / L4T contract | `Include/Device/MemoryMap.h` comments, `Tools/Bl33/bl33_stub.S`, `Tools/make-bl33.py` | interface facts read from hekate `bootloader/l4t/l4t.c` | No hekate code copied; `bl33_stub.S` and `make-bl33.py` carry `BSD-2-Clause-Patent` headers. |
 | Linux kernel / coreboot | comments only (`bm92t36` extcon behaviour, address maps) | GPL-2.0 | Behaviour was followed and referenced; if you verbatim-copied code from these, it is GPL-2.0 too (compatible). |
 | hayato41200 (Windows-for-Switch, Windows-for-Switch-Drivers) | `Drivers/UsbPowerAuditDxe/*`, `AcpiTables/Dsdt/Dsdt.asl` (XHC0, SWOA devices), `patches/edk2/*`, `Firmware/README.md`, `WindowsDrivers/*`, `docs/hayato41200/*` | GPL-2.0 (each repository ships `LICENSE`) | https://github.com/hayato41200/Windows-for-Switch and https://github.com/hayato41200/Windows-for-Switch-Drivers (snapshots of 2026-10-27). Copied/ported as is; the XhciDxe patch is re-made for edk2-stable202402 (BSD-2-Clause-Patent file). No NVIDIA firmware is included. |
+| ruje0504-2/Windows-for-Switch-Drivers (T214 Hoag snapshot) | `WindowsDrivers/t214/Hoag/*`, related T214 ACPI and WinX consumers | GPL-2.0 (`WindowsDrivers/t214/Hoag/LICENSE`) | Vendored from the local submodule checkout at source revision `ebdddd8bf7f64dff0a42951d0e10b696c87a3f0d`; the snapshot is included directly because GitHub did not resolve the external commit URL. Upstream hardware reports remain attributed to that project and are not WinX validation. |
+| hayato41200/Windows-for-Switch-Drivers (T210 snapshot and SwitchAudio source) | `WindowsDrivers/t210/Icosa/*` | GPL-2.0 (`WindowsDrivers/t210/Icosa/LICENSE`) | T210 source archive and SwitchAudio-signable archive supplied for this port; the T210 source archive has no Git metadata, so no upstream commit is claimed. |
+| winx-gm20b source archive | `WindowsDrivers/t210/Icosa/gpu/GM20B-Diagnostic/*` | MIT where the file SPDX header says MIT; NVIDIA-derived register headers keep their own notices | Source archive supplied for review; experimental S0-S2 only, not loaded in Windows or validated on Switch hardware. See its retained `NOTICE.md`. |
 | winx modifications | patch `winx-bl33.patch` on top of upstream | GPL-2.0-only (BSD-2-Clause-Patent where the file header says so) | `Tools/test-fan-trace`, `Tools/test-rtc` have no header: GPL-2.0-only. They do **not** include hekate sources (run against a hekate checkout). |
 
 ## 3. Things that are NOT in this repository
@@ -58,4 +61,4 @@ a registered mark as far as this summary knows; check before commercial use.
 * Ported parts: CTCaer (hekate).
 * winx changes: Copyright (c) 2026 winx contributors - put the real name(s) here.
 
-Windows driver sources are now referenced by the `WindowsDrivers` Git submodule. The driver repository retains its own source notices and GPL-2.0 license.
+Windows driver source is stored directly in `WindowsDrivers/`, grouped by SoC family and board codename. The T210 and T214 snapshots retain their upstream license and notices. The `efifs` submodule remains separate and read-only.

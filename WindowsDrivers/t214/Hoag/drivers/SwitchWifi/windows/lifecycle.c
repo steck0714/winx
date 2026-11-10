@@ -1,0 +1,286 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#include "lifecycle.h"
+
+static const WCHAR FirmwarePath[] = L"\\SystemRoot\\System32\\drivers\\SwitchWOA\\brcmfmac4356A3-pcie.bin";
+static const WCHAR NvramPath[] = L"\\SystemRoot\\System32\\drivers\\SwitchWOA\\brcmfmac4356A3-pcie.txt";
+
+typedef struct SWIFI_INITIALIZE_CONTEXT {
+    SWIFI_HARDWARE *Hardware;
+} SWIFI_INITIALIZE_CONTEXT;
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(SWIFI_INITIALIZE_CONTEXT, SwifiInitializeContext);
+
+static EVT_WDF_WORKITEM InitializeWorker;
+
+static swifi_result Dispatch(PVOID Context, const uint8_t *Item, size_t Length)
+{
+    SWIFI_HARDWARE *H = Context;
+    swifi_result Result = SwifiControlDispatch(&H->Control, Item, Length);
+    if (Result == SWIFI_UNHANDLED && H->DataBound)
+        Result = H->Callbacks.DispatchData(H->Context, Item, Length);
+    return Result;
+}
+
+static swifi_result Mailbox(PVOID Context)
+{
+    return SwifiControlMailbox(&((SWIFI_HARDWARE *)Context)->Control);
+}
+
+static VOID Notify(PVOID Context)
+{
+    SWIFI_HARDWARE *H = Context;
+    SwifiControlNotify(&H->Control);
+    if (H->DataBound)
+        H->Callbacks.NotifyData(H->Context);
+}
+
+static VOID RecoverTransport(PVOID Context, swifi_result Reason)
+{
+    SWIFI_HARDWARE *H = Context;
+    UNREFERENCED_PARAMETER(Reason);
+    SwifiControlRequestStop(&H->Control);
+    H->Callbacks.ScheduleRecovery(H->Context, STATUS_DEVICE_PROTOCOL_ERROR);
+}
+
+static VOID RecoverControl(PVOID Context, NTSTATUS Reason)
+{
+    SWIFI_HARDWARE *H = Context;
+    H->Callbacks.ScheduleRecovery(H->Context, Reason);
+}
+
+static VOID FirmwareEvent(PVOID Context, const swifi_event_completion *Event)
+{
+    SWIFI_HARDWARE *H = Context;
+    (VOID)SwifiWdiFirmwareEvent(H->Wdi, Event);
+}
+
+NTSTATUS SwifiHardwareCreate(WDFDEVICE Device, SWIFI_HARDWARE *H,
+    const SWIFI_HARDWARE_CALLBACKS *Callbacks, PVOID Context, SWIFI_REPORT *Report)
+{
+    WDF_OBJECT_ATTRIBUTES Attributes;
+    WDF_WORKITEM_CONFIG Config;
+    NTSTATUS Status;
+    if (!H || !Report || !Callbacks || !Callbacks->CreateAdapter || !Callbacks->DispatchData || !Callbacks->NotifyData ||
+        !Callbacks->CancelDataAfterReset || !Callbacks->ReleaseDataAfterReset || !Callbacks->ScheduleRecovery)
+        return STATUS_INVALID_PARAMETER;
+    RtlZeroMemory(H, sizeof(*H));
+    KeInitializeSpinLock(&H->ProtocolLock);
+    H->Device = Device;
+    H->Callbacks = *Callbacks;
+    H->Report = Report;
+    H->Context = Context;
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, SWIFI_INITIALIZE_CONTEXT);
+    Attributes.ParentObject = Device;
+    WDF_WORKITEM_CONFIG_INIT(&Config, InitializeWorker);
+    Config.AutomaticSerialization = FALSE;
+    Status = WdfWorkItemCreate(&Config, &Attributes, &H->InitializeWork);
+    if (!NT_SUCCESS(Status)) return Status;
+    SwifiInitializeContext(H->InitializeWork)->Hardware = H;
+    Status = SwifiWdiCreate(Device, &H->Control, &H->FirmwareInfo, Callbacks->CreateAdapter,
+        Callbacks->ScheduleRecovery, H->Context, &H->Wdi);
+    if (!NT_SUCCESS(Status)) SwifiHardwareDelete(H);
+    return Status;
+}
+
+static VOID InitializeWorker(WDFWORKITEM Work)
+{
+    SWIFI_HARDWARE *H = SwifiInitializeContext(Work)->Hardware;
+    NTSTATUS Status = STATUS_SUCCESS;
+    if (!H->Chip.Bar0) {
+        Status = SwifiChipMapAndDiscover(&H->Chip, &H->Bus);
+        SwifiReportHardware(H->Report, SwifiHwEndpoint, Status);
+    }
+    if (NT_SUCCESS(Status)) {
+        Status = SwifiSelectLegacyInterrupt(&H->Bus);
+        SwifiReportHardware(H->Report, SwifiHwIntx, Status);
+    }
+    if (NT_SUCCESS(Status)) {
+        Status = SwifiChipLoadFirmware(&H->Chip, FirmwarePath, NvramPath);
+        SwifiReportHardware(H->Report, SwifiHwFirmware, Status);
+    }
+    if (NT_SUCCESS(Status)) {
+        Status = SwifiSharedPrepare(&H->Shared, &H->Chip, H->Dma);
+        if (NT_SUCCESS(Status)) {
+            SWIFI_WIN_TRANSPORT *T = &H->Transport;
+            T->Registers = SwifiChipRuntimeRegisters(&H->Chip);
+            T->H2d = H->Shared.H2d;
+            T->H2dCount = H->Shared.MaxSubmit;
+            T->D2h = H->Shared.D2h;
+            if (!T->Registers || H->Chip.Bar0Length < 0x148 || !T->H2d || T->H2dCount < 2)
+                Status = STATUS_DEVICE_PROTOCOL_ERROR;
+        }
+        SwifiReportHardware(H->Report, SwifiHwRings, Status);
+    }
+    H->InitializeStatus = Status;
+}
+
+static NTSTATUS InitializeSession(SWIFI_HARDWARE *H)
+{
+    if (H->RequiresColdBoot)
+        return STATUS_DEVICE_HARDWARE_ERROR;
+    H->InitializeStatus = STATUS_PENDING;
+    WdfWorkItemEnqueue(H->InitializeWork);
+    WdfWorkItemFlush(H->InitializeWork);
+    return H->InitializeStatus;
+}
+
+NTSTATUS SwifiHardwarePrepare(SWIFI_HARDWARE *H, WDFCMRESLIST Raw, WDFCMRESLIST Translated)
+{
+    static const SWIFI_WIN_CALLBACKS TransportCallbacks = {Dispatch, Mailbox, Notify, RecoverTransport};
+    static const SWIFI_CONTROL_CALLBACKS ControlCallbacks = {FirmwareEvent, RecoverControl};
+    NTSTATUS Status, CleanupStatus;
+    if (H->Prepared || H->Bus.Host || !H->InitializeWork || H->RequiresColdBoot)
+        return STATUS_INVALID_DEVICE_STATE;
+    /* Refuse bus mastering against an old firmware lacking the last-resort
+     * controller reset. The non-mutating check runs while PCIEX is released. */
+    Status = SwifiPlatformIsolation(H->Device, FALSE);
+    SwifiReportHardware(H->Report, SwifiHwIsolation, Status);
+    if (!NT_SUCCESS(Status)) return Status;
+    Status = SwifiWinCreateTransport(H->Device, &H->Transport, &H->ProtocolLock, &H->Bus,
+        &TransportCallbacks, H, Raw, Translated);
+    SwifiReportHardware(H->Report, SwifiHwInterrupt, Status);
+    if (!NT_SUCCESS(Status)) return Status;
+    Status = SwifiMapResources(&H->Bus, Raw, Translated);
+    SwifiReportHardware(H->Report, SwifiHwMemory, Status);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Status = SwifiWinCreateDma(H->Device, &H->Dma);
+    SwifiReportHardware(H->Report, SwifiHwDma, Status);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Status = InitializeSession(H);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Status = SwifiControlCreate(H->Device, &H->Control, &H->Transport, &ControlCallbacks, H);
+    if (NT_SUCCESS(Status)) {
+        H->ControlCreated = TRUE;
+        Status = SwifiControlBind(&H->Control, &H->Shared);
+    }
+    SwifiReportHardware(H->Report, SwifiHwControl, Status);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    H->Prepared = TRUE;
+    return STATUS_SUCCESS;
+Failed:
+    CleanupStatus = SwifiHardwareRelease(H);
+    return NT_SUCCESS(CleanupStatus) ? Status : CleanupStatus;
+}
+
+NTSTATUS SwifiHardwareEnterD0(SWIFI_HARDWARE *H)
+{
+    NTSTATUS Status;
+    SWIFI_WIN_TRANSPORT *T = &H->Transport;
+    if (!H->Prepared || H->RequiresColdBoot || T->Ready || T->Armed)
+        return STATUS_INVALID_DEVICE_STATE;
+    if (!H->Shared.Prepared) {
+        Status = InitializeSession(H);
+        if (!NT_SUCCESS(Status)) return Status;
+        Status = SwifiControlBind(&H->Control, &H->Shared);
+        if (!NT_SUCCESS(Status)) return Status;
+    }
+    T->Pending = T->Faulted = T->HostFault = 0;
+    T->LastAfiCode = T->LastAfiSignature = 0;
+    T->SawInterrupt = T->SawRing = 0;
+    SwifiReportIo(H->Report, 0, 0);
+    T->NextD2h = 0;
+    InterlockedExchange(&T->Ready, 1);
+    Status = SwifiSharedEnableDma(&H->Shared);
+    if (!NT_SUCCESS(Status))
+        InterlockedExchange(&T->Ready, 0);
+    return Status;
+}
+
+NTSTATUS SwifiHardwareOnline(SWIFI_HARDWARE *H)
+{
+    NTSTATUS Status;
+    if (!H->Prepared) return STATUS_INVALID_DEVICE_STATE;
+    Status = SwifiControlStart(&H->Control);
+    if (NT_SUCCESS(Status))
+        Status = SwifiFirmwareQueryInfo(&H->Control, &H->FirmwareInfo);
+    if (NT_SUCCESS(Status))
+        Status = SwifiPublishRadioCaps(H->Device, &H->RadioCaps, &H->FirmwareInfo);
+    SwifiReportIo(H->Report, H->Transport.SawInterrupt, H->Transport.SawRing);
+    if (NT_SUCCESS(Status)) SwifiWdiStart(H->Wdi);
+    else SwifiHardwareRequestStop(H);
+    return Status;
+}
+
+VOID SwifiHardwareRequestStop(SWIFI_HARDWARE *H)
+{
+    SwifiWdiRequestStop(H->Wdi);
+    if (H->ControlCreated)
+        SwifiControlRequestStop(&H->Control);
+}
+
+NTSTATUS SwifiHardwareStop(SWIFI_HARDWARE *H)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    KIRQL Irql;
+    SwifiHardwareRequestStop(H);
+    SwifiWdiQuiesce(H->Wdi);
+    RtlZeroMemory(&H->FirmwareInfo, sizeof(H->FirmwareInfo));
+    if (H->InitializeWork) WdfWorkItemFlush(H->InitializeWork);
+    if (H->Transport.Interrupt) {
+        SwifiWinQuiesceInterrupts(&H->Transport);
+        SwifiReportIo(H->Report, H->Transport.SawInterrupt, H->Transport.SawRing);
+    }
+    if (H->ControlCreated)
+        SwifiControlQuiesce(&H->Control);
+    if (H->Chip.Bar0 && H->Chip.Stage != SwifiChipStopped) {
+        Status = SwifiChipStopAfterQuiesce(&H->Chip);
+        if (!NT_SUCCESS(Status)) {
+            Status = SwifiHoldEndpointReset(&H->Bus);
+            if (!NT_SUCCESS(Status))
+                Status = SwifiPlatformIsolation(H->Device, TRUE);
+            if (NT_SUCCESS(Status)) {
+                H->RequiresColdBoot = TRUE;
+                H->Chip.RuntimePinned = FALSE;
+                H->Chip.SharedAddress = 0;
+                H->Chip.Stage = SwifiChipStopped;
+            }
+        }
+    }
+    H->LastStopStatus = Status;
+    if (!NT_SUCCESS(Status))
+        return Status; /* DMA/mappings remain owned; never free on uncertainty. */
+    if (H->DataBound) {
+        KeAcquireSpinLock(&H->ProtocolLock, &Irql);
+        H->Callbacks.CancelDataAfterReset(H->Context);
+        H->DataBound = FALSE;
+        KeReleaseSpinLock(&H->ProtocolLock, Irql);
+        H->Callbacks.NotifyData(H->Context);
+        H->Callbacks.ReleaseDataAfterReset(H->Context);
+    }
+    if (H->ControlCreated)
+        SwifiControlStoppedAfterReset(&H->Control);
+    SwifiWdiAfterReset(H->Wdi);
+    SwifiSharedDeleteAfterReset(&H->Shared);
+    if (H->Transport.Interrupt) {
+        H->Transport.Registers = NULL;
+        H->Transport.H2d = NULL;
+        H->Transport.H2dCount = 0;
+        H->Transport.D2h = NULL;
+    }
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS SwifiHardwareRelease(SWIFI_HARDWARE *H)
+{
+    NTSTATUS Status = SwifiHardwareStop(H);
+    if (!NT_SUCCESS(Status)) return Status;
+    if (H->ControlCreated) {
+        SwifiControlDelete(&H->Control);
+        H->ControlCreated = FALSE;
+    }
+    SwifiWinDeleteTransportAfterReset(&H->Transport);
+    SwifiChipUnmapAfterReset(&H->Chip);
+    if (H->Dma) {
+        WdfObjectDelete(H->Dma);
+        H->Dma = NULL;
+    }
+    SwifiUnmapResources(&H->Bus);
+    H->Prepared = FALSE;
+    return STATUS_SUCCESS;
+}
+
+VOID SwifiHardwareDelete(SWIFI_HARDWARE *H)
+{
+    NT_ASSERT(!H->Prepared && !H->Bus.Host && !H->Dma);
+    if (H->InitializeWork) WdfObjectDelete(H->InitializeWork);
+    H->InitializeWork = NULL;
+}
