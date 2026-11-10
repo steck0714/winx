@@ -786,6 +786,13 @@ monitored fences. Windows keeps GPU memory in the UMA heap and uses the KMD's
 ceiling for per-device allocations. Privileged register-write MME programs
 and their callers are excluded from the Windows command stream.
 
+VA bind and unbind now use the KMT paging queue. Unbind maps the requested,
+bounds-checked subrange to `NoAccess` with a NULL allocation handle via
+[D3DKMTMapGpuVirtualAddress](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtmapgpuvirtualaddress)
+and waits for the returned paging fence before reporting success. This closes the
+previously unsupported NVK unbind callback; it does not add safe class-specific
+command/address validation or prove that Windows/NVK execution works on-device.
+
 The .83 one-boot test exercised the new KMT bridge on the Lite, including
 aligned and fixed VA reservations, residency, event waits and GPU B0B5 copy.
 The .84 observation miniport exposed one matching Vulkan LUID and received

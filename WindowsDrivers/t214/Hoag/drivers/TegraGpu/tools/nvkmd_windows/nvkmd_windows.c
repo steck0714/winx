@@ -72,10 +72,11 @@ static VkResult
 win_unbind_mem(struct nvkmd_va *va, struct vk_object_base *log,
                uint64_t offset, uint64_t size)
 {
-   (void)va;
-   (void)offset;
-   (void)size;
-   return vk_error(log, VK_ERROR_FEATURE_NOT_PRESENT);
+   struct nvkmd_windows_va *windows_va = container_of(va, struct nvkmd_windows_va, base);
+   LONG status = tg_kmt_unmap(&nvkmd_windows_dev(va->dev)->kmt,
+                              &windows_va->va, offset, size);
+   return nvkmd_windows_status(log, "D3DKMTMapGpuVirtualAddress(NoAccess)", status,
+                               VK_ERROR_DEVICE_LOST);
 }
 
 static const struct nvkmd_va_ops win_va_ops = {
