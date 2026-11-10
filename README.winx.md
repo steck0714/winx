@@ -2,26 +2,27 @@
 
 These notes describe the original Hekate and EDK II port on an Erista console. The author reported booting Windows 11 ARM64 from an NTFS partition on 2026-10-28. The hardware results below apply to that console and firmware revision.
 
+Evidence labels and the distinction between physical reports, build results and source-derived theoretical values are defined in [verification status](docs/verification-status.md). These historical Erista reports have not been reproduced on the current source build.
+
 The patch set was based on NintendoSwitchPkg commit `09c3ade` and `edk2-stable202402`. [Original WinX project](https://github.com/steck0714/winx) · [Base firmware](https://github.com/imbushuo/NintendoSwitchPkg) · [Switch Lite hardware status](README.md#hardware-status)
 
 ## Status (reported from a real Erista console)
 | | |
 |---|---|
-| hekate -> BL31 -> bl33 -> UEFI Shell | works |
-| Shell orientation (landscape) | works (`SWITCH_FB_ROTATE=2`); OS loaders get the native portrait mode |
-| USB host + **USB keyboard** in the Shell | works (bm92t36 PD + bq24193 OTG handling) |
-| microSD visible (`map`) after hekate | works with the SDMMC power-up patch |
-| `startup.nsh` auto-run | not confirmed |
-| Windows boot manager / WinPE | works (see `README.md`) |
-| Windows 11 from NTFS on the SD card | boots; BSOD when charging; xHCI BSOD; touch no response |
-| NTFS etc. read-only in UEFI (`SWITCH_FSDRV`) | NTFS works on hardware |
-| USB mass storage, PD/charging side effects | untested |
+| hekate -> BL31 -> bl33 -> UEFI Shell | Physical report: reached the shell on the author's Erista |
+| Shell orientation | Physical report on that unit with `SWITCH_FB_ROTATE=2`; not a four-model result |
+| USB host + **USB keyboard** in the Shell | Physical report: USB 2.0 keyboard worked; one Dell keyboard via Type-C OTG was tested. No broad keyboard-compatibility claim |
+| microSD visible (`map`) after hekate | Physical report: SD was accessible in UEFI with the SDMMC power-up patch |
+| `startup.nsh` auto-run | Unverified |
+| Windows 11 ARM64 from NTFS on the SD card | Owner-reported boot on 2026-10-28; charging/xHCI failures and no touch response were also reported. This is not a stability or all-SKU result. |
+| NTFS read-only in UEFI (`SWITCH_FSDRV`) | Physical report for NTFS only. Other EfiFs formats are not implied to work. |
+| Windows PE/installer as a separate test; USB mass storage; PD/charging side effects | Unverified or not separately tested |
 
 Not verified: Mariko / Lite / OLED consoles. Only the author's console was used.
 
 ## What you need to supply
 * hekate (GPL-2.0), `bl31.bin` (Arm Trusted Firmware for Tegra210, e.g. from a switchroot/LineageOS package).
-* This repository's `bl33.bin` (`release/bl33.bin`) or build it yourself.
+* The historical image `release/archive/edk2-stable202402-fsdrv/bl33.bin`, or build the current source yourself.
 
 ## hekate setup
 `bootloader/hekate_ipl.ini`
@@ -53,30 +54,30 @@ Switches: `SWITCH_HEKATE` (hekate boot chain), `SWITCH_USB` (EHCI/UsbBus/UsbKb/U
 `SWITCH_FB_ROTATE=1|2` (landscape; 2 was the right way up on the author's unit), `SWITCH_FAN_DUTY=1..235` (optional fan).
 
 ## Integrated full build
-`Tools/build-full.sh` builds everything at once (all switches above, including `SWITCH_XUSB` and `SWITCH_WIFIBT`); `release/bl33.bin` is that build
-(FD 95% full; append `-D SWITCH_BIGFD=1` if it stops fitting). Hardware test scripts for the SD card are in `tests/` (`winx_test.nsh`, `xusb_test.nsh`, `wifi_test.nsh`);
+`Tools/build-full.sh` builds the integrated source configuration (including `SWITCH_XUSB` and `SWITCH_WIFIBT`); a successful build proves compilation and image generation only. Hardware test scripts for the SD card are in `tests/` (`winx_test.nsh`, `xusb_test.nsh`, `wifi_test.nsh`);
 each experiment writes a log file (`xusb.log`, `wifibt.log`) whose LAST line names the failing step. Everything marked DRAFT is unverified on hardware.
 
 ## Known caveats
-* Windows on a Cortex-A57 (ARMv8.0): recent Windows 11 builds need ARMv8.1 atomics, so use Windows 10 ARM64
-  or an older Windows 11 build (about 23H2 and earlier).
+* **Windows image compatibility is version-specific.** Microsoft's minimum hardware requirements list ARMv8.1 atomic instructions for ARM64, while Arm's Cortex-A57 manual describes the core as Armv8-A. This is a compatibility constraint, not proof that every Windows 11 image fails to boot. The Lite report records Windows 11 build 22631.2861 (23H2); other image versions need their own test. [Microsoft requirements](https://download.microsoft.com/download/7/8/8/788bf5ab-0751-4928-a22c-dffdc23c27f2/Minimum%20Hardware%20Requirements%20for%20Windows%2011.pdf) · [Arm Cortex-A57 manual](https://documentation-service.arm.com/static/5e906b9fc8052b1608760c7b)
 * The ACPI tables now also describe SD, XHC0/EHC0, I2C, touch, battery, fan, RTC and the `SWOA*` devices (see `AcpiTables/Dsdt/Dsdt.asl`); the matching Windows drivers are in `WindowsDrivers/` and mostly unverified.
 * After `ExitBootServices` the firmware USB/PD handling stops.
 
-## Optional feature switches (all UNTESTED on hardware until verified, see docs/ in the release notes)
+## Optional feature switches (build options; runtime status must be checked separately)
 Pass as extra `-D NAME=1` to `build` (together with `SWITCH_HEKATE=1 SWITCH_USB=1 SWITCH_FB_ROTATE=2`). The FD stays at
 0xE0000 (bl33.bin = 921600 bytes) for every combination below; `SWITCH_BIGFD=1` grows it to 0xFF000 if it ever stops fitting.
+
+Hardware register/clock values below are source-derived or theoretical unless this file explicitly records a physical readback.
 
 | Switch | Adds | Notes |
 |---|---|---|
 | (always) | `acpiview` shell command | `UefiShellAcpiViewCommandLib` linked into the Shell |
 | `SWITCH_EXT` | USB mouse (`UsbMouseDxe`) + `MouseCursorDxe` (software arrow cursor on the GOP with acceleration, red/blue while left/right button is held, hidden until the first mouse event; the SimplePointer events are shared with the Shell editors/HII, not stolen), `RamDiskDxe` | RAM disks are created from the HII form (UiApp > Device Manager > RAM Disk Configuration); EDK2's shell has no `ramdisk` command |
-| `SWITCH_RTC` | real `date` / `time` | MAX77620 PMIC RTC (I2C 0x68 on I2C5), read once at boot, then a soft clock; `SetTime` writes the RTC before ExitBootServices. Falls back to build date + uptime if the RTC is unreadable. RTC holds UTC (TimeZone 0) |
+| `SWITCH_RTC` | RTC-backed `date` / `time` code path | MAX77620/I2C address and behavior are source-derived; runtime read/write on Switch is unverified. |
 | `SWITCH_NET` | UEFI IPv4 stack (Mnp/Arp/Ip4/Udp4/Dhcp4/Mtftp4), USB NIC drivers CDC-ECM, CDC-NCM, RNDIS, `tftp` | `ifconfig` / `ping` already live in the Shell (Network1 lib); they need a NIC to be useful |
 | `SWITCH_XUSB` | `xusbinit` | see below |
 | `SWITCH_WIFIBT` | `wifibt` | see below |
-| `SWITCH_EXCFB` | exception dump on the panel | An unexpected CPU exception (e.g. an alignment fault, `ESR 0x96000061`) draws PC/ESR/FAR/X0-X30/SP + stack dump on the screen (white on blue, landscape if `SWITCH_FB_ROTATE` is set) and then halts. Photograph it and send it back. Replaces `DefaultExceptionHandlerLib` with `Library/FbExceptionHandlerLib`; works in RELEASE builds. Host test of the renderer: `Tools/host-tests/fbtext` |
-| `SWITCH_ACPI_XHCI` | XUSB xHCI in the DSDT | Adds `XHC0` (`NVDA0210`, compatible ID `PNP0D10`, 0x70090000/0x8000, INTID 71) to the DSDT. Only meaningful after `xusb.bin` is loaded and the mailbox is serviced; off by default. `SWITCH_ACPI_EMMC` (eMMC visible to Windows) is the other ACPI switch. |
+| `SWITCH_EXCFB` | exception dump on the panel | The handler is included in the RELEASE build and its renderer has a host test. No physical exception/display test is recorded. |
+| `SWITCH_ACPI_XHCI` | XUSB xHCI resource description in DSDT | Adds `XHC0`; address/size/INTID are source-derived theoretical resources. AML/build inspection does not prove XUSB responds. Requires firmware and mailbox service; off by default. |
 | `SWITCH_PERF` | `dp` + core performance log | Changes DxeCore (DxeCorePerformanceLib). Most intrusive switch |
 
 Not implemented (needs hardware work that cannot be verified remotely): USB 3.0 (Tegra210 XUSB needs the xHCI firmware blob and
@@ -109,7 +110,7 @@ switch-linux builds brcmfmac with CONFIG_BRCMFMAC_PCIE only). The PCIe path is p
 `pfw fw.bin nvram.txt` (firmware + NVRAM into TCM, release CR4, wait for the shared-area pointer, dump it), `pcon` (firmware console log),
 `pall fw nvram`, `poff`. `wifi`/`wfw` are the OLD SDIO experiment and are expected to fail on the Switch; kept only for reference.
 Not implemented: msgbuf rings, scan/join, EFI_SIMPLE_NETWORK. Milestone for the first hardware test: `pfw` reports "FIRMWARE IS RUNNING" and `pcon` prints the firmware's own log.
-ASSUMPTIONS (inferred, check in the log): WIFI_RST high = run (`rst=0` flips), RAM base 0x180000, ARM CR4 core 0x18002000 / wrapper 0x18102000,
+THEORETICAL SOURCE-DERIVED ASSUMPTIONS (not physical readbacks; check any future log): WIFI_RST high = run (`rst=0` flips), RAM base 0x180000, ARM CR4 core 0x18002000 / wrapper 0x18102000,
 d11 wrapper 0x18101000, PCIe window 0x13000000, CML0 gate = PLLE_AUX bit0. Firmware files are not included: take
 `brcmfmac4356-pcie.bin/.txt` (and `BCM4356A2.hcd` for Bluetooth) from a Switch Linux install.
 

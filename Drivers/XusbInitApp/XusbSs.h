@@ -75,6 +75,7 @@ SsPlle (
     return TRUE;
   }
   if (!(Rd (CAR_BASE, SS_CAR_PLLE_BASE) & BIT31)) {
+    // Candidate values are copied from source tables; the 38.4 MHz reference is not a WinX readback.
     Log (L"ss: enabling PLLE (OSC_CTRL=%08x, table for 38.4 MHz pll_ref: M=2 N=125 CML=14)", Rd (CAR_BASE, SS_CAR_OSC_CTRL));
     Rmw (CAR_BASE, SS_CAR_PLLE_BASE, BIT30, 0);
     V = Rd (CAR_BASE, SS_CAR_PLLE_MISC);

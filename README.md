@@ -4,6 +4,8 @@
 
 Boot Windows 11 ARM64 from microSD on the **Nintendo Switch Lite (HDH-001, Tegra T214)**. On a prepared card, select **Windows 11 Lite** in Hekate. Windows 11 Home and a trimmed Pro installation both reached the desktop on build 22631.2861 (23H2).
 
+The hardware results below are owner-reported physical tests on the stated Lite and driver revisions. They do not establish that the current WinX UEFI image or other Switch models behave the same way. Build/QEMU checks and source-derived theoretical values are labeled separately in the [verification-status guide](docs/verification-status.md).
+
 ## Hardware status
 
 | Feature | Result on the tested Lite |
@@ -39,6 +41,16 @@ you change the view. [Storage build instructions](docs/hdh001-home/README.md#fir
 
 Start with the [Stage 6 guide](docs/hdh001-home/README.md) to prepare the boot files and drivers. Use your own Windows ARM64 image and a compatible Switchroot BL31. Windows driver packages and their hardware results are in the [companion driver repository](https://github.com/ruje0504-2/Windows-for-Switch-Drivers).
 
+For an experimental multi-OS menu that can chainload Windows and boot other AArch64 Linux kernels with a matching Switch DTB, see the [ARM64 Linux/GRUB guide](docs/multiboot/arm64-linux-ja.md). `SWITCH_GRUB_MENU` optionally embeds the GRUB EFI binary; Linux kernel, DTB and initramfs remain distro/SKU-specific and have not been hardware-validated here.
+
+See also the [EfiFs filesystem and OS capability matrix](docs/multiboot/efifs-os-capability-ja.md) and [iPadOS/XNU integration limits](docs/multiboot/ipados-xnu-ja.md). EfiFs provides filesystem access, not an OS kernel loader; WinX has no verified XNU loader or APFS boot path.
+
+Source is grouped by Switch hardware code name (`Platforms/Switch/t210/Icosa/` and `Platforms/Switch/t214/{Iowa,Hoag,Aula}/`) and by OS (`OperatingSystems/{Windows,Linux,iPadOS,Other}`). The [board/source map](docs/switch-model-source-layout-ja.md) explains which profiles have tested hardware paths and which are identification/layout scaffolding only. Hoag-specific ACPI resources are split from common Windows devices; this source organization does not imply that Iowa/Aula peripherals or every OS driver are hardware-validated.
+
 ## Credits
 
-WinX builds on [NintendoSwitchPkg](https://github.com/steck0714/NintendoSwitchPkg) and [EDK II](https://github.com/tianocore/edk2), with the [Lumia950XLPkg](https://github.com/WOA-Project/Lumia950XLPkg) build workflow. Boot and board support draw on [Hekate](https://github.com/CTCaer/hekate), [Switchroot](https://switchroot.org/) and hayato41200’s [Windows-for-Switch firmware](https://github.com/hayato41200/Windows-for-Switch) and [drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers). For the original T210/Erista port, see the [upstream WinX notes](README.winx.md). [License](LICENSE)
+WinX builds on [NintendoSwitchPkg](https://github.com/steck0714/NintendoSwitchPkg) and [EDK II](https://github.com/tianocore/edk2), with the [Lumia950XLPkg](https://github.com/WOA-Project/Lumia950XLPkg) build workflow. Boot and board support draw on [Hekate](https://github.com/CTCaer/hekate), [Switchroot](https://switchroot.org/), [Switch-Linux device trees](https://github.com/shinyquagsire23/Switch-Linux) and hayato41200’s [Windows-for-Switch firmware](https://github.com/hayato41200/Windows-for-Switch) and [drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers).
+
+Read-only filesystem EFI drivers come from [EfiFs v1.13](https://github.com/pbatard/efifs) (GPL-3.0-or-later; source pinned by the `efifs` submodule; see [filesystem driver notices](README.fsdrv)). The optional multi-OS EFI loader is built with [GNU GRUB](https://www.gnu.org/software/grub/); its GRUB modules and config are separate from EfiFs filesystem protocols.
+
+iPadOS boot research references [ios-on-switch-lmao](https://github.com/brunostjohn/ios-on-switch-lmao) (GPL-2.0-only), [Apple XNU](https://github.com/apple-oss-distributions/xnu), Hekate and Switchroot. The WinX iPadOS notes use them as references and do not vendor that project's source or binaries. See the [iPadOS integration and per-model status](docs/multiboot/ipados-xnu-ja.md). For the original T210/Erista port, see the [upstream WinX notes](README.winx.md). [License](LICENSE)

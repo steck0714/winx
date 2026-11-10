@@ -397,6 +397,15 @@ PMIC wake-interrupt or SC7 context code. SC7 deep-sleep development lives only o
 driver branch. S4 hibernation is unsupported and its implementation remains
 removed. See [current work and acceptance](PORTING.md).
 
+The `vulkan-test` branch separately provides opt-in ordinary S0 power-button
+wake resources with `-D SWITCH_LITE_POWER_IRQ=1`, requiring the existing
+`SWITCH_LITE_POWER=1` profile and `switchpwrbtn` 1.0.0.5. It adds PWRB's
+`_S0W=3`, PMC_CNTRL and GSI 118; it does not enable SC7 or change the default
+build command above. This source/build/model candidate has no recorded physical
+S0-wake interrupt acceptance. The tested `switchpwrbtn` 1.0.0.4 polling path
+remains the hardware baseline. Keep the matching driver and table together;
+older firmware uses the polling path.
+
 This selects the Lite boot/storage, touch, power, audio, Bluetooth, Wi-Fi preparation, SIO and B01 USB profile. It uses Microsoft Basic Display in Windows; the flags do not enable GPU acceleration. The generic `Tools/build.sh` / `build-woa.sh` defaults select a different profile, so use the explicit command above for this guide.
 
 The output is **`edk2/Build/NintendoSwitch-AARCH64/RELEASE_GCC5/FV/TEGRA210_EFI.fd`**, with `FVMAIN_COMPACT.Fv.map` in the same directory. Stop on a build error; continue with that build's matching FD and map only.

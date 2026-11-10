@@ -713,7 +713,8 @@ MeasureCpuMhz (
 
 	Freq = ArmGenericTimerGetTimerFreq ();
 	if (Freq == 0) {
-		Freq = FixedPcdGet32 (PcdArmArchTimerFreqInHz);
+		// Tegra210 system counter: BL31 configures CNTFRQ_EL0 to 19.2 MHz.
+		Freq = 19200000;
 	}
 	if (Freq == 0) {
 		return 0;

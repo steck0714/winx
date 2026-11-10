@@ -19,6 +19,9 @@
 #ifdef SWITCH_WIFI_RUNTIME
 #include "../../WindowsDrivers/drivers/SwitchWifi/platform/tegra_resources.h"
 #endif
+#ifdef SWITCH_LITE_GPU
+#include "../../WindowsDrivers/drivers/TegraGpu/platform/t214_resources.h"
+#endif
 
 DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_OEM_REVISION) 
 {
@@ -477,6 +480,36 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
             }
         }
 #endif
+#ifdef SWITCH_LITE_GPU
+        // Separate render adapter; the POST display remains owned by its
+        // existing driver. Publishing resources does not power up the GPU.
+        Device (GPU0)
+        {
+            Name (_HID, T214_GPU_ACPI_ID)
+            Name (_UID, Zero)
+            Name (_CLS, Package () { 0x03, 0x02, Zero })
+            Name (_DEP, Package () { \_SB.FAN0 })
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, T214_GPU_REG_BASE, T214_GPU_REG_SIZE)
+                Memory32Fixed (ReadWrite, T214_GPU_BAR1_BASE, T214_GPU_BAR1_SIZE)
+                Memory32Fixed (ReadWrite, T214_GPU_AUX_BASE, T214_GPU_AUX_SIZE)
+#define GPU_POWER_ASL(Base, Size) Memory32Fixed (ReadWrite, Base, Size)
+                T214_GPU_POWER_RESOURCES(GPU_POWER_ASL)
+#undef GPU_POWER_ASL
+#define GPU_ID_ASL(Base, Size) Memory32Fixed (ReadOnly, Base, Size)
+                T214_GPU_ID_RESOURCES(GPU_ID_ASL)
+#undef GPU_ID_ASL
+#ifdef SWITCH_LITE_GPU_IRQ
+                // CPU-side forwarding for GPU nonstall SPI 158; no wake policy.
+                Memory32Fixed (ReadWrite, T214_GPU_LIC_BASE, T214_GPU_LIC_SIZE)
+#endif
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_STALL_GSI }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { T214_GPU_NONSTALL_GSI }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+#endif
 #ifdef SWITCH_LITE_DISPLAY
         // Display-only ownership of Hekate's existing POST framebuffer.
         // The Windows miniport obtains the active address/stride through
@@ -882,9 +915,18 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
         {
             Name (_HID, "SWOA0601")
             Name (_UID, Zero)
+#ifdef SWITCH_LITE_POWER_IRQ
+            // Ordinary S0 wake; no processor PEP or SC7 state is added.
+            // B01 PMU_EXT is SPI 86 / GSI 118 after PMC polarity inversion.
+            Name (_S0W, 3)
+#endif
             Name (_CRS, ResourceTemplate ()
             {
                 I2cSerialBusV2 (0x003C, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.I2C5", 0x00, ResourceConsumer, , Exclusive, )
+#ifdef SWITCH_LITE_POWER_IRQ
+                Memory32Fixed (ReadWrite, 0x7000E400, 4)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, ExclusiveAndWake) { 118 }
+#endif
             })
 
             Method (_STA, 0, NotSerialized)
@@ -956,5 +998,6 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
 
 #endif
 
+        #include "../../OperatingSystems/Windows/Acpi/SwitchExtensions.asl"
     } // Scope(_SB)
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBm.h"
 #ifdef SWITCH_LITE_BOOT_SD
+#include "SwitchBootMenu.h"
+#include "../../Platforms/Switch/SwitchBoardDetect.h"
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/IoLib.h>
@@ -15,9 +17,12 @@
 
 #define WINDOWS_LOADER L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi"
 STATIC BOOLEAN IsWindowsPartition (EFI_HANDLE Handle);
+#ifdef SWITCH_LITE_GPU
+VOID LiteGpuPowerCheck (VOID);
+#endif
 
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
-#include "../../Drivers/WifiBtApp/t214/power.h"
+#include "../../Drivers/WifiBtApp/t214/Hoag/power.h"
 /* The Hekate BL33 environment is reserved by the performance profile.
  * Configuration avoids VOL- being consumed by Hekate before BL33 starts. */
 STATIC UINT32
@@ -278,15 +283,22 @@ BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
   if (EFI_ERROR (Status)) return Status;
 
 #ifdef SWITCH_WIFI_RUNTIME
+  EFI_STATUS WifiStatus;
+#endif
+#ifdef SWITCH_LITE_XUSB
+  EFI_STATUS UsbStatus;
+#endif
+#ifdef SWITCH_WIFI_RUNTIME
   Status = PrepareWindowsDevice (Volume, L"\\SwitchWOA\\Wifi\\WifiPrepare.efi", "WSTA");
-  if (EFI_ERROR (Status))
-    Print (L"Wi-Fi preparation: %r; device hidden, continuing Windows boot.\r\n", Status);
+  WifiStatus = Status;
+  if (EFI_ERROR (WifiStatus))
+    Print (L"Wi-Fi preparation: %r; device hidden, continuing Windows boot.\r\n", WifiStatus);
 
 #ifdef SWITCH_LITE_XUSB
-  if (!EFI_ERROR (Status)) {
-    Status = PrepareWindowsDevice (Volume, L"\\SwitchWOA\\Usb\\UsbPrepare.efi", "XSTA");
-    if (EFI_ERROR (Status)) Print (L"USB host preparation returned %r.\r\n", Status);
-  }
+  // Wi-Fi and XUSB expose separate ACPI devices and have independent prepare
+  // applications. A failed PCIe/Wi-Fi stage must not suppress USB-C host init.
+  UsbStatus = PrepareWindowsDevice (Volume, L"\\SwitchWOA\\Usb\\UsbPrepare.efi", "XSTA");
+  if (EFI_ERROR (UsbStatus)) Print (L"USB host preparation returned %r; XHC0 stays hidden.\r\n", UsbStatus);
 #endif
 #endif
   Path = FileDevicePath (Volume, WINDOWS_LOADER);
@@ -302,38 +314,81 @@ BootWindows (EFI_HANDLE Volume, EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs)
   return Status;
 }
 
+typedef struct {
+  EFI_HANDLE                         Volume;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL    *FileSystem;
+} LITE_WINDOWS_BOOT_CONTEXT;
+
+STATIC EFI_STATUS EFIAPI
+BootWindowsFromMenu (IN VOID *Context)
+{
+  LITE_WINDOWS_BOOT_CONTEXT *Boot = (LITE_WINDOWS_BOOT_CONTEXT *)Context;
+
+#if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
+  CheckPowerBeforeWindows ();
+#ifdef SWITCH_LITE_GPU
+  if (BootCheckMode ("gpu_check=") == 1) LiteGpuPowerCheck ();
+#endif
+  CheckWifiBeforeWindows ();
+#endif
+  return BootWindows (Boot->Volume, Boot->FileSystem);
+}
+
 VOID EFIAPI
 PlatformBootManagerAfterConsole (VOID)
 {
-  EFI_HANDLE *Volumes;
-  UINTN Count;
+  EFI_HANDLE *Volumes = NULL;
+  UINTN Count = 0;
   EFI_STATUS Status;
   BOOLEAN Found = FALSE;
+  UINTN Index;
+  WINX_SWITCH_BOARD_INFO Board;
+  LITE_WINDOWS_BOOT_CONTEXT Windows;
 
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"SWITCH LITE / WINDOWS 11 LITE\r\n");
   EfiBootManagerConnectAll ();
-#if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
-  CheckPowerBeforeWindows ();
-  CheckWifiBeforeWindows ();
-#endif
-  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Volumes);
-  if (!EFI_ERROR (Status)) {
-    for (UINTN Index = 0; Index < Count; ++Index) {
-      EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
-      if (!IsWindowsPartition (Volumes[Index])) continue;
-      Found = TRUE;
-      Print (L"WINARM 80 GiB / NTFS\r\n");
-      Status = gBS->HandleProtocol (Volumes[Index], &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
-      if (!EFI_ERROR (Status)) Status = BootWindows (Volumes[Index], Fs);
-      Print (L"Windows launch returned: %r\r\n", Status);
-      break;
+
+  Board = WinxSwitchDetectBoard ();
+  ZeroMem (&Windows, sizeof (Windows));
+  PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE, MAX_UINTN);
+
+  if (Board.Board != WinxSwitchBoardHoag || !WinxSwitchBuildMatchesBoard (Board.Board)) {
+    Print (L"Refusing Lite-specific SD/Wi-Fi/XUSB boot on detected board %s.\r\n",
+           WinxSwitchBoardName (Board.Board));
+  } else {
+    Print (L"Hoag / HDH-001 detected; scanning configured Windows target.\r\n");
+    Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid,
+                                     NULL, &Count, &Volumes);
+    if (!EFI_ERROR (Status)) {
+      for (Index = 0; Index < Count; ++Index) {
+        EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
+        if (!IsWindowsPartition (Volumes[Index])) continue;
+        Status = gBS->HandleProtocol (Volumes[Index], &gEfiSimpleFileSystemProtocolGuid,
+                                      (VOID **)&Fs);
+        if (!EFI_ERROR (Status)) {
+          Windows.Volume = Volumes[Index];
+          Windows.FileSystem = Fs;
+          Found = TRUE;
+          break;
+        }
+      }
+      FreePool (Volumes);
     }
-    FreePool (Volumes);
   }
-  if (!Found) Print (L"WINARM filesystem missing (%r)\r\n", Status);
-  Print (L"Hold POWER 12s to turn off.\r\n");
+
+  if (Found) {
+    Print (L"Configured WINARM target found; add it to the menu.\r\n");
+  } else if (Board.Board == WinxSwitchBoardHoag) {
+    Print (L"No configured WINARM target found; Windows Home Boot is hidden.\r\n");
+  }
+
+  EfiBootManagerRefreshAllBootOption ();
+  Status = SwitchBootMenuRun (Found ? L"Windows 11 Lite (WINARM)" : NULL,
+                              Found ? BootWindowsFromMenu : NULL,
+                              Found ? &Windows : NULL);
+  Print (L"Switch menu returned: %r\r\n", Status);
+  Print (L"Connect a keyboard or use the firmware boot options if menu input failed.\r\n");
   for (;;) __asm__ volatile ("wfi");
 }
 

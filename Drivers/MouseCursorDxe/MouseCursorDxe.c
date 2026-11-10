@@ -2,8 +2,9 @@
   Software mouse cursor.
 
   UsbMouseDxe publishes EFI_SIMPLE_POINTER_PROTOCOL but nothing in this firmware draws a pointer, so a USB
-  mouse looked dead. This driver polls every SimplePointer instance every 20 ms, integrates the relative
-  movement (with pointer acceleration and sub-pixel remainders) and draws an arrow on the GOP framebuffer.
+  mouse looked dead. This driver checks for pointer devices every 250 ms when no mouse is attached and polls
+  SimplePointer instances every 20 ms while one is present. It integrates relative movement (with pointer
+  acceleration and sub-pixel remainders) and draws the cursor only when position or buttons change.
   Left button = red arrow, right button = blue arrow (visual feedback for testing). The cursor is hidden until
   the first mouse event arrives.
 
@@ -26,10 +27,12 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/SimplePointer.h>
+#include "SwitchMouseCursor.h"
 
 #define CUR_W          12
 #define CUR_H          19
 #define POLL_100NS     (20 * 10000)      // 20 ms
+#define IDLE_POLL_100NS (250 * 10000)    // 250 ms while no mouse protocol is present
 #define PIXELS_PER_RES 8                 // pixels = RelativeMovement * 8 / ResolutionX (1 count = 1 px for the usual Res = 8)
 #define MAX_MICE       8
 #define IDLE_TICKS     25                // 500 ms without a consumer poll: drop accumulated movement
@@ -73,6 +76,9 @@ STATIC BOOLEAN                       mLeft, mRight;
 STATIC INT32                         mFracX, mFracY;          // sub-pixel remainder, 1/256 pixel
 STATIC UINT32                        mModeW, mModeH;
 STATIC UINT32                        mTick;
+STATIC EFI_HANDLE                    mCursorProtocolHandle;
+STATIC EFI_EVENT                     mCursorChangeEvent;
+STATIC WINX_MOUSE_CURSOR_PROTOCOL    mCursorProtocol;
 
 // One record per hooked EFI_SIMPLE_POINTER_PROTOCOL instance.
 typedef EFI_STATUS (EFIAPI *GET_STATE)(EFI_SIMPLE_POINTER_PROTOCOL *This, EFI_SIMPLE_POINTER_STATE *State);
@@ -88,6 +94,31 @@ typedef struct {
 } MOUSE_REC;
 
 STATIC MOUSE_REC  mRec[MAX_MICE];
+
+STATIC EFI_STATUS
+EFIAPI
+GetMouseCursorState (
+  IN  WINX_MOUSE_CURSOR_PROTOCOL  *This,
+  OUT WINX_MOUSE_CURSOR_STATE     *State
+  )
+{
+  if (This == NULL || State == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (mGop == NULL || mGop->Mode == NULL || mGop->Mode->Info == NULL) {
+    return EFI_NOT_READY;
+  }
+
+  State->ScreenWidth  = mGop->Mode->Info->HorizontalResolution;
+  State->ScreenHeight = mGop->Mode->Info->VerticalResolution;
+  State->X            = (UINT32)((mX < 0) ? 0 : mX);
+  State->Y            = (UINT32)((mY < 0) ? 0 : mY);
+  State->Visible      = mActive;
+  State->LeftButton   = mLeft;
+  State->RightButton  = mRight;
+  return EFI_SUCCESS;
+}
 
 STATIC
 MOUSE_REC *
@@ -284,9 +315,8 @@ PollMouse (
   EFI_SIMPLE_POINTER_STATE     St;
   MOUSE_REC                    *R;
   BOOLEAN                      Changed;
-  BOOLEAN                      L, R2;
   EFI_TPL                      Old;
-  INT32                        Dx, Dy;
+  INT32                        Dx, Dy, OldX, OldY;
   UINT32                       Speed;
   UINT64                       ResX, ResY;
 
@@ -315,6 +345,10 @@ PollMouse (
   Count   = 0;
   if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiSimplePointerProtocolGuid, NULL, &Count, &Handles))) {
     Count = 0;
+  }
+
+  if (mTimer != NULL) {
+    gBS->SetTimer (mTimer, TimerPeriodic, Count == 0 ? IDLE_POLL_100NS : POLL_100NS);
   }
 
   // Hook new instances, forget the ones that went away.
@@ -359,8 +393,6 @@ PollMouse (
   }
 
   Changed = FALSE;
-  L       = mLeft;
-  R2      = mRight;
   for (I = 0; I < MAX_MICE; I++) {
     R = &mRec[I];
     if (R->Sp == NULL) {
@@ -397,11 +429,18 @@ PollMouse (
     ResY = (R->Sp->Mode != NULL && R->Sp->Mode->ResolutionY != 0) ? R->Sp->Mode->ResolutionY : PIXELS_PER_RES;
 
     if (!mActive) {
+      if (St.RelativeMovementX == 0 && St.RelativeMovementY == 0 &&
+          !St.LeftButton && !St.RightButton) {
+        continue;
+      }
+
       // First event: start in the middle of the screen.
       mX = (INT32)(mModeW / 2);
       mY = (INT32)(mModeH / 2);
     }
 
+    OldX = mX;
+    OldY = mY;
     Speed = (UINT32)((St.RelativeMovementX < 0 ? -St.RelativeMovementX : St.RelativeMovementX) +
                      (St.RelativeMovementY < 0 ? -St.RelativeMovementY : St.RelativeMovementY));
     Dx = Accel (St.RelativeMovementX, Speed, ResX) + mFracX;
@@ -412,9 +451,23 @@ PollMouse (
     mY     += Dy / 256;
     mFracX  = Dx % 256;
     mFracY  = Dy % 256;
-    L       = St.LeftButton;
-    R2      = St.RightButton;
-    Changed = TRUE;
+    if (mX < 0) {
+      mX = 0;
+    } else if (mX >= (INT32)mModeW) {
+      mX = (INT32)mModeW - 1;
+    }
+
+    if (mY < 0) {
+      mY = 0;
+    } else if (mY >= (INT32)mModeH) {
+      mY = (INT32)mModeH - 1;
+    }
+
+    if (mX != OldX || mY != OldY || St.LeftButton != mLeft || St.RightButton != mRight) {
+      Changed = TRUE;
+    }
+    mLeft  = St.LeftButton;
+    mRight = St.RightButton;
   }
 
   if (!mActive) {
@@ -422,8 +475,6 @@ PollMouse (
   }
 
   if (Changed) {
-    mLeft  = L;
-    mRight = R2;
     CursorErase ();
     CursorDraw ();
     // Position clamped at an edge: do not keep integrating beyond it.
@@ -433,6 +484,10 @@ PollMouse (
 
     if (mY <= 0 || mY >= (INT32)mModeH - 1) {
       mFracY = 0;
+    }
+
+    if (mCursorChangeEvent != NULL) {
+      gBS->SignalEvent (mCursorChangeEvent);
     }
   }
 }
@@ -446,10 +501,38 @@ MouseCursorEntry (
 {
   EFI_STATUS  Status;
 
-  Status = gBS->CreateEvent (EVT_TIMER | EVT_NOTIFY_SIGNAL, TPL_CALLBACK, PollMouse, NULL, &mTimer);
+  mCursorProtocol.GetState = GetMouseCursorState;
+  Status = gBS->CreateEvent (0, TPL_APPLICATION, NULL, NULL, &mCursorChangeEvent);
   if (EFI_ERROR (Status)) {
     return Status;
   }
+  mCursorProtocol.WaitForChange = mCursorChangeEvent;
 
-  return gBS->SetTimer (mTimer, TimerPeriodic, POLL_100NS);
+  Status = gBS->InstallProtocolInterface (&mCursorProtocolHandle,
+                                          &gWinXMouseCursorProtocolGuid,
+                                          EFI_NATIVE_INTERFACE,
+                                          &mCursorProtocol);
+  if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mCursorChangeEvent);
+    return Status;
+  }
+
+  Status = gBS->CreateEvent (EVT_TIMER | EVT_NOTIFY_SIGNAL, TPL_CALLBACK, PollMouse, NULL, &mTimer);
+  if (EFI_ERROR (Status)) {
+    gBS->UninstallProtocolInterface (mCursorProtocolHandle,
+                                    &gWinXMouseCursorProtocolGuid,
+                                    &mCursorProtocol);
+    gBS->CloseEvent (mCursorChangeEvent);
+    return Status;
+  }
+
+  Status = gBS->SetTimer (mTimer, TimerPeriodic, IDLE_POLL_100NS);
+  if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mTimer);
+    gBS->UninstallProtocolInterface (mCursorProtocolHandle,
+                                    &gWinXMouseCursorProtocolGuid,
+                                    &mCursorProtocol);
+    gBS->CloseEvent (mCursorChangeEvent);
+  }
+  return Status;
 }

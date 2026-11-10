@@ -906,15 +906,11 @@ ulong mmc_bread(UINT64 start, UINT64 blkcnt, void *dst)
 	int err;
 	lbaint_t cur, blocks_todo = blkcnt;
 
+	if (!blkcnt || !dst || start > block_dev->lba || blkcnt > block_dev->lba - start)
+		return 0;
+
 	err = mmc_select_hwpart(block_dev->hwpart);
 	if (err) goto exit;
-
-	if ((start + blkcnt) > block_dev->lba) 
-	{
-		DEBUG((EFI_D_ERROR, "MMC: block number 0x%llx exceeds max(0x%llx)\n",
-			start + blkcnt, block_dev->lba));
-		return 0;
-	}
 
 	// CMD16 only when the block length actually changes (it used to be sent on every request).
 	if (mBlkLenSet != (int) mmc->read_bl_len)
@@ -1028,9 +1024,8 @@ ulong mmc_bwrite(UINT64 start, UINT64 blkcnt, const void *src)
 	struct blk_desc *block_dev = &mBlkDesc;
 	lbaint_t cur, blocks_todo = blkcnt;
 
+	if (!blkcnt || !src || start > block_dev->lba || blkcnt > block_dev->lba - start) return 0;
 	if (mmc_select_hwpart(block_dev->hwpart)) return 0;
-
-	if ((start + blkcnt) > block_dev->lba) return 0;
 
 	if (mBlkLenSet != (int) mmc->write_bl_len)
 	{

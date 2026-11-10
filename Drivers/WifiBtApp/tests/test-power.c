@@ -30,7 +30,7 @@ static UINT32 i2c_send_byte(UINT32 bus,UINT32 address,UINT32 offset,UINT8 value)
     if(++writes==fail_write)return 0;
     reg[offset]=value;return 1;
 }
-#include "../t214/power.h"
+#include "../t214/Hoag/power.h"
 static void reset(void) {
     memset(reg,0,sizeof(reg));reg[0x25]=0x0a;reg[0x47]=0xf8;reg[0x19]=0x60;
     writes=fail_write=delay=0;fail_read=no_power_good=0;

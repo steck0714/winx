@@ -35,6 +35,63 @@
   DEFINE LITE_BACKLIGHT_FLAGS  =
   DEFINE LITE_BOOT_SD_FLAGS    =
   DEFINE LITE_XUSB_FLAGS        =
+  DEFINE LITE_GPU_FLAGS         =
+  DEFINE SWITCH_BOARD_FLAGS    =
+!ifdef SWITCH_BOARD_ERISTA
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_ERISTA=1 -DSWITCH_BOARD_ICOSA=1
+!ifdef SWITCH_BOARD_MARIKO
+    !error "Select only one Switch board profile"
+!endif
+!ifdef SWITCH_BOARD_OLED
+    !error "Select only one Switch board profile"
+!endif
+!ifdef SWITCH_LITE_TOUCH
+    !error "SWITCH_BOARD_ERISTA cannot be combined with the Lite profile"
+!endif
+!endif
+!ifdef SWITCH_BOARD_MARIKO
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_MARIKO=1 -DSWITCH_BOARD_IOWA=1
+!ifdef SWITCH_BOARD_OLED
+    !error "Select only one Switch board profile"
+!endif
+!ifdef SWITCH_LITE_TOUCH
+    !error "SWITCH_BOARD_MARIKO cannot be combined with the Lite profile"
+!endif
+!endif
+!ifdef SWITCH_BOARD_OLED
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_OLED=1 -DSWITCH_BOARD_AULA=1
+!ifdef SWITCH_LITE_TOUCH
+    !error "SWITCH_BOARD_OLED cannot be combined with the Lite profile"
+!endif
+!endif
+!ifdef SWITCH_LITE_TOUCH
+  DEFINE SWITCH_BOARD_FLAGS    = -DSWITCH_BOARD_LITE=1 -DSWITCH_BOARD_HOAG=1
+!endif
+!ifdef SWITCH_LITE_GPU
+  !ifndef SWITCH_HEKATE
+    !error "SWITCH_LITE_GPU requires the Hekate HDH-001 boot chain"
+  !endif
+  !ifndef SWITCH_LITE_TOUCH
+    !error "SWITCH_LITE_GPU requires the HDH-001 board profile"
+  !endif
+  !ifndef SWITCH_LITE_PERFORMANCE
+    !error "SWITCH_LITE_GPU requires the reserved BL33 environment"
+  !endif
+  !ifndef SWITCH_LITE_FAN
+    !error "SWITCH_LITE_GPU requires the Lite fan/PMIC owner"
+  !endif
+  !ifndef SWITCH_LITE_BOOT_SD
+    !error "SWITCH_LITE_GPU requires the bounded Windows boot profile"
+  !endif
+  DEFINE LITE_GPU_FLAGS = -DSWITCH_LITE_GPU=1
+!endif
+  DEFINE LITE_GPU_IRQ_FLAGS =
+!ifdef SWITCH_LITE_GPU_IRQ
+  !ifndef SWITCH_LITE_GPU
+    !error "SWITCH_LITE_GPU_IRQ requires SWITCH_LITE_GPU"
+  !endif
+  DEFINE LITE_GPU_IRQ_FLAGS = -DSWITCH_LITE_GPU_IRQ=1
+!endif
 !ifdef SWITCH_LITE_XUSB
   !ifndef SWITCH_WIFI_RUNTIME
     !error "SWITCH_LITE_XUSB requires the B01 shared PCIe/UPHY preparation"
@@ -145,6 +202,13 @@
     !error "SWITCH_LITE_POWER requires the HDH-001 touch profile"
   !endif
 !endif
+  DEFINE LITE_POWER_IRQ_FLAGS    =
+!ifdef SWITCH_LITE_POWER_IRQ
+  DEFINE LITE_POWER_IRQ_FLAGS    = -DSWITCH_LITE_POWER_IRQ=1
+  !ifndef SWITCH_LITE_POWER
+    !error "SWITCH_LITE_POWER_IRQ requires SWITCH_LITE_POWER"
+  !endif
+!endif
   DEFINE LITE_TOUCH_FLAGS        =
 !ifdef SWITCH_LITE_TOUCH
   DEFINE LITE_TOUCH_FLAGS        = -DSWITCH_LITE_TOUCH=1
@@ -171,7 +235,7 @@
 [BuildOptions.common]
 !ifdef SWITCH_HEKATE
   # Boot chain: hekate (L4T launcher) -> BL31 -> bl33.bin (stub + this FD).
-  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(EXCFB_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
+  GCC:*_*_AARCH64_CC_FLAGS = -std=gnu11 -Wno-unused-variable -DSWITCH_BOOT_CHAIN_HEKATE=1 $(SWITCH_BOARD_FLAGS) $(EXCFB_FLAGS) $(LITE_GPU_FLAGS) $(LITE_TOUCH_FLAGS) $(LITE_FAN_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_BOOT_SD_FLAGS)
 !else
   GCC:*_*_AARCH64_CC_FLAGS = -Wno-unused-variable $(EXCFB_FLAGS)
 !endif
@@ -222,7 +286,7 @@
 !else
   DEFINE ACPI_ASL_SWOA           =
 !endif
-  GCC:*_*_AARCH64_ASLPP_FLAGS = $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
+  GCC:*_*_AARCH64_ASLPP_FLAGS = $(SWITCH_BOARD_FLAGS) $(LITE_GPU_FLAGS) $(LITE_GPU_IRQ_FLAGS) $(LITE_XUSB_FLAGS) $(LITE_SIO_FLAGS) $(WIFI_RUNTIME_FLAGS) $(LITE_BOOT_SD_FLAGS) $(LITE_BACKLIGHT_FLAGS) $(LITE_BLUETOOTH_FLAGS) $(LITE_AUDIO_FLAGS) $(LITE_DISPLAY_FLAGS) $(LITE_SYSTEM_FLAGS) $(LITE_PERFORMANCE_FLAGS) $(LITE_FAN_FLAGS) $(LITE_POWER_FLAGS) $(LITE_POWER_IRQ_FLAGS) $(LITE_TOUCH_FLAGS) $(ACPI_ASL_SDNV) $(ACPI_ASL_SWOA) $(ACPI_ASL_EMMC) $(ACPI_ASL_XHCI) $(ACPI_ASL_EHCI) $(ACPI_ASL_EHCI_TXFILL)
 
 ################################################################################
 #

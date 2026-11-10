@@ -1,6 +1,6 @@
 # T214 PSCI power and BL33 entry patches
 
-The build tool applies patches 0001 through 0005 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
+The build tool applies patches 0001 through 0006 to LineageOS ATF revision `85081cab2050051ea6e93206ef0f80bc0676e613`. It adapts Switchroot B01 restart preparation and MAX77620 shutdown in the shared T210 platform, gated by the T210B01 chip check and `SWITCH_LITE_PMIC_RESET=1`. Only the SoC-specific helper is under `soc/t210/t214`.
 
 The experimental sleep/context patches are isolated on [`sc7-test`](https://github.com/ruje0504-2/winx/tree/sc7-test). This branch applies the shutdown/restart patches and the BL33 entry correction below.
 
@@ -38,8 +38,12 @@ The `lite-entry-r7` build and binary inspection pass: the B01 branch ORs `0x3c0`
 
 ## Validation and deployment state
 
+Patch `0006` captures the Hekate entry index and list during early BL31 setup. Native Windows Restart encodes that selector as `REBOOT_REASON_SELF` and recomputes the BootROM RTC block checksum. Missing or out-of-range selectors keep the menu fallback. Hekate resolves the selector against the INI entries when it restarts. [Hekate L4T handoff](https://github.com/CTCaer/hekate/blob/master/bootloader/l4t/l4t.c) · [RTC selector format](https://github.com/CTCaer/hekate/blob/master/bdk/rtc/max77620-rtc.h)
+
+The `lite-entry-r8` build passed the simulated restart selector and PMIC tests. On 2026-11-09 at 09:10 Pacific, a remotely requested Windows Restart produced a new Windows boot and SSH session with the original Windows INI and Hekate autoboot disabled. The owner confirmed that Restart goes directly to Windows and powering on after Shutdown opens Hekate. The deployed BL31 SHA256 is `c2d048aaba276b2bc8d4b3f565f89d765a9851a522ced0985e551558c7c9e104`. The test Lite retains the previous image as `bl31.r7.bin`.
+
 R6 uses Switchroot's GPIO-based PMIC transfer path during final power-off. With SwitchBattery 1.0.0.8 and all optional device drivers enabled, the owner confirmed normal Windows shutdown on the R6 diagnostic build: two fan pulses followed by complete power removal. The normal native-reset build was then deployed with tracing disabled, and the owner confirmed that Windows Restart completed normally. [Power status](../../docs/hdh001-home/power-performance.md)
 
-The focused host test checks PMC timings, BootROM commands/checksums, the RTC Hekate-menu request and both hardware-I2C and GPIO PMIC failure paths. The ARM64 binary inspection confirms that native restart reaches PMC reset instead of the power-off handler. Build and simulated results are separate from the physical shutdown observation.
+The focused host test checks PMC timings, BootROM commands and checksums, the RTC selector and both hardware-I2C and GPIO PMIC failure paths. The ARM64 binary inspection confirms that native restart reaches PMC reset. Build and simulated results are separate from the physical shutdown and restart observations.
 
 The new helper is GPL-2.0-only, derived from Switchroot's PMC/PMIC power code and Hekate's I2C code; original copyright is retained in its source. The remaining ATF source retains its upstream notices.

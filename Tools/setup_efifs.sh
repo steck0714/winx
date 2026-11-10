@@ -1,21 +1,37 @@
 #!/bin/bash
-# Prepares EfiFsPkg (read-only NTFS/exFAT/ext2-4/XFS/Btrfs/F2FS/EROFS UEFI drivers) for `-D SWITCH_FSDRV=1`.
-# Usage: Tools/setup_efifs.sh <edk2 dir>      (EfiFs: GPLv3, pbatard/EfiFs v1.12 + GRUB 2.14 sources)
+# Prepares the upstream EfiFsPkg sources for `-D SWITCH_FSDRV=1`.
+# Usage: Tools/setup_efifs.sh <edk2 dir>
+# Upstream: pbatard/EfiFs v1.13 (GPLv3+), pinned below; GRUB is fetched from its upstream submodule.
 set -e
 EDK2=${1:?usage: setup_efifs.sh <edk2 dir>}
-W=$(mktemp -d)
-git clone --filter=blob:none https://github.com/pbatard/efifs.git "$W/efifs"
-(cd "$W/efifs" && git checkout -q v1.12)
-mkdir -p "$W/efifs/grub"
-# EfiFs v1.12 expects GRUB 2.14 (a git submodule; the tarball is equivalent).
-curl -fL -o "$W/grub.tar.xz" http://archive.ubuntu.com/ubuntu/pool/main/g/grub2/grub2_2.14.orig.tar.xz \
-  || curl -fL -o "$W/grub.tar.xz" https://ftp.gnu.org/gnu/grub/grub-2.14.tar.xz
-tar -xJf "$W/grub.tar.xz" -C "$W/efifs/grub" --strip-components=1
-(cd "$W/efifs/grub" && patch -p1 < ../0001-GRUB-fixes.patch)
-# Older EDK2 keeps CompilerIntrinsicsLib in ArmPkg; Ubuntu's gcc turns the stack protector on by default.
-sed -i 's#MdePkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf#ArmPkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf#' "$W/efifs/EfiFsPkg.dsc"
-sed -i 's#^  \*_\*_\*_CC_FLAGS                 = -DDISABLE_NEW_DEPRECATED_INTERFACES#& -fno-stack-protector#' "$W/efifs/EfiFsPkg.dsc"
-rm -rf "$EDK2/EfiFsPkg"; mv "$W/efifs" "$EDK2/EfiFsPkg"
-# (after the move: the script creates an absolute symlink grub/include/grub/cpu)
-(cd "$EDK2/EfiFsPkg" && ./set_grub_cpu.sh aarch64)
-echo "EfiFsPkg ready in $EDK2/EfiFsPkg (needs libc6-dev-arm64-cross for Btrfs). Build the firmware with -D SWITCH_FSDRV=1 -D SWITCH_BIGFD=1"
+EDK2=$(cd "$EDK2" && pwd)
+DEST="$EDK2/EfiFsPkg"
+EFIFS_TAG_COMMIT=0f1b63b92f61f23fe17697d24df7164f1d13fa1f
+
+# Never replace an existing package: preserve any local/user data and require an explicit
+# manual backup/relocation before a version change.
+if [ -e "$DEST" ]; then
+  echo "Refusing to modify existing path: $DEST" >&2
+  exit 1
+fi
+
+git clone --depth 1 --branch v1.13 --recurse-submodules \
+  https://github.com/pbatard/efifs.git "$DEST"
+ACTUAL_COMMIT=$(git -C "$DEST" rev-parse HEAD)
+if [ "$ACTUAL_COMMIT" != "$EFIFS_TAG_COMMIT" ]; then
+  echo "Unexpected EfiFs v1.13 commit: $ACTUAL_COMMIT" >&2
+  exit 1
+fi
+
+# The upstream EDK2 build uses this patch for GRUB's firmware-facing code.
+(cd "$DEST/grub" && git apply --check ../0001-GRUB-fixes.patch && git apply ../0001-GRUB-fixes.patch)
+# The upstream helper removes an existing `cpu` path before linking it. Keep this
+# setup non-destructive: create the architecture link only when the path is absent.
+GRUB_CPU_DIR="$DEST/grub/include/grub"
+mkdir -p "$GRUB_CPU_DIR"
+if [ -e "$GRUB_CPU_DIR/cpu" ] || [ -L "$GRUB_CPU_DIR/cpu" ]; then
+  echo "Refusing to replace existing path: $GRUB_CPU_DIR/cpu" >&2
+  exit 1
+fi
+ln -s arm64 "$GRUB_CPU_DIR/cpu"
+echo "EfiFs v1.13 ready in $DEST. Build with -D SWITCH_FSDRV=1 -D SWITCH_BIGFD=1 (read-only drivers; see README.fsdrv)."

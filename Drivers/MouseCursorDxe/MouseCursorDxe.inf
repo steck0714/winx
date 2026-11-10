@@ -12,9 +12,11 @@
 
 [Sources]
   MouseCursorDxe.c
+  SwitchMouseCursor.h
 
 [Packages]
   MdePkg/MdePkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
 
 [LibraryClasses]
   BaseLib
@@ -27,6 +29,7 @@
 [Protocols]
   gEfiSimplePointerProtocolGuid     ## CONSUMES
   gEfiGraphicsOutputProtocolGuid    ## CONSUMES
+  gWinXMouseCursorProtocolGuid      ## PRODUCES
 
 [Depex]
   TRUE

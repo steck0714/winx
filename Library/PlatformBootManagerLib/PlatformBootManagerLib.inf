@@ -34,6 +34,11 @@
 [Sources]
   PlatformBm.c
   LiteHomeBoot.c
+  SwitchBootMenu.c
+  SwitchBootMenu.h
+  ../../Platforms/Switch/SwitchBoardDetect.h
+  WifiPrepareBoot.c
+  LiteGpuPowerCheck.c
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec
@@ -62,9 +67,6 @@
   TimerLib
   UefiLib
 
-[FeaturePcd]
-  gEfiMdePkgTokenSpaceGuid.PcdUgaConsumeSupport
-
 [FixedPcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate
@@ -87,6 +89,9 @@
   gUefiShellFileGuid
 
 [Protocols]
+  gEfiAbsolutePointerProtocolGuid
+  gWinXMouseCursorProtocolGuid
+  gWinXSidebandButtonProtocolGuid
   gEfiBlockIoProtocolGuid
   gEfiPartitionInfoProtocolGuid
   gEfiDevicePathProtocolGuid

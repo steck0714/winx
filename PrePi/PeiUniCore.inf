@@ -1,0 +1,89 @@
+## @file
+#  PrePi (SEC) for NintendoSwitchPkg, UniCore AArch64.
+#
+#  Vendored from edk2-stable202402 ArmPlatformPkg/PrePi (+ ArmPlatformStackLib.S), because
+#  ArmPlatformPkg/PrePi and ArmPlatformStackLib were removed from upstream edk2 after 202402.
+#  Copyright (c) 2011-2020, ARM Limited. All rights reserved.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = ArmPlatformPrePiUniCore
+  FILE_GUID                      = 3e401783-cc94-4fcd-97bc-bd35ac369d2f
+  MODULE_TYPE                    = SEC
+  VERSION_STRING                 = 1.0
+
+[Sources]
+  PrePi.h
+  PrePi.c
+  MainUniCore.c
+
+[Sources.AArch64]
+  AArch64/ArchPrePi.c
+  AArch64/ModuleEntryPoint.S
+  AArch64/ArmPlatformStackLib.S
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  ArmPkg/ArmPkg.dec
+  ArmPlatformPkg/ArmPlatformPkg.dec
+  NintendoSwitchPkg/NintendoSwitch.dec
+
+[LibraryClasses]
+  BaseLib
+  StackCheckLib
+  CacheMaintenanceLib
+  DebugLib
+  DebugAgentLib
+  ArmLib
+  IoLib
+  TimerLib
+  SerialPortLib
+  ExtractGuidedSectionLib
+  LzmaDecompressLib
+  PrePiLib
+  ArmPlatformLib
+  MemoryAllocationLib
+  HobLib
+  PrePiHobListPointerLib
+  PlatformPeiLib
+  MemoryInitPeiLib
+
+[Ppis]
+  gArmMpCoreInfoPpiGuid
+
+[Guids]
+  gArmMpCoreInfoGuid
+  gEfiFirmwarePerformanceGuid
+
+[FeaturePcd]
+  gEmbeddedTokenSpaceGuid.PcdPrePiProduceMemoryTypeInformationHob
+
+[FixedPcd]
+  gNintendoSwitchPkgTokenSpaceGuid.PcdVFPEnabled
+  gNintendoSwitchPkgTokenSpaceGuid.PcdCPUCoreSecondaryStackSize
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize
+  gArmTokenSpaceGuid.PcdFdBaseAddress
+  gArmTokenSpaceGuid.PcdFdSize
+  gArmTokenSpaceGuid.PcdFvBaseAddress
+  gArmTokenSpaceGuid.PcdFvSize
+  gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize
+  gArmPlatformTokenSpaceGuid.PcdCoreCount
+  gEmbeddedTokenSpaceGuid.PcdPrePiCpuIoSize
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiACPIReclaimMemory
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiACPIMemoryNVS
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiReservedMemoryType
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesData
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesCode
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiBootServicesCode
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiBootServicesData
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiLoaderCode
+  gEmbeddedTokenSpaceGuid.PcdMemoryTypeEfiLoaderData
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString
+  gArmTokenSpaceGuid.PcdSystemMemoryBase
+  gArmTokenSpaceGuid.PcdSystemMemorySize

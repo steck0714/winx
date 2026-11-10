@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+#ifndef WINX_SWITCH_SIDEBAND_BUTTONS_H
+#define WINX_SWITCH_SIDEBAND_BUTTONS_H
+
+#include <Uefi.h>
+
+#define WINX_SWITCH_BUTTON_VOLUME_DOWN  BIT0
+#define WINX_SWITCH_BUTTON_VOLUME_UP    BIT1
+#define WINX_SWITCH_BUTTON_POWER       BIT2
+
+typedef struct _WINX_SWITCH_BUTTON_PROTOCOL WINX_SWITCH_BUTTON_PROTOCOL;
+
+typedef
+EFI_STATUS
+(EFIAPI *WINX_SWITCH_BUTTON_READ_STATE)(
+  IN  WINX_SWITCH_BUTTON_PROTOCOL  *This,
+  OUT UINT32                       *Pressed
+  );
+
+struct _WINX_SWITCH_BUTTON_PROTOCOL {
+  WINX_SWITCH_BUTTON_READ_STATE  ReadState;
+  EFI_EVENT                     WaitForChange;
+};
+
+#endif

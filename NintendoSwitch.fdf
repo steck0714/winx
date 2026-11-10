@@ -70,7 +70,7 @@ READ_LOCK_STATUS   = TRUE
 
     # Next, install cpu protocol and enable the interrupt controller
     INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
-    INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+    INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   }
 
   # Architecture services (PI Stage)
@@ -81,7 +81,7 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
   INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
   INF MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
-  INF EmbeddedPkg/ResetRuntimeDxe/ResetRuntimeDxe.inf
+  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
   INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
@@ -92,7 +92,7 @@ READ_LOCK_STATUS   = TRUE
   # ARM CPU
   INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
-  INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
 !ifdef SWITCH_LITE_SYSTEM
@@ -212,13 +212,108 @@ READ_LOCK_STATUS   = TRUE
   INF NintendoSwitchPkg/Drivers/MouseCursorDxe/MouseCursorDxe.inf
 !endif
 !ifdef SWITCH_FSDRV
-  INF EfiFsPkg/EfiFsPkg/Ntfs.inf
-  INF EfiFsPkg/EfiFsPkg/ExFat.inf
-  INF EfiFsPkg/EfiFsPkg/Ext2.inf
-  INF EfiFsPkg/EfiFsPkg/Xfs.inf
-  INF EfiFsPkg/EfiFsPkg/Btrfs.inf
-  INF EfiFsPkg/EfiFsPkg/F2fs.inf
-  INF EfiFsPkg/EfiFsPkg/EroFs.inf
+  # Read-only non-FAT file systems: pbatard/EfiFs v1.13 (GRUB 2.16, GPLv3+), prebuilt aarch64 release binaries,
+  # unmodified (sha256 in efi_drivers/efifs-1.13-aa64/SHA256SUMS). No EfiFsPkg checkout needed any more.
+  FILE DRIVER = 8AFFDF57-A669-5082-8BDC-F845CA8F0ADB {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/btrfs_aa64.efi
+    SECTION UI = "EfiFs_btrfs"
+  }
+  FILE DRIVER = B93F1D1C-3D05-5475-B5F3-E95839CB5AC4 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/cbfs_aa64.efi
+    SECTION UI = "EfiFs_cbfs"
+  }
+  FILE DRIVER = DF1A791E-DDBA-5223-938F-8AA05D3A1900 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/cpio_aa64.efi
+    SECTION UI = "EfiFs_cpio"
+  }
+  FILE DRIVER = 5008269D-B9E1-5807-9E99-42B33D3A46C7 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/erofs_aa64.efi
+    SECTION UI = "EfiFs_erofs"
+  }
+  FILE DRIVER = 7AFEC11E-7B47-5716-9AC0-ACF82A0ECAF2 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/exfat_aa64.efi
+    SECTION UI = "EfiFs_exfat"
+  }
+  FILE DRIVER = 3148BC16-BB8A-55E3-81FE-27B92B6A933A {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/ext2_aa64.efi
+    SECTION UI = "EfiFs_ext2"
+  }
+  FILE DRIVER = FF64D8B3-69F3-5962-9DF6-F362F6ED4524 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/f2fs_aa64.efi
+    SECTION UI = "EfiFs_f2fs"
+  }
+  FILE DRIVER = AF0945FC-2344-5B20-ACC4-5AC404CB51FA {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/hfs_aa64.efi
+    SECTION UI = "EfiFs_hfs"
+  }
+  FILE DRIVER = 4D0D260B-E868-55F2-BC0D-07429153BF6D {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/hfsplus_aa64.efi
+    SECTION UI = "EfiFs_hfsplus"
+  }
+  FILE DRIVER = 068F93F7-B8F5-58D5-83E0-AA823ABABF3E {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/iso9660_aa64.efi
+    SECTION UI = "EfiFs_iso9660"
+  }
+  FILE DRIVER = 6CC228B9-F54F-57DE-B5E6-AECC49DCEA3B {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/jfs_aa64.efi
+    SECTION UI = "EfiFs_jfs"
+  }
+  FILE DRIVER = CF18053A-86BB-5301-BEE9-22947F64C7E0 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/newc_aa64.efi
+    SECTION UI = "EfiFs_newc"
+  }
+  FILE DRIVER = 22EECAA1-2F87-5462-A663-A6A5B89189C6 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/nilfs2_aa64.efi
+    SECTION UI = "EfiFs_nilfs2"
+  }
+  FILE DRIVER = FFB83082-7602-580C-9A45-08E662854933 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/ntfs_aa64.efi
+    SECTION UI = "EfiFs_ntfs"
+  }
+  FILE DRIVER = 1C5586FB-E63E-5C08-8F09-F0B11404544E {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/odc_aa64.efi
+    SECTION UI = "EfiFs_odc"
+  }
+  FILE DRIVER = 9BD59EF7-9030-57E7-86E1-BD331110F70D {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/reiserfs_aa64.efi
+    SECTION UI = "EfiFs_reiserfs"
+  }
+  FILE DRIVER = D5778C36-95EA-5490-A1A5-E1796CB3A2D3 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/romfs_aa64.efi
+    SECTION UI = "EfiFs_romfs"
+  }
+  FILE DRIVER = 336DCA32-580D-5F87-8A91-9D482147E347 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/sfs_aa64.efi
+    SECTION UI = "EfiFs_sfs"
+  }
+  FILE DRIVER = DB14DEE4-1C06-59FD-8CAC-6FC61267229D {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/squash4_aa64.efi
+    SECTION UI = "EfiFs_squash4"
+  }
+  FILE DRIVER = ABB2F649-A6A8-5402-B48D-D9F37D99193F {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/tar_aa64.efi
+    SECTION UI = "EfiFs_tar"
+  }
+  FILE DRIVER = C68B9D53-5901-5A26-BF73-A6A47B3A7217 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/udf_aa64.efi
+    SECTION UI = "EfiFs_udf"
+  }
+  FILE DRIVER = 2FE578CC-9946-5F8A-B562-923E9A08426B {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/ufs1_aa64.efi
+    SECTION UI = "EfiFs_ufs1"
+  }
+  FILE DRIVER = 87D3D222-E079-5D95-9FB0-6CCE5E65B8B8 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/ufs2_aa64.efi
+    SECTION UI = "EfiFs_ufs2"
+  }
+  FILE DRIVER = FDFE28A6-CBB5-5125-8B84-6429E067C575 {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/xfs_aa64.efi
+    SECTION UI = "EfiFs_xfs"
+  }
+  FILE DRIVER = CEF8E0CF-72E6-5D7F-8C53-7691BC46F0DB {
+    SECTION PE32 = NintendoSwitchPkg/efi_drivers/efifs-1.13-aa64/zfs_aa64.efi
+    SECTION UI = "EfiFs_zfs"
+  }
 !endif
 !ifdef SWITCH_WINSPY
   INF NintendoSwitchPkg/Drivers/WinbootSpyDxe/WinbootSpyDxe.inf
@@ -261,10 +356,12 @@ READ_LOCK_STATUS   = TRUE
   # Shell
   INF ShellPkg/Application/Shell/Shell.inf
 
-  # Linux (pretends to be UEFI shell)
-  # FILE APPLICATION = 7C04A583-9E3E-4f1c-AD65-E05268D0B4D1 {
-  #   SECTION PE32 = NintendoSwitchPkg/Tools/grubaa64.efi
-  # }
+!ifdef SWITCH_GRUB_MENU
+  # Optional generic OS selector: Windows ARM64 and Linux kernels with Switch DTBs.
+  FILE APPLICATION = 55A3E7B2-1B1F-4C49-9D41-35752EE638A1 {
+    SECTION PE32 = NintendoSwitchPkg/Tools/grubaa64.efi
+  }
+!endif
 
 [FV.FVMAIN_COMPACT]
 FvAlignment        = 8
@@ -284,7 +381,7 @@ READ_STATUS        = TRUE
 READ_LOCK_CAP      = TRUE
 READ_LOCK_STATUS   = TRUE
 
-  INF ArmPlatformPkg/PrePi/PeiUniCore.inf
+  INF NintendoSwitchPkg/PrePi/PeiUniCore.inf
   FILE FV_IMAGE = 9E21FD93-9C72-4c15-8C4B-E77F1DB2D792 {
     SECTION GUIDED EE4E5898-3914-4259-9D6E-DC7BD79403CF PROCESSING_REQUIRED = TRUE {
       SECTION FV_IMAGE = FVMAIN

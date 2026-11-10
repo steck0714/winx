@@ -1,0 +1,11 @@
+# WinX -> GRUB -> Windows / ARM64 Linux / other EFI applications.
+# Copy this to \EFI\WinX\grub.cfg and copy the per-OS fragments from
+# OperatingSystems/{Windows,Linux,Other}/Boot to \EFI\WinX\os\.
+
+set timeout=10
+set default=0
+
+search --no-floppy --file --set=root /EFI/WinX/grub.cfg
+source /EFI/WinX/os/windows.cfg
+source /EFI/WinX/os/linux.cfg
+source /EFI/WinX/os/other.cfg

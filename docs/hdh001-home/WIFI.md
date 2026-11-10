@@ -139,7 +139,7 @@ the diagnostic result. That isolated startup failure has not been explained.
 Switchroot enables the PCIe supply regulators before clock/PHY initialization.
 The Home probe lacked that step. B01's board description assigns PCIe analog
 and PLL supplies to MAX77620 LDO1 at 1.0 V; SD3 is the shared 1.8 V rail.
-`t214/power.h` provides the R5 preparation in the explicit diagnostic boot path:
+`Drivers/WifiBtApp/t214/Hoag/power.h` provides the R5 preparation in the explicit diagnostic boot path:
 observe SD3 without writing it, enable an off LDO1 at 1.0 V, wait for power-good,
 and preserve an already-powered 1.0-1.05 V shared supply. It restores the original
 LDO1/FPS state after the child exits, asserting PCIEX reset before releasing an
