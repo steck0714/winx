@@ -305,7 +305,7 @@ disables bus mastering, halts CR4 and holds D11 reset; failure requires platform
 endpoint reset before freeing DMA buffers.
 
 The EROM/NVRAM implementations were moved unchanged into the shared
-`WindowsDrivers/drivers/SwitchWifi/core` files. Existing UEFI header names now
+`WindowsDrivers/t214/Hoag/drivers/SwitchWifi/core` files. Existing UEFI header names now
 include those files. Native format fixtures pass, and both the automatic UEFI
 probe and runtime Home/preparation builds still compile. The Windows library
 build now uses `clang-cl /kernel`, matching the existing driver build convention.

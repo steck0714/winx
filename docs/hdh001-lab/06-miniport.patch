@@ -1,5 +1,5 @@
---- a/WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c
-+++ b/WindowsDrivers/drivers/Tegra210Sdhc/src/nvtsdhc.c
+--- a/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/src/nvtsdhc.c
++++ b/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/src/nvtsdhc.c
 @@ -38,31 +38,14 @@
  // enabled until basic card enumeration and block I/O have been proven.
  #define NV_T210_SAFE_BRINGUP 1
@@ -401,8 +401,8 @@
  }
  
  _IRQL_requires_max_(PASSIVE_LEVEL)
---- a/WindowsDrivers/drivers/Tegra210Sdhc/nvtsdhc.inf
-+++ b/WindowsDrivers/drivers/Tegra210Sdhc/nvtsdhc.inf
+--- a/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/nvtsdhc.inf
++++ b/WindowsDrivers/t214/Hoag/drivers/Tegra210Sdhc/nvtsdhc.inf
 @@ -3,7 +3,7 @@
  Class=SDHost
  ClassGuid={a0a588a4-c46f-4b37-b7ea-c82fe89870c6}

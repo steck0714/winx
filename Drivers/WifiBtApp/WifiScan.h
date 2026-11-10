@@ -22,7 +22,7 @@ typedef struct {
   BOOLEAN Failed;
 } PEX_SCAN;
 
-#include "../../WindowsDrivers/drivers/SwitchWifi/core/WifiEscan.h"
+#include "../../WindowsDrivers/t214/Hoag/drivers/SwitchWifi/core/WifiEscan.h"
 
 STATIC BOOLEAN ScanEvent (VOID *Context, CONST UINT8 *Data, UINT16 Length)
 {

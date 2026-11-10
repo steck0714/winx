@@ -1,0 +1,63 @@
+;
+; switchsensor.inf - Nintendo Switch light sensor (BH1730 on I2C2) and accelerometer (LSM6DS3H on SPI4)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %Mfg%
+CatalogFile = switchsensor.cat
+DriverVer   = 10/29/2026,1.0.0.1
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+switchsensor.sys = 1
+
+[Manufacturer]
+%Mfg% = Std, NTarm64
+
+[Std.NTarm64]
+%DeviceDesc% = SwSens_Inst, ACPI\SWOA0901
+
+[SwSens_Inst.NT]
+CopyFiles = SwSens_Copy
+
+[SwSens_Copy]
+switchsensor.sys
+
+; \\.\SwitchSensor: SYSTEM and Administrators full, the logged-on
+; (interactive) user read/write so the control center can read the sensors.
+[SwSens_Inst.NT.HW]
+AddReg = SwSens_HW_AddReg
+
+[SwSens_HW_AddReg]
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+
+[SwSens_Inst.NT.Services]
+AddService = switchsensor, 0x00000002, SwSens_Service
+
+[SwSens_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %12%\switchsensor.sys
+
+[SwSens_Inst.NT.Wdf]
+KmdfService = switchsensor, SwSens_WdfSection
+
+[SwSens_WdfSection]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+Mfg         = "SwitchWOA"
+DiskName    = "SwitchWOA Sensor"
+DeviceDesc  = "Nintendo Switch Light Sensor and Accelerometer"
+ServiceDesc = "Nintendo Switch Sensors"

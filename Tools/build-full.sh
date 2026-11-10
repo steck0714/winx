@@ -1,5 +1,5 @@
 #!/bin/bash
-# Integrated build: every winx switch on (hekate chain, USB, landscape shell, ext, RTC, net, perf, XUSB, Wi-Fi/Bluetooth).
+# Integrated build: USB, shell extras, RTC, wired USB network, performance tools, XUSB and Wi-Fi/Bluetooth bring-up commands.
 # usage: Tools/build-full.sh   (run from the directory that contains edk2/ and NintendoSwitchPkg/)
 set -e
 export WORKSPACE=$PWD/edk2 PACKAGES_PATH=$PWD/edk2:$PWD GCC5_AARCH64_PREFIX=aarch64-linux-gnu-

@@ -81,7 +81,7 @@ PlatformWifiPrepareBeforeBoot (VOID)
       Matches++;
     }
   }
-  if (Matches != 1) goto Hidden;   // DSDT built without SWITCH_WIFI_RUNTIME
+  if (Matches != 1) goto Hidden;   // DSDT built without the model's Wi-Fi runtime option
 
   Path = WifiPrepareFilePath ();
   if (Path == NULL) goto Hidden;

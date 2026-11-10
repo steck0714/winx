@@ -14,7 +14,7 @@ The hardware results below are owner-reported physical tests on the stated Lite 
 | Display and touch | The trimmed Pro desktop works in landscape. The FTM4 touchscreen accepts taps in Windows Setup. |
 | Analog sticks and gamepad | Windows detected the built-in HID gamepad and mouse and the driver received controller input. Both sticks are exposed to games with generic controller support. In-game use awaits testing. |
 | Desktop controls | Left stick moves the pointer and ZR/ZL click. Capture toggles desktop mode and **+** opens the On-Screen Keyboard. Version 0.2.3 adds right-stick scrolling, R3 middle click and D-pad keyboard arrows. Hardware test pending. [Button mapping](https://github.com/ruje0504-2/Windows-for-Switch-Drivers/blob/hdh001-winarm-bounded-write/drivers/SwitchSensor/README.md) |
-| 3D graphics | Windows uses CPU software rendering. Native GM20B Vulkan acceleration is planned with Mesa NVK. [GPU driver status](https://github.com/ruje0504-2/winx/blob/vulkan-test/docs/gpu-vulkan/STATUS.md) |
+| 3D graphics | Windows still uses CPU software rendering. The source has a T214 GPU probe/backend experiment, but no finished WDDM display miniport or Vulkan ICD; the T210 GM20B diagnostic is only S0–S2. A separate project reports an off-screen Vulkan result, not WinX game support. [GPU readiness](docs/driver-gap-audit-ja.md) |
 | Wi-Fi and Bluetooth | Wi-Fi 0.5.5 reconnected to a saved WPA2-Personal network, obtained an IPv4 address through DHCP and reached the Internet. The owner confirmed Bluetooth working with 1.0.0.19 after the SD 0.5.0.3 update. |
 | Audio and backlight | The built-in speakers play audio from Windows. The brightness controls work on the internal panel. |
 | Fan and clocks | The fan runs. Live readback showed 1996.8 MHz CPU and 1866 MHz RAM. |
@@ -24,7 +24,7 @@ The hardware results below are owner-reported physical tests on the stated Lite 
 
 USB-C peripherals and headphones await hardware testing. [Porting status](docs/hdh001-home/PORTING.md)
 
-Driver source is maintained in [Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers). The `WindowsDrivers` submodule pins the matching revision.
+Windows driver source is vendored under `WindowsDrivers/t210/Icosa/` and `WindowsDrivers/t214/Hoag/`, with the GM20B experiment kept under the T210 tree. The former `WindowsDrivers` submodule pointer referenced an upstream commit that GitHub did not resolve from the fork; carrying the source here removes that broken navigation and build dependency. Provenance, licenses and validation limits are recorded in [WindowsDrivers/README.md](WindowsDrivers/README.md) and [NOTICE.winx.md](NOTICE.winx.md).
 
 ## Storage profiles
 
@@ -45,11 +45,15 @@ For an experimental multi-OS menu that can chainload Windows and boot other AArc
 
 See also the [EfiFs filesystem and OS capability matrix](docs/multiboot/efifs-os-capability-ja.md) and [iPadOS/XNU integration limits](docs/multiboot/ipados-xnu-ja.md). EfiFs provides filesystem access, not an OS kernel loader; WinX has no verified XNU loader or APFS boot path.
 
+Preboot controls, screenshots, and WinX-only splash/wallpaper files are tracked in [UEFI input and screenshot support](docs/preboot-input-ja.md), [UEFI audio/network/Bluetooth status](docs/preboot-media-ja.md), and [WinX UEFI visual customization](docs/winx-visuals-ja.md).
+
+The landscape UEFI selector, separate entries for multiple installs of one OS, and the read-only custom EFI manifest are described in [WinX multi-boot](docs/winx-multiboot-ja.md). The model-by-model UEFI/Windows driver gaps, GM20B gaming readiness and microSD speed/safety status are in the [driver gap audit](docs/driver-gap-audit-ja.md).
+
 Source is grouped by Switch hardware code name (`Platforms/Switch/t210/Icosa/` and `Platforms/Switch/t214/{Iowa,Hoag,Aula}/`) and by OS (`OperatingSystems/{Windows,Linux,iPadOS,Other}`). The [board/source map](docs/switch-model-source-layout-ja.md) explains which profiles have tested hardware paths and which are identification/layout scaffolding only. Hoag-specific ACPI resources are split from common Windows devices; this source organization does not imply that Iowa/Aula peripherals or every OS driver are hardware-validated.
 
 ## Credits
 
-WinX builds on [NintendoSwitchPkg](https://github.com/steck0714/NintendoSwitchPkg) and [EDK II](https://github.com/tianocore/edk2), with the [Lumia950XLPkg](https://github.com/WOA-Project/Lumia950XLPkg) build workflow. Boot and board support draw on [Hekate](https://github.com/CTCaer/hekate), [Switchroot](https://switchroot.org/), [Switch-Linux device trees](https://github.com/shinyquagsire23/Switch-Linux) and hayato41200’s [Windows-for-Switch firmware](https://github.com/hayato41200/Windows-for-Switch) and [drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers).
+WinX builds on [NintendoSwitchPkg](https://github.com/steck0714/NintendoSwitchPkg) and [EDK II](https://github.com/tianocore/edk2), with the [Lumia950XLPkg](https://github.com/WOA-Project/Lumia950XLPkg) build workflow. Boot and board support draw on [Hekate](https://github.com/CTCaer/hekate), [Switchroot](https://switchroot.org/), [Switch-Linux device trees](https://github.com/shinyquagsire23/Switch-Linux), hayato41200’s [Windows-for-Switch firmware](https://github.com/hayato41200/Windows-for-Switch) and T210 driver snapshot, and the T214 Hoag driver snapshot from [ruje0504-2/Windows-for-Switch-Drivers](https://github.com/ruje0504-2/Windows-for-Switch-Drivers) at local source revision `ebdddd8`. The separately licensed GM20B diagnostic experiment retains its own notices.
 
 Read-only filesystem EFI drivers come from [EfiFs v1.13](https://github.com/pbatard/efifs) (GPL-3.0-or-later; source pinned by the `efifs` submodule; see [filesystem driver notices](README.fsdrv)). The optional multi-OS EFI loader is built with [GNU GRUB](https://www.gnu.org/software/grub/); its GRUB modules and config are separate from EfiFs filesystem protocols.
 

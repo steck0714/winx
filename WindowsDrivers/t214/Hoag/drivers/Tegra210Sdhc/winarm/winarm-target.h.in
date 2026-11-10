@@ -1,0 +1,94 @@
+/* On-disk identities of the 80 GiB WINARM partition, in little-endian order. */
+#ifndef LITE_WINARM_TARGET_H
+#define LITE_WINARM_TARGET_H
+#define WINARM_FIRST @WINARM_FIRST@u
+#define WINARM_COUNT  @WINARM_COUNT@u
+@FAT32_EXTENT@
+#define WINARM_SERIAL @WINARM_SERIAL@ULL
+#define LITE_CARD_BYTES @LITE_CARD_BYTES@ULL
+#define WINARM_MBR_SIGNATURE @WINARM_MBR_SIGNATURE@u
+
+static inline unsigned int LiteU32(const unsigned char *p)
+{
+    return p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16) |
+           ((unsigned int)p[3] << 24);
+}
+
+static inline unsigned long long LiteU64(const unsigned char *p)
+{
+    return LiteU32(p) | ((unsigned long long)LiteU32(p + 4) << 32);
+}
+
+static inline int LiteBytesEqual(const unsigned char *a, const unsigned char *b, unsigned int size)
+{
+    for (unsigned int i = 0; i < size; ++i)
+        if (a[i] != b[i]) return 0;
+    return 1;
+}
+
+static inline int LiteIsHeader(const unsigned char *p)
+{
+    static const unsigned char disk[16] = {
+        @DISK_GUID@
+    };
+    return LiteBytesEqual(p, (const unsigned char *)"EFI PART", 8) &&
+           LiteBytesEqual(p + 56, disk, 16) && LiteU64(p + 24) == 1 &&
+           LiteU64(p + 32) == LITE_CARD_BYTES / 512 - 1 &&
+           LiteU64(p + 72) == 2 && LiteU32(p + 80) == 11 && LiteU32(p + 84) == 128;
+}
+
+static inline int LiteIsPartition(const unsigned char *sector4)
+{
+    /* GPT slot 11 starts 256 bytes into sector 4. */
+    static const unsigned char typeAndId[32] = {
+        @TYPE_AND_GUID@
+    };
+    const unsigned char *p = sector4 + 256;
+    return LiteBytesEqual(p, typeAndId, 32) && LiteU64(p + 32) == WINARM_FIRST &&
+           LiteU64(p + 40) == WINARM_FIRST + WINARM_COUNT - 1;
+}
+
+static inline int LiteIsBootSector(const unsigned char *p)
+{
+    return LiteBytesEqual(p + 3, (const unsigned char *)"NTFS    ", 8) &&
+           p[11] == 0 && p[12] == 2 && p[13] == 8 && p[510] == 0x55 && p[511] == 0xaa &&
+           LiteU32(p + 28) == WINARM_FIRST && LiteU64(p + 40) == WINARM_COUNT - 1 &&
+           LiteU64(p + 72) == WINARM_SERIAL;
+}
+
+#ifdef FAT32_FIRST
+static inline int LiteIsFatBootSector(const unsigned char *p)
+{
+    unsigned int sectors = LiteU32(p + 32);
+    return p[11] == 0 && p[12] == 2 && p[13] != 0 &&
+           (p[13] & (p[13] - 1)) == 0 && p[17] == 0 && p[18] == 0 &&
+           p[22] == 0 && p[23] == 0 && LiteU32(p + 28) == FAT32_FIRST &&
+           sectors != 0 && sectors <= FAT32_COUNT && LiteU32(p + 36) != 0 &&
+           LiteBytesEqual(p + 82, (const unsigned char *)"FAT32   ", 8) &&
+           p[510] == 0x55 && p[511] == 0xaa;
+}
+#endif
+
+/* Project WINARM as the active first entry. Both BL33 and the miniport use
+ * this function. The physical MBR stays on the card. */
+static inline int LiteSelectWindowsPartition(unsigned char *sector)
+{
+    static const unsigned char original[70] = {
+        @MBR_TAIL@
+    };
+    if (sector[510] != 0x55 || sector[511] != 0xaa ||
+        !LiteBytesEqual(sector + 440, original, sizeof(original))) return 0;
+    for (unsigned int i = 0; i < 16; ++i) {
+#ifdef FAT32_FIRST
+        sector[462 + i] = sector[446 + i];
+#else
+        sector[462 + i] = 0;
+#endif
+        sector[446 + i] = sector[494 + i];
+    }
+    sector[446] = 0x80;
+    sector[462] = 0;
+    for (unsigned int i = 478; i < 510; ++i) sector[i] = 0;
+    return 1;
+}
+#endif

@@ -1,0 +1,25 @@
+; The complete list of ntoskrnl.exe functions gm20b.sys imports.  win/tests/verify_pe.py fails the build if the
+; linked driver imports anything that is not listed here (every one of them is a documented WDK routine).
+LIBRARY ntoskrnl.exe
+EXPORTS
+ZwCreateFile
+ZwWriteFile
+ZwClose
+ZwFlushBuffersFile
+ZwOpenKey
+ZwQueryValueKey
+ZwSetValueKey
+ZwFlushKey
+MmMapIoSpaceEx
+MmUnmapIoSpace
+MmAllocateContiguousMemorySpecifyCache
+MmFreeContiguousMemory
+MmGetPhysicalAddress
+KeStallExecutionProcessor
+KeDelayExecutionThread
+KeQueryPerformanceCounter
+IoCreateDevice
+IoDeleteDevice
+IoCreateSymbolicLink
+IoDeleteSymbolicLink
+IofCompleteRequest

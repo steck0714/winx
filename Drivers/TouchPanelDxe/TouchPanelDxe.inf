@@ -39,8 +39,8 @@
 [Protocols]
   gEfiAbsolutePointerProtocolGuid
   gEfiDevicePathProtocolGuid
+  gEfiSimplePointerProtocolGuid
   gPmicProtocolGuid
-  gTegraPinMuxProtocolGuid
 
 [Depex]
-  gPmicProtocolGuid AND gTegraPinMuxProtocolGuid
+  gPmicProtocolGuid

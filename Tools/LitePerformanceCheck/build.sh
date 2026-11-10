@@ -4,7 +4,7 @@
 set -eu
 root=${MINGW_SYSROOT:?pass the mingw-w64 header sysroot}
 src=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
-drivers=${DRIVERS_ROOT:-$src/../../WindowsDrivers/drivers}
+drivers=${DRIVERS_ROOT:-$src/../../WindowsDrivers/t214/Hoag/drivers}
 cc=${CLANG:-clang}
 link=${LLD_LINK:-lld-link}
 export LLVM_DLLTOOL=${LLVM_DLLTOOL:-llvm-dlltool}

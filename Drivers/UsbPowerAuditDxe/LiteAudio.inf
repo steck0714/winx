@@ -8,6 +8,7 @@
 
 [Sources.common]
   UsbPowerAudit.c
+  WinXAudioOutput.h
   t214/audio-pads.h
 
 [Packages]
@@ -33,6 +34,7 @@
   NonDiscoverableDeviceRegistrationLib
 
 [Protocols]
+  gWinXAudioOutputProtocolGuid
   gPmicProtocolGuid
   gEfiSimpleTextOutProtocolGuid
   gEdkiiNonDiscoverableDeviceProtocolGuid

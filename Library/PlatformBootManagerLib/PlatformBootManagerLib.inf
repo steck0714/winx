@@ -36,6 +36,12 @@
   LiteHomeBoot.c
   SwitchBootMenu.c
   SwitchBootMenu.h
+  SwitchBootEntries.c
+  SwitchBootEntries.h
+  SwitchScreenshot.c
+  SwitchScreenshot.h
+  SwitchVisuals.c
+  SwitchVisuals.h
   ../../Platforms/Switch/SwitchBoardDetect.h
   WifiPrepareBoot.c
   LiteGpuPowerCheck.c
@@ -51,6 +57,7 @@
   BaseMemoryLib
   CacheMaintenanceLib
   BootLogoLib
+  BmpSupportLib
   CapsuleLib
   DebugLib
   DevicePathLib
@@ -89,13 +96,18 @@
   gUefiShellFileGuid
 
 [Protocols]
+  gWinXJoyConInputProtocolGuid
   gEfiAbsolutePointerProtocolGuid
+  gEfiSimplePointerProtocolGuid
+  gEfiSimpleTextInProtocolGuid
   gWinXMouseCursorProtocolGuid
   gWinXSidebandButtonProtocolGuid
   gEfiBlockIoProtocolGuid
   gEfiPartitionInfoProtocolGuid
   gEfiDevicePathProtocolGuid
   gEfiGraphicsOutputProtocolGuid
+  gEdkiiBootLogo2ProtocolGuid
+  gEfiBootLogoProtocolGuid
   gEfiLoadedImageProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
   gEfiSimpleFileSystemProtocolGuid

@@ -10,8 +10,8 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 
 // Compile the canonical backend source from the driver submodule, not a copy.
-#include "../../WindowsDrivers/drivers/TegraGpu/platform/t214_power.c"
-#include "../../WindowsDrivers/drivers/TegraGpu/core/identity.h"
+#include "../../WindowsDrivers/t214/Hoag/drivers/TegraGpu/platform/t214_power.c"
+#include "../../WindowsDrivers/t214/Hoag/drivers/TegraGpu/core/identity.h"
 #include "LiteGpuI2c.h"
 
 STATIC uint32_t GpuRead32 (void *Context, uint32_t Address)

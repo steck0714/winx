@@ -59,7 +59,7 @@ each experiment writes a log file (`xusb.log`, `wifibt.log`) whose LAST line nam
 
 ## Known caveats
 * **Windows image compatibility is version-specific.** Microsoft's minimum hardware requirements list ARMv8.1 atomic instructions for ARM64, while Arm's Cortex-A57 manual describes the core as Armv8-A. This is a compatibility constraint, not proof that every Windows 11 image fails to boot. The Lite report records Windows 11 build 22631.2861 (23H2); other image versions need their own test. [Microsoft requirements](https://download.microsoft.com/download/7/8/8/788bf5ab-0751-4928-a22c-dffdc23c27f2/Minimum%20Hardware%20Requirements%20for%20Windows%2011.pdf) · [Arm Cortex-A57 manual](https://documentation-service.arm.com/static/5e906b9fc8052b1608760c7b)
-* The ACPI tables now also describe SD, XHC0/EHC0, I2C, touch, battery, fan, RTC and the `SWOA*` devices (see `AcpiTables/Dsdt/Dsdt.asl`); the matching Windows drivers are in `WindowsDrivers/` and mostly unverified.
+* The ACPI tables now also describe SD, XHC0/EHC0, I2C, touch, battery, fan, RTC and the `SWOA*` devices (see `AcpiTables/Dsdt/Dsdt.asl`); Windows source is separated into `WindowsDrivers/t210/Icosa/` and `WindowsDrivers/t214/Hoag/`, with each result still requiring profile-specific validation.
 * After `ExitBootServices` the firmware USB/PD handling stops.
 
 ## Optional feature switches (build options; runtime status must be checked separately)
@@ -71,7 +71,8 @@ Hardware register/clock values below are source-derived or theoretical unless th
 | Switch | Adds | Notes |
 |---|---|---|
 | (always) | `acpiview` shell command | `UefiShellAcpiViewCommandLib` linked into the Shell |
-| `SWITCH_EXT` | USB mouse (`UsbMouseDxe`) + `MouseCursorDxe` (software arrow cursor on the GOP with acceleration, red/blue while left/right button is held, hidden until the first mouse event; the SimplePointer events are shared with the Shell editors/HII, not stolen), `RamDiskDxe` | RAM disks are created from the HII form (UiApp > Device Manager > RAM Disk Configuration); EDK2's shell has no `ramdisk` command |
+| Always included | USB mouse (`UsbMouseDxe`) + `MouseCursorDxe` (software arrow cursor on the GOP with acceleration, red/blue while left/right button is held, hidden until the first mouse event; 250 ms idle polling and shared SimplePointer events), Switch volume/power virtual keyboard, touch Absolute/Simple Pointer | A working USB host controller is still required. The cursor and touch paths need board-specific hardware validation. |
+| `SWITCH_EXT` | `RamDiskDxe` | RAM disks are created from the HII form (UiApp > Device Manager > RAM Disk Configuration); EDK2's shell has no `ramdisk` command |
 | `SWITCH_RTC` | RTC-backed `date` / `time` code path | MAX77620/I2C address and behavior are source-derived; runtime read/write on Switch is unverified. |
 | `SWITCH_NET` | UEFI IPv4 stack (Mnp/Arp/Ip4/Udp4/Dhcp4/Mtftp4), USB NIC drivers CDC-ECM, CDC-NCM, RNDIS, `tftp` | `ifconfig` / `ping` already live in the Shell (Network1 lib); they need a NIC to be useful |
 | `SWITCH_XUSB` | `xusbinit` | see below |
@@ -118,7 +119,7 @@ d11 wrapper 0x18101000, PCIe window 0x13000000, CML0 gate = PLLE_AUX bit0. Firmw
 GPL-2.0-only overall. See `LICENSE` and `NOTICE.winx.md` (components, hekate attribution, redistribution duties).
 
 ## Credits (Windows-for-Switch stack)
-- [hayato41200](https://github.com/hayato41200) — Windows 10 on ARM for the Nintendo Switch: the XUSB/xHCI bring-up, USB-C PD and charging, CPU clock, fan, backlight and touch power code (`Drivers/UsbPowerAuditDxe`), the `SWOA*` ACPI devices, the XhciDxe write-combine patch, and the Windows kernel drivers and SwitchCenter app (`WindowsDrivers/`). Ported into winx as the `SWITCH_WOA` build.
+- [hayato41200](https://github.com/hayato41200) — Windows 10 on ARM for the Nintendo Switch: the XUSB/xHCI bring-up, USB-C PD and charging, CPU clock, fan, backlight and touch power code (`Drivers/UsbPowerAuditDxe`), the `SWOA*` ACPI devices, the XhciDxe write-combine patch, and the T210 Windows kernel driver snapshot and SwitchCenter app (`WindowsDrivers/t210/Icosa/`). Ported into winx as the `SWITCH_WOA` build. T214 Hoag drivers are credited separately in [NOTICE.winx.md](NOTICE.winx.md).
   - [hayato41200/Windows-for-Switch](https://github.com/hayato41200/Windows-for-Switch) — UEFI / DSDT / bring-up notes (GPL-2.0).
   - [hayato41200/Windows-for-Switch-Drivers](https://github.com/hayato41200/Windows-for-Switch-Drivers) — Windows drivers and SwitchCenter (GPL-2.0).
 

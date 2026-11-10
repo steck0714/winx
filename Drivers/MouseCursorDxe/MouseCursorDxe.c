@@ -25,8 +25,10 @@
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Protocol/DevicePath.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/SimplePointer.h>
+#include <Device/TouchPanel.h>
 #include "SwitchMouseCursor.h"
 
 #define CUR_W          12
@@ -79,6 +81,7 @@ STATIC UINT32                        mTick;
 STATIC EFI_HANDLE                    mCursorProtocolHandle;
 STATIC EFI_EVENT                     mCursorChangeEvent;
 STATIC WINX_MOUSE_CURSOR_PROTOCOL    mCursorProtocol;
+STATIC EFI_GUID                     mTouchDeviceGuid = PLAT_TOUCH_DEVICE_GUID;
 
 // One record per hooked EFI_SIMPLE_POINTER_PROTOCOL instance.
 typedef EFI_STATUS (EFIAPI *GET_STATE)(EFI_SIMPLE_POINTER_PROTOCOL *This, EFI_SIMPLE_POINTER_STATE *State);
@@ -94,6 +97,34 @@ typedef struct {
 } MOUSE_REC;
 
 STATIC MOUSE_REC  mRec[MAX_MICE];
+
+STATIC
+BOOLEAN
+IsTouchPointerHandle (
+  IN EFI_HANDLE  Handle
+  )
+{
+  EFI_DEVICE_PATH_PROTOCOL  *DevicePath;
+  EFI_DEVICE_PATH_PROTOCOL  *Node;
+  VENDOR_DEVICE_PATH        *Vendor;
+
+  if (EFI_ERROR (gBS->HandleProtocol (Handle, &gEfiDevicePathProtocolGuid, (VOID **)&DevicePath)) ||
+      DevicePath == NULL)
+  {
+    return FALSE;
+  }
+
+  for (Node = DevicePath; Node->Type != END_DEVICE_PATH_TYPE; Node = NextDevicePathNode (Node)) {
+    if ((Node->Type == HARDWARE_DEVICE_PATH) && (Node->SubType == HW_VENDOR_DP)) {
+      Vendor = (VENDOR_DEVICE_PATH *)Node;
+      if (CompareGuid (&Vendor->Guid, &mTouchDeviceGuid)) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
+}
 
 STATIC EFI_STATUS
 EFIAPI
@@ -310,7 +341,7 @@ PollMouse (
   )
 {
   EFI_HANDLE                   *Handles;
-  UINTN                        Count, I;
+  UINTN                        Count, MouseCount, I;
   EFI_SIMPLE_POINTER_PROTOCOL  *Sp;
   EFI_SIMPLE_POINTER_STATE     St;
   MOUSE_REC                    *R;
@@ -343,12 +374,9 @@ PollMouse (
 
   Handles = NULL;
   Count   = 0;
+  MouseCount = 0;
   if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiSimplePointerProtocolGuid, NULL, &Count, &Handles))) {
     Count = 0;
-  }
-
-  if (mTimer != NULL) {
-    gBS->SetTimer (mTimer, TimerPeriodic, Count == 0 ? IDLE_POLL_100NS : POLL_100NS);
   }
 
   // Hook new instances, forget the ones that went away.
@@ -357,9 +385,16 @@ PollMouse (
   }
 
   for (I = 0; I < Count; I++) {
+    // TouchPanelDxe also publishes a SimplePointer view for other EFI apps. The WinX menu
+    // already consumes its AbsolutePointer protocol directly; drawing a second cursor for
+    // the same touch would generate duplicate click events.
+    if (IsTouchPointerHandle (Handles[I])) {
+      continue;
+    }
     if (EFI_ERROR (gBS->HandleProtocol (Handles[I], &gEfiSimplePointerProtocolGuid, (VOID **)&Sp))) {
       continue;
     }
+    ++MouseCount;
 
     R = RecFind (Sp);
     if (R == NULL) {
@@ -384,6 +419,10 @@ PollMouse (
 
   if (Handles != NULL) {
     FreePool (Handles);
+  }
+
+  if (mTimer != NULL) {
+    gBS->SetTimer (mTimer, TimerPeriodic, MouseCount == 0 ? IDLE_POLL_100NS : POLL_100NS);
   }
 
   for (I = 0; I < MAX_MICE; I++) {

@@ -1,0 +1,202 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+title Switch Lite - WINARM R3
+color 1F
+set "work=X:\Windows\Temp\winarm-probe"
+if not exist "%work%\" mkdir "%work%"
+echo Initializing Windows PE...
+wpeinit
+set "initrc=%errorlevel%"
+cls
+echo SWITCH LITE / WINARM R3 / WRITE AND COLD READ
+set "reason=TARGET NTFS VOLUME NOT FOUND"
+set "vol="
+for /l %%I in (1,1,12) do (
+    for %%D in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do if not defined vol if exist %%D:\. call :identify %%D:
+    if defined vol goto found
+    if %%I==1 (
+        pnputil /scan-devices >"%work%\scan.txt" 2>&1
+        >"%work%\rescan.txt" echo rescan
+        diskpart /s "%work%\rescan.txt" >"%work%\rescan-log.txt" 2>&1
+    )
+    if %%I LSS 12 ping -n 3 127.0.0.1 >nul
+)
+goto failed
+
+:identify
+vol %1 >"%work%\vol.txt" 2>nul
+%SystemRoot%\System32\find.exe /i "WINARM" "%work%\vol.txt" >nul
+if errorlevel 1 exit /b
+fsutil fsinfo ntfsinfo %1 >"%work%\ntfs.txt" 2>nul
+if errorlevel 1 exit /b
+%SystemRoot%\System32\find.exe /i "@NTFS_SERIAL_HEX@" "%work%\ntfs.txt" >nul
+if not errorlevel 1 set "vol=%1"
+exit /b
+
+:found
+echo WINARM NTFS matched on %vol%
+set "folder=%vol%\LITE-WINARM-V1"
+set "marker=%folder%\PERSIST.TXT"
+set "pad=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab"
+if exist "%marker%" goto existing
+set "reason=TEST DIRECTORY ALREADY EXISTS OR CREATE FAILED"
+if exist "%folder%\" goto failed
+mkdir "%folder%" || goto failed
+set "a=00000%random%"
+set "b=00000%random%"
+set "receipt=%a:~-5%%b:~-5%"
+>"%work%\this-boot.txt" echo(%receipt%
+>"%work%\source.txt" (
+    for /l %%I in (0,1,63) do (
+        set "num=0%%I"
+        echo(WINARM-V1-!receipt!-!num:~-2!-!pad!
+    )
+)
+set "reason=LOCAL MARKER SIZE ERROR"
+for %%F in ("%work%\source.txt") do if not "%%~zF"=="4096" goto failed
+set "reason=FILE WRITE OR RENAME FAILED"
+copy /b "%work%\source.txt" "%folder%\PERSIST.NEW" >nul || goto failed
+ren "%folder%\PERSIST.NEW" PERSIST.TXT || goto failed
+set "reason=NTFS DISMOUNT FAILED"
+fsutil volume dismount %vol% >"%work%\dismount.txt" 2>&1 || goto failed
+set "reason=READBACK OR RECEIPT MISMATCH"
+call :check || goto failed
+if not "!observed!"=="!receipt!" goto failed
+echo Receipt !observed!
+echo WRITE + FLUSH + READ OK
+echo After shutdown, boot Lite WINARM Write Test again.
+goto off
+
+:existing
+set "reason=EXISTING MARKER SIZE OR CONTENT ERROR"
+call :check || goto failed
+echo Receipt !observed!
+if exist "%work%\this-boot.txt" (
+    echo SAME PE SESSION - POWER CYCLE REQUIRED
+) else (
+    echo COLD READ OK - WINARM PERSISTENCE PASS
+    echo Photograph the result and receipt.
+)
+goto off
+
+:check
+if not exist "%marker%" exit /b 1
+for %%F in ("%marker%") do if not "%%~zF"=="4096" exit /b 1
+set "first="
+set /p "first="<"%marker%"
+set "observed=!first:~10,10!"
+if "!observed:~9,1!"=="" exit /b 1
+for /f "delims=0123456789" %%J in ("!observed!") do exit /b 1
+set /a lines=0 >nul
+set "invalid="
+for /f "usebackq delims=" %%L in ("%marker%") do (
+    set "num=0!lines!"
+    if not "%%L"=="WINARM-V1-!observed!-!num:~-2!-!pad!" set "invalid=1"
+    set /a lines+=1 >nul
+)
+if defined invalid exit /b 1
+if not !lines!==64 exit /b 1
+exit /b 0
+
+:failed
+cls
+echo SWITCH LITE / WINARM R3
+echo TEST STOPPED - !reason!
+echo PE clock %date% %time%    WpeInit !initrc!
+call :dev "ACPI\NVDA0101" Host
+call :dev "SD\CLASS_STORAGE" Card
+set "svc=none"
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\NVDA0101" /s /v Service >"%work%\svc.txt" 2>nul
+for /f "usebackq tokens=1,2,*" %%A in ("%work%\svc.txt") do if /i "%%A"=="Service" set "svc=%%C"
+echo Driver service  !svc!
+set "cmds=-"
+set "last=-"
+set "blocks=-"
+set "writes=-"
+set "ok42=-"
+set "denied=-"
+set "dcmd=-"
+set "darg=-"
+set "dshape=-"
+set "bw=-"
+set "facts=-"
+set "issued=-"
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\nvtsdhc\Parameters\Diag" >"%work%\diag.txt" 2>nul
+for /f "usebackq tokens=1,2,3" %%A in ("%work%\diag.txt") do (
+    if /i "%%A"=="App42Done" set "ok42=%%C"
+    if /i "%%A"=="DeniedCount" set "denied=%%C"
+    if /i "%%A"=="LastDenied" set "dcmd=%%C"
+    if /i "%%A"=="DeniedArg" set "darg=%%C"
+    if /i "%%A"=="DeniedShape" set "dshape=%%C"
+    if /i "%%A"=="BusWidth" set "bw=%%C"
+    if /i "%%A"=="TargetFacts" set "facts=%%C"
+    if /i "%%A"=="LastCommand" set "issued=%%C"
+    if /i "%%A"=="Commands" set "cmds=%%C"
+    if /i "%%A"=="LastErrorCommand" set "last=%%C"
+    if /i "%%A"=="BlocksRead" set "blocks=%%C"
+    if /i "%%A"=="BlocksWritten" set "writes=%%C"
+)
+echo SD commands !cmds!  last !issued!  error !last!  blocks R !blocks! W !writes!
+echo ACMD42 done !ok42!  bus width !bw!  identity bits !facts!
+echo Denied !denied!  cmd !dcmd!  arg !darg!  shape !dshape!
+>"%work%\list.txt" echo list disk
+>>"%work%\list.txt" echo list volume
+diskpart /s "%work%\list.txt" >"%work%\disks.txt" 2>&1
+set "carddisk="
+set /a disks=0,volumes=0 >nul
+for /f "usebackq tokens=1,2,3,4,5,*" %%A in ("%work%\disks.txt") do (
+    if /i "%%A"=="Disk" if not "%%B"=="###" (
+        set /a disks+=1 >nul
+        echo Disk %%B %%C %%D %%E
+        if "%%D %%E"=="953 GB" set "carddisk=%%B"
+    )
+    if /i "%%A"=="Volume" if not "%%B"=="###" (
+        set /a volumes+=1 >nul
+        echo Volume %%B %%C %%D %%E %%F
+    )
+)
+echo Disks !disks!  Volumes !volumes!
+if defined carddisk (
+    >"%work%\parts.txt" echo select disk !carddisk!
+    >>"%work%\parts.txt" echo list partition
+    diskpart /s "%work%\parts.txt" >"%work%\plist.txt" 2>&1
+    set /a parts=0 >nul
+    for /f "usebackq tokens=1,2,3,4,5,*" %%A in ("%work%\plist.txt") do if /i "%%A"=="Partition" if not "%%B"=="###" (
+        set /a parts+=1 >nul
+        if "%%D %%E"=="80 GB" echo 80 GiB partition %%B at %%F
+    )
+    echo Partitions on SD !parts!
+)
+echo Photograph this screen.
+goto off
+
+:dev
+set "status=not listed"
+set "inf=-"
+set "pc="
+set "ps="
+pnputil /enum-devices /deviceid "%~1" >"%work%\pnp.txt" 2>&1
+for /f "usebackq tokens=1,* delims=:" %%A in ("%work%\pnp.txt") do (
+    if /i "%%A"=="Status" set "status=%%B"
+    if /i "%%A"=="Driver Name" set "inf=%%B"
+    if /i "%%A"=="Problem Code" set "pc=%%B"
+    if /i "%%A"=="Problem Status" set "ps=%%B"
+)
+echo %~2 !status!   !inf!
+if defined pc echo   Problem !pc! !ps!
+exit /b 0
+
+:off
+if defined vol (
+    fsutil volume dismount !vol! >"%work%\last-dismount.txt" 2>&1
+    if not errorlevel 1 echo WINARM dismounted.
+)
+<nul set /p "=Shutdown countdown  "
+for %%S in (30 25 20 15 10 5) do (
+    title Switch Lite WINARM R3 - %%S seconds
+    <nul set /p "=%%S  "
+    ping -n 6 -w 500 127.0.0.1 >nul 2>&1
+)
+echo(
+echo SHUTDOWN REQUESTED
+wpeutil shutdown

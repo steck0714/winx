@@ -1,0 +1,12 @@
+; kernel32.dll functions gm20bctl.exe imports (no CRT).  Checked by win/tests/verify_pe.py.
+LIBRARY KERNEL32.dll
+EXPORTS
+CreateFileA
+ReadFile
+WriteFile
+CloseHandle
+GetStdHandle
+DeviceIoControl
+GetCommandLineA
+GetLastError
+ExitProcess

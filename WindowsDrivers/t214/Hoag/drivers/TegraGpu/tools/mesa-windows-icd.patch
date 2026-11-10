@@ -1,0 +1,451 @@
+--- a/meson.build
++++ b/meson.build
+@@ -2168,7 +2168,7 @@
+   pre_args += '-DUSE_LIBELF'
+ elif with_gallium_radeonsi and with_gfx_compute
+   error('Gallium driver radeonsi requires libelf')
+-elif with_nouveau_vk and not with_platform_switch
++elif with_nouveau_vk and not with_platform_switch and not with_platform_windows
+   error('NVK requires libelf')
+ endif
+ 
+--- a/src/nouveau/meson.build
++++ b/src/nouveau/meson.build
+@@ -2,8 +2,12 @@
+ # SPDX-License-Identifier: MIT
+ 
+ subdir('headers')
+-subdir('drm')
+-subdir('winsys')
++if with_platform_windows
++  idep_nouveau_ws = declare_dependency()
++else
++  subdir('drm')
++  subdir('winsys')
++endif
+ if with_platform_switch
+   subdir('horizon')
+ endif
+--- a/src/nouveau/compiler/nak_bindings.h
++++ b/src/nouveau/compiler/nak_bindings.h
+@@ -4,6 +4,8 @@
+  */
+ 
+ #include "nak_private.h"
++
++#ifndef _WIN32
+ 
+ #include "nouveau_bo.h"
+ #include "nouveau_context.h"
+@@ -18,3 +20,5 @@
+ enum ENUM_PACKED drm_rs_ioctls {
+    DRM_RS_IOCTL(NOUVEAU_EXEC),
+ };
++
++#endif
+--- a/src/nouveau/vulkan/meson.build
++++ b/src/nouveau/vulkan/meson.build
+@@ -94,6 +94,12 @@
+     'nvkmd/switch/nvkmd_switch_dev.c',
+     'nvkmd/switch/nvkmd_switch_pdev.c',
+   )
++elif with_platform_windows
++  nvk_files += files(
++    'nvkmd/windows/nvkmd_windows.c',
++    'nvkmd/windows/nvkmd_windows_queue.c',
++    'nvkmd/windows/kmt.c',
++  )
+ else
+   nvk_files += files(
+     'nvkmd/nouveau/nvkmd_nouveau.h',
+@@ -309,8 +315,17 @@
+     requires_private : ['libelf', 'expat', 'zlib', 'libzstd'],
+   )
+ else
++  nvk_shared_kwargs = {}
++  if with_platform_windows
++    nvk_shared_kwargs += {
++      'vs_module_defs' : 'nvkmd/windows/nvk_windows.def',
++      'objects' : files('nvkmd/windows/kmt-native.obj'),
++      'dependencies' : cc.find_library('gdi32'),
++    }
++  endif
+   libvulkan_nouveau = shared_library(
+     'vulkan_nouveau',
++    kwargs : nvk_shared_kwargs,
+     link_whole : [libnvk],
+     link_args: [ld_args_build_id, ld_args_bsymbolic, ld_args_gc_sections],
+     gnu_symbol_visibility : 'hidden',
+--- a/src/nouveau/vulkan/nvkmd/nvkmd.c
++++ b/src/nouveau/vulkan/nvkmd/nvkmd.c
+@@ -4,10 +4,10 @@
+  */
+ 
+ #include "nvkmd.h"
+-#ifndef HAVE_SWITCH_PLATFORM
++#ifdef HAVE_SWITCH_PLATFORM
++#include "switch/nvkmd_switch.h"
++#elif !defined(_WIN32)
+ #include "nouveau/nvkmd_nouveau.h"
+-#else
+-#include "switch/nvkmd_switch.h"
+ #endif
+ #include "nv_push.h"
+ #include "util/cache_ops.h"
+@@ -86,7 +86,7 @@
+    simple_mtx_init(&mem->map_mutex, mtx_plain);
+ }
+ 
+-#ifndef HAVE_SWITCH_PLATFORM
++#if !defined(HAVE_SWITCH_PLATFORM) && !defined(_WIN32)
+ VkResult
+ nvkmd_try_create_pdev_for_drm(struct _drmDevice *drm_device,
+                               struct vk_object_base *log_obj,
+@@ -159,7 +159,7 @@
+    assert(!(map_flags & NVKMD_MEM_MAP_FIXED));
+    result = nvkmd_mem_map(mem, log_obj, map_flags, NULL, NULL);
+    if (result != VK_SUCCESS) {
+-      mem->ops->free(mem);
++      nvkmd_mem_unref(mem);
+       return result;
+    }
+
+@@ -439,7 +439,6 @@
+       simple_mtx_lock(&mem->map_mutex);
+
+       assert((mem->map_cnt == 0) == (mem->map == NULL));
+-      mem->map_cnt++;
+
+       VkResult result = VK_SUCCESS;
+       if (mem->map == NULL) {
+@@ -453,6 +452,8 @@
+       } else {
+          map = mem->map;
+       }
++      if (result == VK_SUCCESS)
++         mem->map_cnt++;
+
+       simple_mtx_unlock(&mem->map_mutex);
+
+--- a/src/nouveau/vulkan/nvk_instance.c
++++ b/src/nouveau/vulkan/nvk_instance.c
+@@ -94,6 +94,10 @@
+    *pPropertyCount = 0;
+    return VK_SUCCESS;
+ }
++
++#ifdef _WIN32
++VkResult nvk_enumerate_windows_physical_devices(struct vk_instance *instance);
++#endif
+ 
+ #ifdef __SWITCH__
+ static VkResult
+@@ -203,6 +207,9 @@
+ #ifdef __SWITCH__
+    instance->vk.physical_devices.enumerate =
+       nvk_enumerate_switch_physical_devices;
++#elif defined(_WIN32)
++   instance->vk.physical_devices.enumerate =
++      nvk_enumerate_windows_physical_devices;
+ #else
+    instance->vk.physical_devices.try_create_for_drm =
+       nvk_create_drm_physical_device;
+--- a/src/nouveau/vulkan/nvk_physical_device.c
++++ b/src/nouveau/vulkan/nvk_physical_device.c
+@@ -16,7 +16,11 @@
+ #include "nvk_shader.h"
+ #include "nvk_wsi.h"
+ #include "nvkmd/nvkmd.h"
++#ifdef _WIN32
++#include "nvkmd/windows/nvkmd_windows.h"
++#else
+ #include "nvkmd/nouveau/nvkmd_nouveau.h"
++#endif
+ #include "git_sha1.h"
+ #include "util/detect_os.h"
+ #include "util/disk_cache.h"
+@@ -32,7 +36,7 @@
+ #include "vk_shader_module.h"
+ #include "vulkan/wsi/wsi_common.h"
+
+-#ifndef __SWITCH__
++#if !defined(__SWITCH__) && !defined(_WIN32)
+ #include <sys/sysmacros.h>
+ #else
+ /* Switch has no DRM device files; render_dev/primary_dev are always 0,
+@@ -130,7 +134,7 @@
+       .KHR_16bit_storage = true,
+       .KHR_bind_memory2 = true,
+       .KHR_buffer_device_address = true,
+-      .KHR_calibrated_timestamps = true,
++      .KHR_calibrated_timestamps = !DETECT_OS_WINDOWS,
+       .KHR_compute_shader_derivatives = info->cls_eng3d >= TURING_A,
+       .KHR_cooperative_matrix = info->cls_eng3d >= TURING_A,
+       .KHR_copy_commands2 = true,
+@@ -231,9 +235,9 @@
+       .EXT_attachment_feedback_loop_layout = true,
+       .EXT_border_color_swizzle = true,
+       .EXT_buffer_device_address = true,
+-      .EXT_calibrated_timestamps = true,
++      .EXT_calibrated_timestamps = !DETECT_OS_WINDOWS,
+       .EXT_conditional_rendering = true,
+-      .EXT_conservative_rasterization = info->cls_eng3d >= MAXWELL_B,
++      .EXT_conservative_rasterization = !DETECT_OS_WINDOWS && info->cls_eng3d >= MAXWELL_B,
+       .EXT_color_write_enable = true,
+       .EXT_custom_border_color = true,
+       .EXT_debug_marker = true,
+@@ -285,7 +289,7 @@
+       .EXT_pipeline_creation_cache_control = true,
+       .EXT_pipeline_creation_feedback = true,
+       .EXT_pipeline_robustness = true,
+-      .EXT_physical_device_drm = true,
++      .EXT_physical_device_drm = !DETECT_OS_WINDOWS,
+       .EXT_post_depth_coverage = info->cls_eng3d >= MAXWELL_B,
+ #ifdef NVK_USE_WSI_PLATFORM
+       .EXT_present_timing = true,
+@@ -348,10 +352,8 @@
+ static bool
+ nvk_sparse_binding_supported(const struct nv_device_info *info)
+ {
+-#ifdef __SWITCH__
+-   /* Switch has no ctx_bind implementation; disable sparse features until
+-    * vkQueueBindSparse can be supported.
+-    */
++#if defined(__SWITCH__) || defined(_WIN32)
++   /* Sparse page replacement is unavailable on these backends. */
+    (void)info;
+    return false;
+ #else
+@@ -993,7 +995,7 @@
+       .sampledImageStencilSampleCounts = sample_counts,
+       .storageImageSampleCounts = sample_counts,
+       .maxSampleMaskWords = 1,
+-      .timestampComputeAndGraphics = true,
++      .timestampComputeAndGraphics = !DETECT_OS_WINDOWS,
+       /* FIXME: Is timestamp period actually 1? */
+       .timestampPeriod = 1.0f,
+       .maxClipDistances = 8,
+@@ -1587,6 +1589,14 @@
+
+    struct vk_properties properties;
+    nvk_get_device_properties(instance, &nvkmd->dev_info, &properties);
++#ifdef _WIN32
++   const struct tg_gpu_adapter_info *adapter = nvkmd_windows_adapter(nvkmd);
++   memcpy(properties.deviceLUID, &adapter->luid_low, sizeof(adapter->luid_low));
++   memcpy(properties.deviceLUID + sizeof(adapter->luid_low), &adapter->luid_high,
++          sizeof(adapter->luid_high));
++   properties.deviceLUIDValid = VK_TRUE;
++   properties.deviceNodeMask = 1;
++#endif
+
+    if (nvkmd->drm.render_dev) {
+       properties.drmHasRender = true;
+@@ -1623,6 +1633,9 @@
+    uint64_t heap_size =
+       os_get_gpu_heap_size(instance->drirc.misc.heap_memory_percent,
+                            &instance->drirc.misc.heap_memory_percent);
++#ifdef _WIN32
++   heap_size = MIN2(heap_size, adapter->memory_budget_bytes);
++#endif
+    if (heap_size == 0) {
+       result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED,
+                          "Failed to query total system memory");
+@@ -1682,12 +1695,14 @@
+       assert(pdev->mem_heap_count == 1);
+       pdev->mem_heaps[sysmem_heap_idx].flags |= VK_MEMORY_HEAP_DEVICE_LOCAL_BIT;
+
++#ifndef _WIN32
+       pdev->mem_types[pdev->mem_type_count++] = (VkMemoryType) {
+          .propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                           VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+          .heapIndex = sysmem_heap_idx,
+       };
++#endif
+       pdev->mem_types[pdev->mem_type_count++] = (VkMemoryType) {
+          .propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+@@ -1753,6 +1768,7 @@
+ }
+
+ #ifndef HAVE_SWITCH_PLATFORM
++#ifndef _WIN32
+ VkResult
+ nvk_create_drm_physical_device(struct vk_instance *_instance,
+                                struct _drmDevice *drm_device,
+@@ -1769,6 +1785,8 @@
+
+    return nvk_create_physical_device_from_nvkmd(instance, nvkmd, pdev_out);
+ }
++#endif
++
+ #endif
+
+ void
+@@ -1992,7 +2010,7 @@
+          if (queue_family->queue_flags &
+              (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT |
+               VK_QUEUE_TRANSFER_BIT)) {
+-            p->queueFamilyProperties.timestampValidBits = 64;
++            p->queueFamilyProperties.timestampValidBits = DETECT_OS_WINDOWS ? 0 : 64;
+          } else {
+             p->queueFamilyProperties.timestampValidBits = 0;
+          }
+--- a/src/nouveau/vulkan/nvk_device.c
++++ b/src/nouveau/vulkan/nvk_device.c
+@@ -363,7 +363,7 @@
+       dev->vk.get_timestamp = nvk_device_get_timestamp;
+ #ifdef __SWITCH__
+       dev->vk.copy_sync_payloads = nvkmd_switch_sync_copy_payloads;
+-#else
++#elif !defined(_WIN32)
+       dev->vk.copy_sync_payloads = vk_drm_syncobj_copy_payloads;
+ #endif
+ 
+--- a/src/nouveau/vulkan/nvk_descriptor_table.c
++++ b/src/nouveau/vulkan/nvk_descriptor_table.c
+@@ -7,11 +7,6 @@
+ #include "nvk_device.h"
+ #include "nvk_physical_device.h"
+ 
+-#ifndef __SWITCH__
+-#include <sys/mman.h>
+-#else
+-#include <util/switch_mman.h>
+-#endif
+ 
+ static VkResult
+ nvk_descriptor_table_grow_locked(struct nvk_device *dev,
+--- a/src/nouveau/vulkan/nvk_device_memory.c
++++ b/src/nouveau/vulkan/nvk_device_memory.c
+@@ -16,11 +16,6 @@
+ #include "util/u_atomic.h"
+ 
+ #include <inttypes.h>
+-#ifndef __SWITCH__
+-#include <sys/mman.h>
+-#else
+-#include <util/switch_mman.h>
+-#endif
+ 
+ /* Supports opaque fd only */
+ const VkExternalMemoryProperties nvk_opaque_fd_mem_props = {
+@@ -213,6 +208,7 @@
+       }
+ #else
+       mem->dedicated_image = image;
++#ifndef _WIN32
+       if (image->vk.tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT &&
+           image->vk.drm_format_mod != DRM_FORMAT_MOD_LINEAR) {
+          /* This image might be shared with GL so we need to set the BO flags
+@@ -222,7 +218,9 @@
+          alignment = MAX2(alignment, image->planes[0].nil.align_B);
+          pte_kind = image->planes[0].nil.pte_kind;
+          tile_mode = image->planes[0].nil.tile_mode;
+-      } else if (image->can_compress && not_shared) {
++      } else
++#endif
++      if (image->can_compress && not_shared) {
+          /* If it's a dedicated alloc and it's not modifiers or shared, then
+           * it's marked for compression and larger pages, so we set the pinned
+           * bit and up the alignment.
+--- a/src/nouveau/vulkan/nvk_image.c
++++ b/src/nouveau/vulkan/nvk_image.c
+@@ -1443,16 +1443,18 @@
+       switch (ext->sType) {
+       case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS: {
+          VkMemoryDedicatedRequirements *dedicated = (void *)ext;
+-#ifndef __SWITCH__
++#if !defined(__SWITCH__) && !defined(_WIN32)
+          if (image->vk.tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT &&
+              image->vk.drm_format_mod != DRM_FORMAT_MOD_LINEAR) {
+             dedicated->prefersDedicatedAllocation = true;
+             dedicated->requiresDedicatedAllocation = true;
+          } else if (image->can_compress) {
+-#else
++#elif defined(__SWITCH__)
+          /* No DRM format modifiers on Switch; struct vk_image has no
+           * drm_format_mod field on this platform. */
+          if (image->can_compress && size_B > (1u << 20)) {
++#else
++         if (image->can_compress) {
+ #endif
+             /* We need dedicated allocations as compressed images have to be
+              * pinned to VRAM due to nouveau, and we can't have a separate
+--- a/src/nouveau/vulkan/nvk_format.c
++++ b/src/nouveau/vulkan/nvk_format.c
+@@ -16,6 +16,13 @@
+ #include "cl902d.h"
+ #include "cl9097.h"
+ #include "cl90c0.h"
++
++/* VA_FMT forwards these tokens to a token-pasting macro. Win32 defines
++ * them to integers before the second expansion, breaking class enum names. */
++#ifdef _WIN32
++#undef TRUE
++#undef FALSE
++#endif
+ 
+ bool
+ nvk_format_supports_atomics(const struct nvk_physical_device *pdev,
+--- a/src/nouveau/vulkan/nvk_cmd_draw.c
++++ b/src/nouveau/vulkan/nvk_cmd_draw.c
+@@ -5,6 +5,7 @@
+ #include "nvk_buffer.h"
+ #include "nvk_entrypoints.h"
+ #include "nvk_cmd_buffer.h"
++#include "util/detect_os.h"
+ #include "nvk_device.h"
+ #include "nvk_format.h"
+ #include "nvk_image.h"
+@@ -154,6 +155,9 @@
+    });
+
+    for (uint32_t mme = 0, mme_pos = 0; mme < NVK_MME_COUNT; mme++) {
++      if (DETECT_OS_WINDOWS &&
++          (mme == NVK_MME_SET_PRIV_REG || mme == NVK_MME_SET_CONSERVATIVE_RASTER_STATE))
++         continue;
+       size_t size;
+       uint32_t *dw = nvk_build_mme(&pdev->info, mme, &size);
+       if (dw == NULL)
+@@ -200,7 +204,7 @@
+     * occasionally fail.
+     */
+    /* Horizon does not expose the private-register MME path. */
+-#ifndef HAVE_SWITCH_PLATFORM
++#if !defined(HAVE_SWITCH_PLATFORM) && !defined(_WIN32)
+    if (pdev->info.cls_eng3d >= MAXWELL_B) {
+       unsigned reg = get_sm_disp_ctrl_reg(&pdev->info);
+       P_1INC(p, NV9097, CALL_MME_MACRO(NVK_MME_SET_PRIV_REG));
+@@ -256,7 +260,7 @@
+     *
+     * This clears bit 14 of gr_gpcs_tpcs_sms_hww_warp_esr_report_mask
+     */
+-#ifndef HAVE_SWITCH_PLATFORM
++#if !defined(HAVE_SWITCH_PLATFORM) && !defined(_WIN32)
+    if (pdev->info.cls_eng3d >= MAXWELL_B) {
+       unsigned reg = get_sms_hww_warp_esp_report_mask_reg(&pdev->info);
+       P_1INC(p, NV9097, CALL_MME_MACRO(NVK_MME_SET_PRIV_REG));
+@@ -3216,7 +3220,7 @@
+
+    if (BITSET_TEST(dyn->dirty, MESA_VK_DYNAMIC_RS_CONSERVATIVE_MODE) ||
+        BITSET_TEST(dyn->dirty, MESA_VK_DYNAMIC_RS_EXTRA_PRIMITIVE_OVERESTIMATION_SIZE)) {
+-      if (nvk_cmd_buffer_3d_cls(cmd) < MAXWELL_B) {
++      if (DETECT_OS_WINDOWS || nvk_cmd_buffer_3d_cls(cmd) < MAXWELL_B) {
+          assert(dyn->rs.conservative_mode == VK_CONSERVATIVE_RASTERIZATION_MODE_DISABLED_EXT);
+       } else if (dyn->rs.conservative_mode == VK_CONSERVATIVE_RASTERIZATION_MODE_DISABLED_EXT) {
+          P_IMMD(p, NVB197, SET_CONSERVATIVE_RASTER, ENABLE_FALSE);
+--- a/src/nouveau/vulkan/nvk_cmd_buffer.c
++++ b/src/nouveau/vulkan/nvk_cmd_buffer.c
+@@ -1143,6 +1143,11 @@
+          P_NVC86F_MEM_OP_C(p, { .membar_type = 0 });
+          P_NVC86F_MEM_OP_D(p, { .operation = OPERATION_MEMBAR });
+       } else {
++#ifdef _WIN32
++         /* USERD.Reference belongs to the KMD's retirement packet. */
++         __push_immd(p, last_subchannel, NVB06F_WFI, NVB06F_WFI_SCOPE_ALL);
++#else
+          __push_immd(p, last_subchannel, NV906F_SET_REFERENCE, 0);
++#endif
+       }
+    }
