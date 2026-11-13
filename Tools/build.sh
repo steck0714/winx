@@ -2,7 +2,8 @@
 # One entry point for winx.
 # usage: Tools/build.sh [woa|ehci] [extra build args, e.g. -D SWITCH_FSDRV=1]
 #   woa   (default) hekate boot chain + Windows-for-Switch stack (UsbPowerAuditDxe + XhciDxe + SWOA* ACPI devices).
-#                   Needs Firmware/tegra21x_xusb_firmware (see Firmware/README.md).
+#                   XUSB firmware is read from the SD/ESP at run time (see Firmware/README.md); it is only needed at
+#                   build time with -D EMBED_XUSB_FIRMWARE=TRUE.
 #   ehci            the previous stack (EhciDxeTegra + PciEmulation, XHC0/EHC0 selectable via UBSL): Tools/build-latest.sh.
 # env:
 #   SD=nvtsdhc      describe SDM1 for the Windows-for-Switch nvtsdhc driver (Windows 11 22621+). Leave unset for Windows 10.

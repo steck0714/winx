@@ -174,8 +174,9 @@ READ_LOCK_STATUS   = TRUE
 !endif
   INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
 !ifdef SWITCH_WOA
-  # hayato41200/Windows-for-Switch: board bring-up + stock xHCI. The XUSB firmware is embedded and
-  # found by UsbPowerAuditDxe through GetSectionFromAnyFv (see Firmware/README.md).
+  # hayato41200/Windows-for-Switch: board bring-up + stock xHCI. The XUSB firmware is NOT embedded by default;
+  # UsbPowerAuditDxe reads it from the SD/ESP (see Firmware/README.md). With -D EMBED_XUSB_FIRMWARE=TRUE it is
+  # found through GetSectionFromAnyFv instead.
   INF NintendoSwitchPkg/Drivers/UsbPowerAuditDxe/UsbPowerAudit.inf
   # R392 (hayato41200): embed NVIDIA's firmware only with -D EMBED_XUSB_FIRMWARE=TRUE (private builds);
   # otherwise UsbPowerAuditDxe reads \tegra21x_xusb_firmware from the ESP (FAT volume).
