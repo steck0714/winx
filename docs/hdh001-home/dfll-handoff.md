@@ -37,3 +37,13 @@ Validation: full `LiteHome` ARM64 firmware build with EDK2 `edk2-stable202402`
 The accompanying review bundle records source/archive and binary SHA256s.
 No boot/DFLL/voltage transition on real hardware is claimed. A build-local
 SD dump target header is private and is not part of the source patch.
+
+
+When Windows uses an existing `acpitabl.dat` DSDT override, updating firmware
+alone does not expose the new FAN0 resources. `Tools/add-dfll-to-override.py`
+adds only the seven DFLL memory descriptors to a disassembled FAN0 raw `_CRS`
+buffer, retaining the GPU/display and all other devices. It rejects duplicate
+or overlapping descriptors. Recompile with iasl and preserve the old override
+for recovery. The main integration checked a byte-identical unmodified AML
+roundtrip, then compiled the amended table with a valid length/checksum; it
+adds84 resource bytes. This is an ACPI structure check, not a hardware pass.
