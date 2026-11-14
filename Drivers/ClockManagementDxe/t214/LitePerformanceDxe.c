@@ -120,8 +120,9 @@ LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
     Dfll->CpuSpeedo = MmioRead32 (0x7000F914);
     Dfll->CpuProcessId = Dfll->CpuSpeedo < 1650U ? 0U : 1U;
     Dfll->PmicAddress = Config->PmicAddress;
+    Dfll->ClockMKhz = LiteDfllClockMKhz (MmioRead32 (0x60006050), MmioRead32 (0x6000655C));
     if (Dfll->Sku == 0x83 && Dfll->CpuSpeedo > 0 && Dfll->CpuSpeedo <= 5000U &&
-        Dfll->PmicAddress != 0)
+        Dfll->PmicAddress != 0 && Dfll->ClockMKhz != 0)
       Dfll->Magic = LITE_DFLL_HANDOFF_MAGIC;
     WriteBackDataCacheRange (Dfll, sizeof (*Dfll));
   }

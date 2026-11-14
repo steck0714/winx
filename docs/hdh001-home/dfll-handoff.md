@@ -47,3 +47,12 @@ or overlapping descriptors. Recompile with iasl and preserve the old override
 for recovery. The main integration checked a byte-identical unmodified AML
 roundtrip, then compiled the amended table with a valid length/checksum; it
 adds84 resource bytes. This is an ACPI structure check, not a hardware pass.
+
+
+Private handoff version2 (Fan16): append ClockMKhz, read from OSC_CTRL (the
+Switch Lite's 38.4 MHz crystal encoding5) and SPARE_REG0[3:2]. This supplies the
+clock of WinX's CLK_M-parented I2C5 without extending the kernel MMIO resource
+range or reparenting a bus shared with CPU/GPU PMIC traffic. Older firmware does
+not satisfy the new DFLL availability check; legacy fixed clocks remain usable.
+This revision does not change the existing performance record, EMC policy or
+ACPI/display table. The matched Fan16 + firmware pair requires a normal restart.
