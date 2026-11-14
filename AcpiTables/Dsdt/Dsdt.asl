@@ -936,6 +936,15 @@ DefinitionBlock("DsdtTable.aml", "DSDT", 1, "NVIDIA", "TEGRA210", EFI_ACPI_ARM_O
 #ifdef SWITCH_LITE_PERFORMANCE
                 Memory32Fixed (ReadWrite, 0x60006000, 0x00000100)
                 Memory32Fixed (ReadOnly,  0xA9FB0000, 0x00001000)
+                // DFLL resources are separate so older SwitchFan drivers keep
+                // their existing 0x100-byte PLLX resource and baseline behavior.
+                Memory32Fixed (ReadWrite, 0x70110000, 0x00000300)
+                Memory32Fixed (ReadWrite, 0x6000662C, 0x00000008)
+                Memory32Fixed (ReadWrite, 0x600062F4, 0x00000004)
+                Memory32Fixed (ReadOnly,  0x6000635C, 0x0000000C)
+                Memory32Fixed (ReadWrite, 0x60006438, 0x00000008)
+                Memory32Fixed (ReadWrite, 0x60006448, 0x00000008)
+                Memory32Fixed (ReadOnly,  0x60006128, 0x00000004)
 #endif
 #else
                 Memory32Fixed (ReadWrite, 0x7000A000, 0x00000100)

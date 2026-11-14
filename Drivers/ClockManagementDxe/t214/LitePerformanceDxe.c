@@ -9,6 +9,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/I2cLib.h>
 #include <Tegra214Performance.h>
+#include <Tegra214Dfll.h>
 #include "EmcPolicy.h"
 
 #define ENV_ADDRESS 0xA9FC0000UL
@@ -107,6 +108,23 @@ LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
   Probe31 = i2c_xfer_packet (I2C_5, 0x31, &Register, 1, &CoreReg, 1) != 0;
   Probe33 = i2c_xfer_packet (I2C_5, 0x33, &Register, 1, &CoreReg, 1) != 0;
   Config->PmicAddress = Probe31 != Probe33 ? (Probe31 ? 0x31 : 0x33) : 0;
+  // Publish fused characterization, without enabling DFLL or changing clocks.
+  // The Windows driver validates this record and owns later DFLL transitions.
+  {
+    LITE_DFLL_HANDOFF *Dfll = (LITE_DFLL_HANDOFF *)LITE_DFLL_HANDOFF_ADDRESS;
+    ZeroMem (Dfll, sizeof (*Dfll));
+    Dfll->Version = LITE_DFLL_HANDOFF_VERSION;
+    Dfll->Size = sizeof (*Dfll);
+    Dfll->Hidrev = MmioRead32 (0x70000804);
+    Dfll->Sku = MmioRead32 (0x7000F910) & 0xFF;
+    Dfll->CpuSpeedo = MmioRead32 (0x7000F914);
+    Dfll->CpuProcessId = Dfll->CpuSpeedo < 1650U ? 0U : 1U;
+    Dfll->PmicAddress = Config->PmicAddress;
+    if (Dfll->Sku == 0x83 && Dfll->CpuSpeedo > 0 && Dfll->CpuSpeedo <= 5000U &&
+        Dfll->PmicAddress != 0)
+      Dfll->Magic = LITE_DFLL_HANDOFF_MAGIC;
+    WriteBackDataCacheRange (Dfll, sizeof (*Dfll));
+  }
   Config->BootPllx = MmioRead32 (0x600060E0);
   Config->BootPolicy = MmioRead32 (0x60006020);
   Config->Status = LitePerfBadConfig;
