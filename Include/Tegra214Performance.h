@@ -5,7 +5,7 @@
 #define LITE_PERF_MAGIC   0x4652504CUL
 #define LITE_PERF_VERSION 1
 #define LITE_CPU_KHZ      1996800U
-#define LITE_RAM_KHZ      2100000U
+#define LITE_RAM_KHZ      2500000U
 enum {
   LitePerfDisabled = 0, LitePerfReady = 1, LitePerfBadConfig = 2,
   LitePerfNoBpmp = 3, LitePerfNoEmc = 4, LitePerfNoTiming = 5,

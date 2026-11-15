@@ -123,7 +123,7 @@ for %%N in (%drivers%) do if /i "%%N"=="switchsio" (
  if errorlevel 1 exit /b 1
 )
 if defined component goto installed
-for %%H in (SWOA0402 SWOA0C01) do (
+for %%H in (SWOA0402 SWOA0601 SWOA0C01) do (
  call :device-rebind "%vol%" %%H
  if errorlevel 1 exit /b 1
 )

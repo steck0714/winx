@@ -22,5 +22,12 @@ int main(void)
   assert(LiteEmcRequiredMv(2100000, UINT64_MAX) == 0);
   // A one-Hz crossing must use the next voltage band, not truncate to kHz.
   assert(LiteEmcRequiredMv(2100000, 1065600001ULL) == 650);
+  // Same-device Noble boots with ram_oc=2500000. The conservative boot guard
+  // covers every SoC process bin; Windows later owns process-specific votes.
+  assert(LiteEmcRequiredMv(2500000, 2500000000ULL) == 800);
+  assert(LiteEmcRequiredMv(2500000, 2400000000ULL) == 750);
+  assert(LiteEmcRequiredMv(2500000, 2400000001ULL) == 800);
+  assert(LiteEmcRequiredMv(2500000, 2533000000ULL) == 0);
+  assert(LiteEmcRequiredMv(2500000, 1600000000ULL) == 675);
   return 0;
 }

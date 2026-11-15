@@ -8,7 +8,35 @@ The tested combination was Windows 11 ARM64 23H2 (22631.2861), SwitchBattery **1
 
 The native PMC restart build passed with fan tracing disabled. On 2026-11-09, **BL31 r8** returned a remotely restarted Lite to Windows with Hekate autoboot disabled. The owner confirmed that Windows Restart goes directly to Windows and powering on after Shutdown opens Hekate. R8 remembers the entry Hekate used for the current boot and requests that entry on Restart.
 
-## Current frequency selection
+## Current DVFS integration — 2026-11-15
+
+| Component | Current work / evidence |
+|---|---|
+| CPU/GPU | Seven Noble profiles, independent saved user choice; Handheld first-use/reset default. GPU source remains in mesa-switch-woa |
+| RAM boot | Same-machine Noble request2500000kHz, VDD2=1175mV and VDDQ=640mV; real2500000kHz and four trained points read on Windows |
+| Runtime EMC | Fan33: Noble ACTMON IRQ plus CPU/display bandwidth floors;204000 /1331200 /1600000 /2500000kHz. Native real IRQ, completed transitions and errors0 verified; owner manual testing passed |
+| Firmware contract | BPMP owns three base timings plus one trained OC slot. WinX records exact rounded/readback rate and checks VDD_CORE; FAN0 ACPI supplies ACTMON GSIV77. No invented intermediate timings |
+| Desktop tools | Switch Power saves power/fan independently; Pacecar adds battery net power and50% background transparency |
+| Display | Current .158 + bit14 + fixed UMD/ICD, bidirectional fence and activation5s after logon retained; SC7 disabled |
+
+The first high-RAM installation was restored because the installation script
+required the GPU voltage ACK before enabling the gated GPU. The corrected
+installation-stage predicate accepts only the observed fresh, unchanged,
+fault-free2500MHz boot state with adequate read-back GPU voltage. Fan33 runtime
+readiness was verified after boot16:11:46UTC, and the owner subsequently
+reported completed manual testing and success. Workload duration and individual
+frequency coverage were not specified. The exact Fan32 preceding pairing is
+retained for recovery. Full results and hashes are maintained in
+[the matched-driver record](https://github.com/ruje0504-2/mesa-switch-woa/blob/tgd3d-vulkan/tegra-x1-wddm/docs/DVFS_REVIEWED_20261114.md).
+
+The2500MHz entry is this device's captured Noble configuration, not a universal
+frequency guarantee for all RAM chips. Support comes from actual BPMP training.
+CPU frequency and voltages are still selected from the chip's fuse-derived
+DFLL tables; the boot `cpu_oc=1996800` handoff remains unchanged.
+
+## Historical November13 fixed-frequency selection
+
+
 
 On November 13 the owner selected a lower-frequency GPU/EMC combination and
 kept CPU settings unchanged. The WinX configuration change is limited to

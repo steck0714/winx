@@ -8,7 +8,9 @@
 #include <Library/TimerLib.h>
 
 #define udelay(x) gBS->Stall((x))
-#define get_timer(x) ((GetTimeInNanoSecond(GetPerformanceCounter()) / 1000) - (x))
+/* U-Boot get_timer() and the SD/MMC timeout constants use milliseconds.
+ * Keep timer_get_us() separate for the clock/PLL microsecond deadlines. */
+#define get_timer(x) ((GetTimeInNanoSecond(GetPerformanceCounter()) / 1000000ULL) - (x))
 
 inline UINT64 timer_get_us()
 {

@@ -10,6 +10,7 @@
 #include <Library/I2cLib.h>
 #include <Tegra214Performance.h>
 #include <Tegra214Dfll.h>
+#include <Tegra214Emc.h>
 #include "EmcPolicy.h"
 
 #define ENV_ADDRESS 0xA9FC0000UL
@@ -89,6 +90,31 @@ STATIC EFI_STATUS ReadRate (UINT64 *Rate)
   return Bpmp (MRQ_CLK, &Request, sizeof (Request), Rate, sizeof (*Rate));
 }
 
+STATIC VOID PublishEmcChannel (VOID)
+{
+  LITE_EMC_HANDOFF *Handoff = (LITE_EMC_HANDOFF *)LITE_EMC_HANDOFF_ADDRESS;
+  ZeroMem (Handoff, sizeof (*Handoff));
+  Handoff->Version = LITE_EMC_HANDOFF_VERSION;
+  Handoff->Size = sizeof (*Handoff);
+  Handoff->Hidrev = MmioRead32 (0x70000804);
+  Handoff->Sku = MmioRead32 (0x7000F910) & 0xFF;
+  Handoff->Channel = LITE_EMC_CHANNEL;
+  Handoff->GpuSpeedo = MmioRead32 (0x7000F930);
+  Handoff->SocSpeedo = MmioRead32 (0x7000F934);
+  /* Switchroot mail_t210.c GET handshake: select the threaded channel in
+   * TRIGGER0, then read its own RESULT. Never clear another owner's token.
+   * This records a resource assignment; it sends no EMC clock request.
+   */
+  if (((MmioRead32 (SEMAPHORE) >> (LITE_EMC_CHANNEL * 2)) & 3U) == 2U) {
+    MmioWrite32 (ATOMICS_TRIGGER, (LITE_EMC_CHANNEL << 16) | 4U);
+    MemoryFence ();
+    Handoff->MailAddress = MmioRead32 (ATOMICS_RESULT0 + LITE_EMC_CHANNEL * 4);
+    Handoff->Magic = LITE_EMC_HANDOFF_MAGIC;
+    if (!LiteEmcHandoffValid (Handoff)) Handoff->Magic = 0;
+  }
+  WriteBackDataCacheRange (Handoff, sizeof (*Handoff));
+}
+
 EFI_STATUS EFIAPI
 LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
 {
@@ -133,7 +159,8 @@ LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
   Config->CpuKhz = EnvNumber ("cpu_oc", 0);
   Config->RamKhz = EnvNumber ("ram_oc", 1600000);
   if ((Config->CpuKhz != 0 && Config->CpuKhz != LITE_CPU_KHZ) ||
-      (Config->RamKhz != 1600000 && Config->RamKhz != LITE_RAM_KHZ)) goto Done;
+      (Config->RamKhz != 1600000 && Config->RamKhz != 2100000 && Config->RamKhz != 2133000 &&
+       Config->RamKhz != LITE_RAM_KHZ)) goto Done;
   Config->Status = LitePerfNoBpmp;
   if (!WaitChannel (2)) { mLastBpmp = -110; goto Done; }
   // TRIGGER0 accepts commands; RESULT0 is read-only command output.
@@ -186,6 +213,7 @@ LitePerformanceInitialize (EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTable)
   Config->RamActualKhz = (UINT32)(Rate / 1000);
   Config->Status = Config->RamActualKhz == Config->RamKhz ? LitePerfReady : LitePerfRateMismatch;
 Done:
+  PublishEmcChannel ();
   Config->BpmpError = (UINT32)mLastBpmp;
   Config->Magic = LITE_PERF_MAGIC;
   WriteBackDataCacheRange (Config, sizeof (*Config));
