@@ -515,9 +515,14 @@
   # Version Info
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor|L"Little Moe, LLC."
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"0.01"
-  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch (HAC-001)"
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"NVIDIA Tegra X1"
+!ifdef SWITCH_LITE_TOUCH
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch Lite (HDH-001)"
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"HDH-001"
+!else
+  gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemModel|"Nintendo Switch (HAC-001)"
   gNintendoSwitchPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel|"HAC-001"
+!endif
 
   # Display
   # Simple FrameBuffer
