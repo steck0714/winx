@@ -56,7 +56,9 @@
     "selected_prefix": "switchroot/woa-lite-hdh001-6aadfb2f/",
     "previous_prefix": "switchroot/woa-lite-home/",
     "previous_image_preserved": true,
-    "previous_firmware_entry": "bootloader/ini/zz-woa-lite-previous-r402.ini",
-    "temporary_transfer_removed": true
+    "temporary_transfer_removed": true,
+    "previous_image_has_separate_menu_entry": false,
+    "default_entry_sha256_after_cleanup": "7cf574a6f8db067a9d43a3e21daeec6ba8aa4b2246919f4487f881fe2aaec440",
+    "menu_cleanup_verified_on_boot": 80509
   }
 }
