@@ -1,0 +1,62 @@
+{
+  "platform": "Nintendo Switch Lite, Windows ARM64",
+  "source_commit": "f919fd747a6cdbb4766dcc60183c05bd796142b8",
+  "uefi_profile": "Lite",
+  "previous_firmware_sha256": "7f9457fbe3b4a789ea5eb64533006cea96689b78759608e8f4227cecf457904e",
+  "selected_firmware_sha256": "6aadfb2fd3979532fca1302edfbc276a154aca84aa37481cdbc0476b6083511a",
+  "changed_efi_module_guid": "50a15b6f-e3a9-4192-9640-369cb367c4de",
+  "selected_smbios_pe_sha256": "d447729b3905ace773eb16e1ecb5f69a0908c81fc820f9beb410a9fabf5ffe8e",
+  "unchanged_firmware_volume_members": 56,
+  "reference_repack_matches_original_sd_image": true,
+  "before": {
+    "windows_boot_record": 80251,
+    "smbios": {
+      "bios": "1.09 (winx-r402)",
+      "product": "Nintendo Switch (HAC-001)",
+      "board": "Nintendo Switch (HAC-001)",
+      "sku": "HAC-001"
+    }
+  },
+  "after": {
+    "windows_boot_record": 80338,
+    "registry": {
+      "bios": "1.09 (winx-r402)",
+      "version": "HDH-001",
+      "board": "Nintendo Switch Lite (HDH-001)",
+      "sku": "HDH-001",
+      "product": "Nintendo Switch Lite (HDH-001)"
+    },
+    "wmi": {
+      "version": "HDH-001",
+      "board": "Nintendo Switch Lite (HDH-001)",
+      "name": "Nintendo Switch Lite (HDH-001)",
+      "model": "Nintendo Switch Lite (HDH-001)",
+      "sku": "HDH-001"
+    },
+    "power": "Online",
+    "gpu_problem_code": 0
+  },
+  "boot_evidence": {
+    "method": "A planned Windows restart reloaded the selected firmware. Both the firmware-backed registry data and WMI reported the Lite identifiers.",
+    "system_events": [
+      {
+        "record": 80322,
+        "reason": "SwitchWOA verify Lite HDH-001 SMBIOS boot",
+        "event": 1074
+      },
+      {
+        "record": 80338,
+        "reason": null,
+        "event": 12
+      }
+    ]
+  },
+  "media": {
+    "default_entry": "bootloader/ini/woa-lite-home.ini",
+    "selected_prefix": "switchroot/woa-lite-hdh001-6aadfb2f/",
+    "previous_prefix": "switchroot/woa-lite-home/",
+    "previous_image_preserved": true,
+    "previous_firmware_entry": "bootloader/ini/zz-woa-lite-previous-r402.ini",
+    "temporary_transfer_removed": true
+  }
+}
