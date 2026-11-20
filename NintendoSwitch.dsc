@@ -877,6 +877,18 @@
       gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
   }
 !endif
+!ifdef SWITCH_ERISTA_GPU
+  # GM20B hand-off check/restore tool for the UEFI Shell (not in the FDF; copy GpuHandoff.efi to the SD card).
+  NintendoSwitchPkg/Drivers/GpuHandoffApp/GpuHandoffApp.inf
+!endif
+!ifdef SWITCH_LITE_GPU
+  # GM20B hand-off check/restore tool for the UEFI Shell (not in the FDF; copy GpuHandoff.efi to the SD card).
+  NintendoSwitchPkg/Drivers/GpuHandoffApp/GpuHandoffApp.inf
+!endif
+!ifdef SWITCH_OLED_GPU
+  # GM20B hand-off check/restore tool for the UEFI Shell (not in the FDF; copy GpuHandoff.efi to the SD card).
+  NintendoSwitchPkg/Drivers/GpuHandoffApp/GpuHandoffApp.inf
+!endif
 !ifdef SWITCH_XUSB
   # DRAFT: Tegra210 XUSB (xHCI / USB 3.0) bring-up experiment. Shell app only; not in the FDF (copy XusbInit.efi to the SD card).
   NintendoSwitchPkg/Drivers/XusbInitApp/XusbInit.inf {
