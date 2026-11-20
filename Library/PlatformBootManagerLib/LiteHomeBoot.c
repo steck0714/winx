@@ -19,6 +19,7 @@
 STATIC BOOLEAN IsWindowsPartition (EFI_HANDLE Handle);
 #ifdef SWITCH_LITE_GPU
 VOID LiteGpuPowerCheck (VOID);
+VOID PlatformGpuHandoffBeforeBoot (VOID);
 #endif
 
 #if defined(SWITCH_LITE_TOUCH) && defined(SWITCH_LITE_PERFORMANCE)
@@ -328,6 +329,7 @@ BootWindowsFromMenu (IN VOID *Context)
   CheckPowerBeforeWindows ();
 #ifdef SWITCH_LITE_GPU
   if (BootCheckMode ("gpu_check=") == 1) LiteGpuPowerCheck ();
+  PlatformGpuHandoffBeforeBoot ();
 #endif
   CheckWifiBeforeWindows ();
 #endif

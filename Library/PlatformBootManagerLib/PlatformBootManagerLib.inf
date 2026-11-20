@@ -45,6 +45,8 @@
   ../../Platforms/Switch/SwitchBoardDetect.h
   WifiPrepareBoot.c
   LiteGpuPowerCheck.c
+  GpuHandoff.c
+  GpuHandoff.h
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec

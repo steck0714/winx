@@ -31,6 +31,10 @@
 VOID PlatformWifiPrepareBeforeBoot (VOID);
 #endif
 
+#if defined(SWITCH_ERISTA_GPU) || defined(SWITCH_LITE_GPU) || defined(SWITCH_OLED_GPU)
+VOID PlatformGpuHandoffBeforeBoot (VOID);
+#endif
+
 VOID
 PlatformRegisterFvBootOption (
   IN CONST EFI_GUID  *FileGuid,

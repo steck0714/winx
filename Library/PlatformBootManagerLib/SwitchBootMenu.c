@@ -1135,6 +1135,13 @@ SwitchBootMenuRun (
           PlatformWifiPrepareBeforeBoot ();
         }
 #endif
+#if defined(SWITCH_ERISTA_GPU) || defined(SWITCH_OLED_GPU)
+        if (Option->Description != NULL &&
+            (ContainsAsciiNoCase (Option->Description, L"Windows") ||
+             ContainsAsciiNoCase (Option->Description, L"WinARM"))) {
+          PlatformGpuHandoffBeforeBoot ();
+        }
+#endif
         if (IsShellOption (Option)) {
           WinxVisualsPrepareShell ();
         } else {
