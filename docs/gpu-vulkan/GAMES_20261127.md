@@ -33,3 +33,12 @@ path, and successful audio initialization does not establish audible output.
 These are **Switch Lite** results using the companion WinX/Mesa stack.
 They do not validate another board, another firmware integration, or the
 Windows-Switch OLED game path.
+
+## Scoped daily-driver follow-up
+
+The known-kind directory repair was subsequently selected as a daily KMD
+with bounded diagnostics and its active stop probe disabled. The protected
+policy granted permanent startup; boot 106579 verified Code 0 and the exact
+loaded native component hashes. This scoped repair does not resolve either
+game's performance or PAL4 audio, and does not validate the OLED game path.
+[Qualified baseline and permanent-boot evidence](https://github.com/ruje0504-2/mesa-switch-woa/blob/tgd3d-vulkan/tegra-x1-wddm/docs/pal4-pde-kind-daily-20261127/README.md).
